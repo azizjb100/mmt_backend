@@ -104,6 +104,7 @@ app.use("/api/mmt/po-bahan-mmt", poBahanMmtRoutes);
 app.use("/api/mmt/lookup", lookupGdgMesinRoutes)
 
 
+const port = process.env.PORT || 8003;
 
 // Jalankan server
 app.listen(port, () => {
