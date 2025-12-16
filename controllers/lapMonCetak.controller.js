@@ -1,6 +1,6 @@
 // src/controllers/reportController.js
 
-const reportService = require('../services/lapMonCetak.Service');
+const reportService = require('../services/lapMonCetak.service');
 
 async function lapMonCetak(req, res) {
     const { startDate, endDate } = req.query;
