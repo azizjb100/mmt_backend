@@ -43,7 +43,7 @@ exports.getSpkLookupData = async (keyword) => {
             params.push(searchKeyword, searchKeyword);
         }
 
-        sql += ` ORDER BY Spk DESC`;
+        sql += ` ORDER BY Tanggal DESC limit 50` ;
         
         const [rows] = await pool.query(sql, params);
         
