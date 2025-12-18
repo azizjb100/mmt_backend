@@ -8,7 +8,7 @@ const permintaanBahanController = require('../controllers/permintaanBahan.contro
 router.get('/', permintaanBahanController.getPermintaanBahan); 
 router.get('/lookup', permintaanBahanController.lookupPermintaanBahan);
 
-router.get('/:nomor', permintaanBahanController.getPermintaanBahanByNomor);
+router.get('/detail/:nomor', permintaanBahanController.getPermintaanBahanByNomor);
 
 // DELETE
 router.delete('/:nomor', permintaanBahanController.deletePermintaanBahan);

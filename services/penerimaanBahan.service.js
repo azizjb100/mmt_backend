@@ -187,9 +187,7 @@ exports.saveRecMmt = async (data, nomorToEdit, user) => {
             throw new Error('Detail item wajib diisi.');
         }
 
-        // =============================
-        //        MODE UPDATE
-        // =============================
+
         if (nomorToEdit) {
 
             const sqlUpdate = `

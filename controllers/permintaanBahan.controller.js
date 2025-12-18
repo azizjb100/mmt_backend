@@ -53,8 +53,7 @@ exports.getPermintaanBahanByNomor = async (req, res) => {
     try {
         const { nomor } = req.params;
         const data = await permintaanBahanService.getPermintaanBahanByNomor(nomor);
-        
-        // Cek jika data tidak ditemukan (sudah dilempar error dari service, tapi jaga-jaga)
+    
         if (!data || Object.keys(data).length === 0) {
              return res.status(404).json({ message: 'Data Permintaan Bahan tidak ditemukan.' });
         }

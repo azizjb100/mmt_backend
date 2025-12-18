@@ -81,7 +81,6 @@ exports.getLookupGdgProduksiMMT = async (keyword) => {
             LEFT JOIN tmasterstok_mmt s 
                 ON s.mst_brg_kode = b.brg_kode
                 AND s.mst_gdg_kode = 'GPM'
-            WHERE b.brg_gdg_default = 'WH-16'
         `;
 
         const params = [];

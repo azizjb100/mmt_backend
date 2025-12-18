@@ -26,16 +26,9 @@ const poBahanMmtRoutes = require("./routes/poBahanMmt.routes");
 const lookupGdgMesinRoutes = require("./routes/lookupGdgMesin.routes");
 
 
-
-
-
-
 const app = express();
-
-
-// Daftar origin yang diizinkan
 const allowedOrigins = [
-  "http://localhost:5173",       // Vite dev server
+  "http://localhost:5173", 
   "http://103.94.238.252",
   "http://103.94.238.252:88",
   "http://192.168.1.191:5173",

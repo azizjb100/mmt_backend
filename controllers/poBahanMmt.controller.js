@@ -168,3 +168,24 @@ exports.getUnfulfilledMbDetail = async (req, res) => {
         res.status(500).json({ message: `Gagal memuat detail permintaan bahan: ${error.message}` });
     }
 };
+
+exports.lookupPO = async (req, res) => {
+    const keyword = req.query.q || '';
+    try {
+        const data = await poMmtService.getPOLookupData(keyword);
+        res.status(200).json({ status: 'success', data });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+};
+
+// GET /api/penerimaan/po/:nomor
+exports.getPODetail = async (req, res) => {
+    const poNomor = req.params.nomor;
+    try {
+        const data = await poMmtService.getPODetail(poNomor);
+        res.status(200).json({ status: 'success', data });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+};

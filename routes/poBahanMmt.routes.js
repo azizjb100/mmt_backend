@@ -42,6 +42,10 @@ router.get(
     controller.getUnfulfilledMbDetail
 );
 
+router.get('/po/lookup', controller.lookupPO);
+
+router.get('/po/lookup/:nomor', controller.getPODetail);
+
 
 // Ekspor menggunakan sintaks CommonJS
 module.exports = router;
