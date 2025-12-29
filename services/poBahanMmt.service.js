@@ -1,6 +1,6 @@
 // backend/src/services/poMmt.service.js
 
-const pool = require('../config/db.config'); 
+const pool = require('../config/db.config');
 const { format, parseISO } = require('date-fns');
 
 // --- Helper: Penanganan Error Database ---
@@ -54,7 +54,7 @@ const formatDateForPrint = (dateValue) => {
   try {
     return format(parseISO(String(dateValue)), 'dd/MM/yyyy');
   } catch (e) {
-    return String(dateValue); 
+    return String(dateValue);
   }
 };
 
@@ -101,7 +101,7 @@ const getPoMmtData = async (startDate, endDate, supplier) => {
 
   const params = [startDate, endDate];
   if (supplier) params.push(`%${supplier}%`, `%${supplier}%`);
-  
+
   try {
     const [rows] = await pool.query(sql, params);
     return rows;
@@ -135,7 +135,8 @@ const getPOById = async (nomor) => {
       s.sup_nama AS SupNama, s.sup_alamat AS SupAlamat, s.sup_kota AS SupKota,
       h.po_memo AS Keterangan, h.po_istax AS IsPpn,
       h.po_taxamount AS PpnRate, h.po_isclosed AS IsClosed, h.po_type AS JenisPo,
-      h.po_dateline AS Dateline
+      h.po_dateline AS Dateline,
+      h.po_kirim AS AlamatPabrik
     FROM tpo_mmt_hdr h
     LEFT JOIN tsupplier s ON h.po_sup_kode = s.sup_kode
     WHERE h.po_nomor = ?`,
@@ -144,7 +145,7 @@ const getPOById = async (nomor) => {
 
   if (headerRows.length === 0) return null;
   const header = headerRows[0];
-  
+
   const [detailRows] = await pool.query(
     `SELECT d.pod_nourut AS no, d.pod_brg_kode AS kode, b.brg_nama AS nama,
       d.pod_keterangan AS namaext, d.pod_brg_satuan AS satuan, d.pod_qty AS jumlah,
@@ -172,7 +173,7 @@ const savePoMmt = async (data, nomorToEdit, currentUser) => {
     await connection.beginTransaction();
     let poNomor;
     const isUpdating = !!nomorToEdit;
-    const { tanggal, supKode, keterangan, isPpn, ppnRate, detail, dateline, jenisPo } = data;
+    const { tanggal, supKode, keterangan, isPpn, ppnRate, detail, dateline, jenisPo, AlamatPabrik } = data;
 
     const totalAmount = detail.filter(d => d.kode).reduce((sum, d) => sum + (Number(d.total) || 0), 0);
     const isTaxInt = isPpn ? 1 : 0;
@@ -181,17 +182,17 @@ const savePoMmt = async (data, nomorToEdit, currentUser) => {
       poNomor = nomorToEdit;
       await connection.query(
         `UPDATE tpo_mmt_hdr SET po_tanggal = ?, po_sup_kode = ?, po_memo = ?, po_istax = ?, po_taxamount = ?, 
-         po_amount = ?, date_modified = NOW(), user_modified = ?, po_dateline = ?, po_type = ?
+         po_amount = ?, date_modified = NOW(), user_modified = ?, po_dateline = ?, po_type = ?, po_kirim = ?
          WHERE po_nomor = ?`,
-        [tanggal, supKode, keterangan, isTaxInt, ppnRate, totalAmount, currentUser, dateline, jenisPo, poNomor]
+        [tanggal, supKode, keterangan, isTaxInt, ppnRate, totalAmount, currentUser, dateline, jenisPo, poNomor, AlamatPabrik]
       );
       await connection.query('DELETE FROM tpo_mmt_dtl WHERE pod_po_nomor = ?', [poNomor]);
     } else {
       poNomor = await getNextPoNumber(new Date(tanggal), 'PK', connection);
       await connection.query(
         `INSERT INTO tpo_mmt_hdr (po_nomor, po_tanggal, po_sup_kode, po_memo, po_istax, po_taxamount, po_amount,
-         po_gdg_kode, date_create, user_create, po_dateline, po_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?)`,
-        [poNomor, tanggal, supKode, keterangan, isTaxInt, ppnRate, totalAmount, 'WH-16', currentUser, dateline, jenisPo]
+         po_gdg_kode, date_create, user_create, po_dateline, po_type, po_kirim) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?)`,
+        [poNomor, tanggal, supKode, keterangan, isTaxInt, ppnRate, totalAmount, 'WH-16', currentUser, dateline, jenisPo, AlamatPabrik]
       );
     }
 
@@ -200,8 +201,8 @@ const savePoMmt = async (data, nomorToEdit, currentUser) => {
       await connection.query(
         `INSERT INTO tpo_mmt_dtl (pod_po_nomor, pod_nourut, pod_mb_nomor, pod_brg_kode, pod_brg_satuan,
          pod_qty, pod_harga, pod_discpr, pod_keterangan, pod_spk_nomor) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [poNomor, index + 1, item.mb_nomor || null, item.kode, item.satuan, parseFloat(item.jumlah) || 0, 
-         parseFloat(item.harga) || 0, Number(item.diskon) || 0, String(item.namaext || item.nama || ''), item.spk || null]
+        [poNomor, index + 1, item.mb_nomor || null, item.kode, item.satuan, parseFloat(item.jumlah) || 0,
+          parseFloat(item.harga) || 0, Number(item.diskon) || 0, String(item.namaext || item.nama || ''), item.spk || null]
       );
     }
 
@@ -283,7 +284,7 @@ const getPoDataForPrint = async (nomor) => {
     Header: {
       Nomor: poData.Nomor, Tanggal: formatDateForPrint(poData.Tanggal), TglPengiriman: formatDateForPrint(poData.Dateline),
       KeteranganHeader: poData.Keterangan, IsPpn: poData.IsPpn, SubTotal: subTotal, TotalPpn: ppn, GrandTotal: subTotal + ppn,
-      NamaSupplier: poData.SupNama, AlamatSupplier: poData.SupAlamat, KotaSupplier: poData.SupKota,
+      NamaSupplier: poData.SupNama, AlamatSupplier: poData.SupAlamat, KotaSupplier: poData.SupKota, AlamatPabrik: poData.AlamatPabrik,
       NamaPerusahaan: comp.perush_nama || 'CV. KENCANA PRINT', AlamatPerusahaan: comp.perush_alamat, NPWPPerusahaan: comp.perush_npwp
     },
     Detail: poData.Detail.map(d => ({ NoUrut: d.no, Kode: d.kode, Deskripsi: d.namaext || d.nama, Quantity: d.jumlah, Satuan: d.satuan, UnitPrice: d.harga, Total: d.total }))
@@ -300,14 +301,16 @@ const getUnfulfilledMbDetail = async (mbNomor) => {
   const [hRows] = await pool.query(`SELECT mb_memo FROM tmintabahan_mmt_hdr WHERE mb_nomor = ?`, [mbNomor]);
   return {
     Nomor: mbNomor, Keterangan: hRows[0]?.mb_memo || '',
-    Detail: rows.map(item => ({ Kode: item.Kode, Nama_Bahan: item.Nama_Bahan, Satuan: item.Satuan, Nomor_SPK: item.Nomor_SPK, 
-      Jumlah: parseFloat(item.Sisa_Qty_Diminta), Harga: 0, Diskon: 0, mb_nomor: mbNomor }))
+    Detail: rows.map(item => ({
+      Kode: item.Kode, Nama_Bahan: item.Nama_Bahan, Satuan: item.Satuan, Nomor_SPK: item.Nomor_SPK,
+      Jumlah: parseFloat(item.Sisa_Qty_Diminta), Harga: 0, Diskon: 0, mb_nomor: mbNomor
+    }))
   };
 };
 
 const getPOLookupData = async (keyword) => {
-    try {
-        let sql = `
+  try {
+    let sql = `
             SELECT * FROM (
                 SELECT 
                     h.po_nomor AS Nomor, 
@@ -341,25 +344,25 @@ const getPOLookupData = async (keyword) => {
             -- Hanya tampilkan yang masih bisa diproses (OPEN & ONPROSES)
             -- Status 'CLOSE' (manual) dan 'CLOSED' (penuh) tidak akan tampil
             WHERE Status IN ('OPEN', 'ONPROSES')
-        `; 
-        
-        const params = [];
-        
-        if (keyword) {
-            // Filter pencarian berdasarkan Nomor PO, Kode Supplier, atau Nama Supplier
-            sql += ` AND (Nomor LIKE ? OR Supplier LIKE ? OR NamaSupplier LIKE ?)`;
-            const searchKeyword = `%${keyword}%`;
-            params.push(searchKeyword, searchKeyword, searchKeyword);
-        }
+        `;
 
-        sql += ` ORDER BY Nomor DESC LIMIT 100`; 
-        
-        const [rows] = await pool.query(sql, params);
-        return rows;
-    } catch (error) {
-        // Pastikan fungsi throwDbError sudah didefinisikan di file service Anda
-        throwDbError('Gagal mengambil data PO untuk lookup', error);
+    const params = [];
+
+    if (keyword) {
+      // Filter pencarian berdasarkan Nomor PO, Kode Supplier, atau Nama Supplier
+      sql += ` AND (Nomor LIKE ? OR Supplier LIKE ? OR NamaSupplier LIKE ?)`;
+      const searchKeyword = `%${keyword}%`;
+      params.push(searchKeyword, searchKeyword, searchKeyword);
     }
+
+    sql += ` ORDER BY Nomor DESC LIMIT 100`;
+
+    const [rows] = await pool.query(sql, params);
+    return rows;
+  } catch (error) {
+    // Pastikan fungsi throwDbError sudah didefinisikan di file service Anda
+    throwDbError('Gagal mengambil data PO untuk lookup', error);
+  }
 };
 
 const getPODetail = async (poNomor) => {

@@ -1,6 +1,6 @@
 // backend/services/lhkCetak.service.js
 const pool = require('../config/db.config'); // Pastikan path ini benar
-const { format } = require('date-fns'); 
+const { format } = require('date-fns');
 
 // --- KONSTANTA ---
 const NOMERATOR = 'MMT-LHK-M';
@@ -53,7 +53,7 @@ const getAllHeaders = async (startDate, endDate) => {
         ) x ON x.ld_lnomor = t1.lnomor
         WHERE t1.ltanggal BETWEEN ? AND ?
     `;
-    
+
     const [rows] = await pool.query(sql, [tglMulai, tglSelesai]);
     return rows;
 };
@@ -79,7 +79,7 @@ const getDetailsByNomor = async (nomor) => {
         WHERE ld_lnomor = ?
         ORDER BY ld_urut
     `;
-    
+
     const [rows] = await pool.query(sql, [nomor]);
     return rows;
 };
@@ -87,10 +87,10 @@ const getDetailsByNomor = async (nomor) => {
 const getLookupByNomor = async (nomor) => {
     // 1. Ambil Detail
     const details = await getDetailsByNomor(nomor);
-    
+
     if (details.length === 0) {
         // Tidak perlu throw error di service, cukup kembalikan null atau data kosong
-        return null; 
+        return null;
     }
 
     // 2. Ambil Header tunggal (menggunakan query yang sudah ada)
@@ -121,13 +121,13 @@ const getLookupByNomor = async (nomor) => {
         ) x ON x.ld_lnomor = t1.lnomor
         WHERE t1.lnomor = ?
     `;
-    
+
     const [headerRows] = await pool.query(headerSql, [nomor, nomor]);
 
     if (headerRows.length === 0) {
         return null;
     }
-    
+
     const combinedData = {
         header: headerRows[0],
         details: details
@@ -145,12 +145,10 @@ const getLookupByNomor = async (nomor) => {
  * @returns {Promise<Object>} - Hasil operasi simpan
  */
 const generateNewNomor = async (date) => {
-    // Pastikan input adalah objek Date yang valid
-    const dateToUse = date instanceof Date ? date : new Date(date); 
-    
+    const dateToUse = date instanceof Date ? date : new Date(date);
+
     const yymm = format(dateToUse, 'yyMM');
-    // Asumsi: tlhk_mesin_hdr memiliki kolom lnomor
-    const prefixLike = `${NOMERATOR}.${yymm}.%`; 
+    const prefixLike = `${NOMERATOR}.${yymm}.%`;
 
     const sqlMax = `
         SELECT MAX(CAST(SUBSTRING(lnomor, -4) AS UNSIGNED)) AS max_num
@@ -158,35 +156,15 @@ const generateNewNomor = async (date) => {
         WHERE lnomor LIKE ?
     `;
 
-    // Pastikan pool.query dapat diakses
-    const [rows] = await pool.query(sqlMax, [prefixLike]); 
+    const [rows] = await pool.query(sqlMax, [prefixLike]);
     const maxNum = rows && rows.length > 0 ? (rows[0].max_num || 0) : 0;
-    
+
     let newSequence = maxNum + 1;
     const formattedSequence = String(newSequence).padStart(4, '0');
-    
+
     const newNomor = `${NOMERATOR}.${yymm}.${formattedSequence}`;
-    
+
     return newNomor;
-};
-
-
-
-const getNamaBahan = async (conn, kodeBahan) => {
-    const [rows] = await conn.query('SELECT brg_nama FROM tbarang_mmt WHERE brg_kode = ?', [kodeBahan]);
-    if (rows && rows.length > 0) {
-        // Membersihkan label sisa lama agar nama tidak bertumpuk (SISA P... SISA P...)
-        return rows[0].brg_nama.split(' SISA ')[0];
-    }
-    return `Bahan ${kodeBahan}`;
-};
-
-const generateKodeBahanSisa = (kodeAwal) => {
-    // Jika sudah ada -SP di akhir, gunakan kode tersebut (Idempotent)
-    if (kodeAwal.toUpperCase().endsWith('-SP')) {
-        return kodeAwal.toUpperCase();
-    }
-    return `${kodeAwal.toUpperCase()}-SP`;
 };
 
 const saveLhk = async (headerData, detailsData, existingNomor) => {
@@ -195,17 +173,17 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
     let finalNomor = existingNomor;
 
     if (!headerData || !detailsData || detailsData.length === 0) {
-        conn.release();
+        if (conn) conn.release();
         throw new Error("Header atau Detail tidak boleh kosong.");
     }
 
     try {
         await conn.beginTransaction();
-        
+
         const now = new Date();
-        const dateToUse = headerData.ltanggal ? new Date(headerData.ltanggal) : now; 
+        const dateToUse = headerData.ltanggal ? new Date(headerData.ltanggal) : now;
         const formattedDate = format(dateToUse, 'yyyy-MM-dd');
-        const formattedNow = format(now, 'yyyy-MM-dd HH:mm:ss');
+        const formattedNow = format(now, 'yyyy-MM-dd HH:mm:ss'); // Perbaikan MM (Bulan)
         const user = headerData.luser_Create || headerData.luser_modified || 'SYSTEM';
         const spkNomor = headerData.lspk_nomor || '';
 
@@ -224,12 +202,12 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
                 WHERE lnomor = ?
             `;
             await conn.query(sqlUpdateHeader, [
-                formattedDate, headerData.lgdg_prod, spkNomor, headerData.lmesin, 
-                headerData.lshift, headerData.loperator, headerData.lbahan, headerData.lpanjang, 
+                formattedDate, headerData.lgdg_prod, spkNomor, headerData.lmesin,
+                headerData.lshift, headerData.loperator, headerData.lbahan, headerData.lpanjang,
                 headerData.ljumlah_kolom, headerData.lfixed, formattedNow, user, finalNomor
             ]);
-            
-            // PENTING: Bersihkan detail dan stok lama agar tidak terjadi duplikasi stok
+
+            // Bersihkan data lama agar tidak duplikat
             await conn.query('DELETE FROM tlhk_mesin_dtl WHERE ld_lnomor = ?', [finalNomor]);
             await conn.query('DELETE FROM tmasterstok_mmt WHERE mst_noreferensi = ?', [finalNomor]);
         } else {
@@ -241,97 +219,86 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
             await conn.query(sqlInsertHeader, [
-                finalNomor, spkNomor, formattedDate, headerData.lmesin, headerData.lgdg_prod, 
-                headerData.lshift, headerData.loperator, formattedNow, user, headerData.lbahan, 
-                headerData.lpanjang, headerData.ljumlah_kolom, headerData.lfixed 
+                finalNomor, spkNomor, formattedDate, headerData.lmesin, headerData.lgdg_prod,
+                headerData.lshift, headerData.loperator, formattedNow, user, headerData.lbahan,
+                headerData.lpanjang, headerData.ljumlah_kolom, headerData.lfixed
             ]);
         }
 
+        // Query Detail (16 Kolom, 16 Tanda Tanya)
         const sqlInsertDetail = `
             INSERT INTO tlhk_mesin_dtl (
                 ld_lnomor, ld_urut, ld_ambilbahan, ld_ambilbahan_lebar,
                 ld_qtyCetak1, ld_qtyCetak2, ld_qtyCetak3, ld_qtyCetak4, ld_qtyCetak5, 
-                ld_qtyCetak6, ld_qtyCetak7, 
                 ld_total_qtycetak, ld_total_metercetak, ld_roll, ld_sisameter, 
-                ld_sisalebar, ld_bahan 
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `; 
-        
+                ld_sisalebar, ld_bahan, ld_barcode 
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+
+        // Query Mutasi (11 Kolom, 11 Tanda Tanya)
         const sqlMutasi = `
             INSERT INTO tmasterstok_mmt (
                 mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out, 
                 mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi, 
-                mst_hargabeli, mst_tanggal
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                mst_hargabeli, mst_tanggal, mst_barcode
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
 
         let detailUrut = 1;
         for (const detail of detailsData) {
-            const ambilBahanPanjang = parseFloat(detail.ambilBahanPanjang) || 0; 
+            const ambilBahanPanjang = parseFloat(detail.ambilBahanPanjang) || 0;
             const totalCetak = parseFloat(detail.totalcetak) || 0;
 
-            // Skip jika baris benar-benar kosong
             if (totalCetak === 0 && ambilBahanPanjang === 0) continue;
 
-            const ambilBahanLebar = parseFloat(detail.ambilBahanLebar) || 0;   
-            const sisaPanjangRoll = parseFloat(detail.sisabahan) || 0;       
-            const sisaLebarRoll = parseFloat(detail.sisabahanlebar) || 0;    
+            const ambilBahanLebar = parseFloat(detail.ambilBahanLebar) || 0;
+            const sisaPanjangRoll = parseFloat(detail.sisabahan) || 0;
+            const sisaLebarRoll = parseFloat(detail.sisabahanlebar) || 0;
+
+            // Ambil barcode dari properti 'sku' (hasil scan frontend)
+            const barcodeScan = detail.sku;
             const kodeBahanAwal = detail.kodebahan || headerData.lbahan;
 
-            // A. Simpan Detail LHK
-            await conn.query(sqlInsertDetail, [ 
-                finalNomor, detailUrut, ambilBahanPanjang, ambilBahanLebar, 
-                detail.cetak1 || 0, detail.cetak2 || 0, detail.cetak3 || 0, detail.cetak4 || 0, detail.cetak5 || 0, 
-                detail.cetak6 || 0, detail.cetak7 || 0, 
-                totalCetak, detail.cetakmeter || 0, detail.roll || 0, 
-                sisaPanjangRoll, sisaLebarRoll, kodeBahanAwal 
+            // Validasi Barcode agar tidak null ke database
+            if (!barcodeScan) {
+                throw new Error(`Barcode pada baris ${detailUrut} kosong. Mohon scan ulang.`);
+            }
+
+            // A. Simpan Detail LHK (Total 16 parameter)
+            await conn.query(sqlInsertDetail, [
+                finalNomor, detailUrut, ambilBahanPanjang, ambilBahanLebar,
+                detail.cetak1 || 0, detail.cetak2 || 0, detail.cetak3 || 0, detail.cetak4 || 0, detail.cetak5 || 0,
+                totalCetak, detail.totalcetakmeter || detail.cetakmeter || 0, detail.roll || 0,
+                sisaPanjangRoll, sisaLebarRoll, kodeBahanAwal, barcodeScan
             ]);
 
-            // B. Mutasi OUT (Bahan yang ditarik dari gudang)
+            // B. Mutasi OUT (Roll keluar utuh dari gudang)
             if (ambilBahanPanjang > 0) {
                 await conn.query(sqlMutasi, [
                     kodeBahanAwal, headerData.lgdg_prod, 0, 1, // OUT
-                    ambilBahanPanjang, ambilBahanLebar, 
-                    spkNomor, finalNomor, 0, formattedDate
+                    ambilBahanPanjang, ambilBahanLebar,
+                    spkNomor, finalNomor, 0, formattedDate, barcodeScan // Barcode masuk ke parameter ke-11
                 ]);
             }
 
-            // C. Mutasi IN (Bahan sisa yang dikembalikan/dibuat baru)
-            if (sisaPanjangRoll > 0) {
-                const newKodeSisa = generateKodeBahanSisa(kodeBahanAwal); 
-                const namaBahanMurni = await getNamaBahan(conn, kodeBahanAwal); 
-                const newNamaSisa = `${namaBahanMurni} SISA P${sisaPanjangRoll} L${sisaLebarRoll}`;
-
-                // Update Master Barang (Upsert)
-                const sqlInsertUpdateMasterBahan = `
-                    INSERT INTO tbarang_mmt (brg_kode, brg_nama, brg_satuan, brg_panjang, brg_lebar, brg_isstok)
-                    VALUES (?, ?, 'M', ?, ?, 1) 
-                    ON DUPLICATE KEY UPDATE 
-                        brg_nama = VALUES(brg_nama),
-                        brg_panjang = VALUES(brg_panjang), 
-                        brg_lebar = VALUES(brg_lebar)
-                `;
-                
-                await conn.query(sqlInsertUpdateMasterBahan, [
-                    newKodeSisa, newNamaSisa, sisaPanjangRoll, sisaLebarRoll
-                ]);
-
-                // Mutasi IN Sisa
+            // C. Mutasi IN Sisa (Masuk kembali jika sisa >= 1 meter)
+            if (sisaPanjangRoll >= 1.0) {
                 await conn.query(sqlMutasi, [
-                    newKodeSisa, headerData.lgdg_prod, 1, 0, // IN
-                    sisaPanjangRoll, sisaLebarRoll, 
-                    spkNomor, finalNomor, 0, formattedDate
+                    kodeBahanAwal, headerData.lgdg_prod, 1, 0, // IN
+                    sisaPanjangRoll, sisaLebarRoll,
+                    spkNomor, finalNomor, 0, formattedDate, barcodeScan // Barcode masuk ke parameter ke-11
                 ]);
             }
 
             detailUrut++;
         }
-        
+
         await conn.commit();
         return { success: true, nomor: finalNomor };
-        
+
     } catch (error) {
         await conn.rollback();
+        console.error("Error Detail:", error.message);
         throw new Error('Gagal Simpan LHK: ' + error.message);
     } finally {
         conn.release();
@@ -347,13 +314,13 @@ const deleteLhk = async (nomor) => {
     const conn = await pool.getConnection();
     try {
         await conn.beginTransaction();
-        
+
         // 1. Hapus detail (Tabel: tlhk_mesin_dtl)
         await conn.query('DELETE FROM tlhk_mesin_dtl WHERE ld_lnomor = ?', [nomor]);
-        
+
         // 2. Hapus header (Tabel: tlhk_mesin_hdr)
         await conn.query('DELETE FROM tlhk_mesin_hdr WHERE lnomor = ?', [nomor]);
-        
+
         await conn.commit();
         return { success: true, message: 'Berhasil dihapus.' };
     } catch (error) {
@@ -370,9 +337,7 @@ module.exports = {
     getDetailsByNomor,
     getLookupByNomor,
     generateNewNomor,
-    getNamaBahan,
-    generateKodeBahanSisa,
     deleteLhk,
-    generateNewNomor, 
+    generateNewNomor,
     saveLhk
 };

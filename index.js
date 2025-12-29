@@ -20,15 +20,23 @@ const permintaanProduksiRoutes = require("./routes/permintaanProduksi.routes");
 const masterBahanRoutes = require("./routes/masterBahan.routes");
 const koreksiStokMmtRoutes = require("./routes/koreksiStokMmt.routes");
 const poPaperprintRoutes = require("./routes/poPaperprint.routes");
-const operatorRoutes =require("./routes/operator.routes");
+const operatorRoutes = require("./routes/operator.routes");
 const spkRoutes = require("./routes/spk.routes");
 const poBahanMmtRoutes = require("./routes/poBahanMmt.routes");
 const lookupGdgMesinRoutes = require("./routes/lookupGdgMesin.routes");
+const stokGudangMmtRoutes = require("./routes/stokGudangMmt.routes");
+const recreateBarcodeRoutes = require("./routes/recreateBarcode.routes");
+const mmtPinjamRoutes = require("./routes/mmt_pinjam.routes");
+const lookupPabrikRoutes = require("./routes/lookupPabrik.routes");
+
+
+
+
 
 
 const app = express();
 const allowedOrigins = [
-  "http://localhost:5173", 
+  "http://localhost:5173",
   "http://103.94.238.252",
   "http://103.94.238.252:88",
   "http://192.168.1.191:5173",
@@ -96,7 +104,15 @@ app.use("/api/mmt/po-paperprint", poPaperprintRoutes);
 app.use("/api/mmt/operator", operatorRoutes);
 app.use("/api/mmt/spk", spkRoutes);
 app.use("/api/mmt/po-bahan-mmt", poBahanMmtRoutes);
-app.use("/api/mmt/lookup", lookupGdgMesinRoutes)
+app.use("/api/mmt/lookup", lookupGdgMesinRoutes);
+app.use("/api/mmt/stok-gudang", stokGudangMmtRoutes);
+app.use("/api/mmt/recreate-barcode", recreateBarcodeRoutes);
+app.use("/api/mmt/request-pinjam", mmtPinjamRoutes);
+app.use("/api/mmt/lookup-pabrik", lookupPabrikRoutes);
+
+
+
+
 
 
 const port = process.env.PORT || 8003;

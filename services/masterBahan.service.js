@@ -67,25 +67,24 @@ exports.getBahanDetailByKodeMmt = async (kode) => {
 
 exports.getLookupGdgProduksiMMT = async (keyword) => {
     try {
-
         let sql = `
             SELECT 
                 b.brg_kode AS Kode,
                 b.brg_nama AS Nama,
                 b.brg_jenis AS Jenis,
                 b.brg_satuan AS Satuan,
-                b.brg_panjang AS Panjang,
                 b.brg_lebar AS Lebar,
+                COALESCE(s.mst_panjang, b.brg_panjang) AS Panjang,
                 COALESCE(SUM(s.mst_stok_in) - SUM(s.mst_stok_out), 0) AS Stok
             FROM tbarang_mmt b
             LEFT JOIN tmasterstok_mmt s 
-                ON s.mst_brg_kode = b.brg_kode
+                ON s.mst_brg_kode = b.brg_kode 
                 AND s.mst_gdg_kode = 'GPM'
+            WHERE 1=1
         `;
 
         const params = [];
 
-        // Tambah filter keyword di WHERE
         if (keyword) {
             sql += ` AND (b.brg_kode LIKE ? OR b.brg_nama LIKE ?)`;
             const key = `%${keyword}%`;
@@ -98,17 +97,17 @@ exports.getLookupGdgProduksiMMT = async (keyword) => {
                 b.brg_nama,
                 b.brg_jenis,
                 b.brg_satuan,
-                b.brg_panjang,
-                b.brg_lebar
+                b.brg_lebar,
+                COALESCE(s.mst_panjang, b.brg_panjang)
             HAVING Stok > 0
-            ORDER BY Nama
+            ORDER BY Nama ASC, Panjang DESC
         `;
 
         const [rows] = await pool.query(sql, params);
         return rows;
 
     } catch (error) {
-        throwDbError('Gagal mengambil data Master Bahan untuk lookup', error);
+        throwDbError('Gagal mengambil data lookup master & sisa produksi', error);
     }
 };
 

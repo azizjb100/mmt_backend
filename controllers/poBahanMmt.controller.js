@@ -1,7 +1,7 @@
 // backend/src/controllers/poMmt.controller.js
 
 // Menggunakan require untuk mengimpor module.exports dari poMmt.service.js
-const poMmtService = require('../services/poBahanMmt.service.js'); 
+const poMmtService = require('../services/poBahanMmt.service.js');
 
 // 1. READ ALL (GET /)
 exports.browsePO = async (req, res) => {
@@ -57,11 +57,11 @@ exports.savePO = async (req, res) => {
         const data = req.body;
         const nomorToEdit = data.nomor;
         const currentUser = req.user ? req.user.KDUSER : data.user || 'SYSTEM';
-        
+
         if (!data.supKode || !data.detail || !data.detail.some(d => d.kode && d.jumlah > 0 && d.harga > 0)) {
             return res.status(400).json({ message: 'Validasi Gagal.', error: 'Supplier, Kode Item, QTY, dan Harga wajib diisi.' });
         }
-        
+
         const result = await poMmtService.savePoMmt(data, nomorToEdit, currentUser);
 
         res.status(200).json({ message: 'Data berhasil disimpan.', nomor: result.Nomor });
@@ -96,7 +96,7 @@ exports.toggleClose = async (req, res) => {
     try {
         const { nomor } = req.params;
         const { action, user } = req.body;
-        
+
         await poMmtService.toggleCloseStatus(nomor, action, user);
 
         res.status(200).json({ message: `PO berhasil di-${action}` });
@@ -110,8 +110,8 @@ exports.loadMkbDetail = async (req, res) => {
     try {
         const { nomor } = req.params;
         const data = await poMmtService.loadMkbDetail(nomor);
-        
-        return res.status(200).json(data); 
+
+        return res.status(200).json(data);
 
     } catch (error) {
         return res.status(404).json({ message: "Gagal memuat detail MKB.", error: error.message });
@@ -120,17 +120,17 @@ exports.loadMkbDetail = async (req, res) => {
 
 exports.getPoDataForPrint = async (req, res) => {
     const { nomor } = req.params; // Mengambil nomor PO dari URL
-    
+
     try {
         // Panggil fungsi service yang baru kita buat
         const data = await poMmtService.getPoDataForPrint(nomor);
-        
+
         if (!data) {
             return res.status(404).json({ message: "Data Purchase Order tidak ditemukan untuk dicetak." });
         }
-        
+
         // Mengirimkan data yang sudah diformat ke frontend (PoPrintView.vue)
-        return res.status(200).json(data); 
+        return res.status(200).json(data);
 
     } catch (error) {
         console.error("Error di getPoDataForPrint:", error.message);
@@ -146,7 +146,7 @@ exports.getUnfulfilledMbDetail = async (req, res) => {
     if (!mbNomor) {
         return res.status(400).json({ message: "Nomor Permintaan Bahan (MB) harus disediakan." });
     }
-    
+
     // Decode jika ada karakter khusus (seperti '/')
     const decodedMbNomor = decodeURIComponent(mbNomor);
 
@@ -156,9 +156,9 @@ exports.getUnfulfilledMbDetail = async (req, res) => {
 
         // Cek jika tidak ada item yang belum terpenuhi
         if (!data.Detail || data.Detail.length === 0) {
-            return res.status(404).json({ 
+            return res.status(404).json({
                 message: `Permintaan Bahan ${decodedMbNomor} sudah ter-PO seluruhnya atau tidak memiliki detail item yang valid.`,
-                Detail: [] 
+                Detail: []
             });
         }
 

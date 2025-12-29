@@ -1,7 +1,7 @@
 // backend/src/controllers/permintaanBahan.controller.js
 
 const permintaanBahanService = require('../services/permintaanBahan.service');
-const format = require('date-fns/format'); 
+const format = require('date-fns/format');
 
 // 1. READ ALL (GET /)
 exports.getPermintaanBahan = async (req, res) => {
@@ -53,9 +53,9 @@ exports.getPermintaanBahanByNomor = async (req, res) => {
     try {
         const { nomor } = req.params;
         const data = await permintaanBahanService.getPermintaanBahanByNomor(nomor);
-    
+
         if (!data || Object.keys(data).length === 0) {
-             return res.status(404).json({ message: 'Data Permintaan Bahan tidak ditemukan.' });
+            return res.status(404).json({ message: 'Data Permintaan Bahan tidak ditemukan.' });
         }
 
         res.status(200).json(data);
@@ -71,29 +71,55 @@ exports.getPermintaanBahanByNomor = async (req, res) => {
 
 
 // 3. SAVE (POST/PUT)
+// backend/src/controllers/permintaanBahan.controller.js
+
 exports.savePermintaanBahan = async (req, res) => {
-  try {
-    const data = req.body;
-        // Ambil nomor yang akan diedit dari body (dikirim oleh frontend)
-    const nomorToEdit = data.NomorToEdit || null; 
-    const currentUser = req.user ? req.user.KDUSER : 'SYSTEM'; 
-    
-    // Validasi Cepat 
-    if ( !data.Detail || !data.Detail.every(d => d.SKU && d.QTY > 0)) {
-      return res.status(400).json({ message: 'Validasi Gagal.', error: 'Gudang, Kode Material, dan QTY wajib diisi.' });
+    try {
+        const data = req.body;
+        const nomorToEdit = data.NomorToEdit || null;
+
+        // Pastikan mengambil key yang benar dari payload JWT (kdUser atau nmUser)
+        // Jika di login payload pakai 'kdUser', maka ambil 'kdUser'
+        const currentUser = req.user ? req.user.kdUser : 'SYSTEM';
+
+        // Panggil service
+        const result = await permintaanBahanService.savePermintaanBahan(
+            data,
+            nomorToEdit,
+            currentUser
+        );
+
+        res.status(200).json({
+            message: 'Data berhasil disimpan.',
+            Nomor: result.Nomor,
+            oleh: currentUser
+        });
+    } catch (error) {
+        res.status(400).json({ message: 'Gagal Simpan.', error: error.message });
     }
-    
-    // Panggil service yang berisi logika INSERT/UPDATE/TRANSACTION
-    // Kirim nomorToEdit dari body ke service
-    const result = await permintaanBahanService.savePermintaanBahan(data, nomorToEdit, currentUser);
-
-    res.status(200).json({ message: 'Data berhasil disimpan.', Nomor: result.Nomor }); // Kirim Nomor Baru ke Frontend
-
-  } catch (error) {
-    res.status(400).json({ message: 'Gagal Simpan.', error: error.message });
-  }
 };
 
+exports.approvePermintaan = async (req, res) => {
+    try {
+        const { nomor, role } = req.body;
+
+        // AMBIL USER DARI TOKEN (Sama seperti saat Save Data)
+        // Jika payload JWT Anda namanya 'user_nama', maka: req.user.user_nama
+        const userPengklik = req.user.user_nama || req.user.kdUser;
+
+        let success = false;
+        if (role === 'SPV') {
+            success = await permintaanBahanService.approveBySPV(nomor, userPengklik);
+        } else {
+            success = await permintaanBahanService.approveByManager(nomor, userPengklik);
+        }
+
+        if (success) res.json({ message: "Berhasil Approval" });
+        else res.status(400).json({ message: "Gagal Approval" });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
 // ===================================
 // 3. DELETE (DELETE /:nomor) - Replikasi cxButton4Click
 // ===================================
@@ -130,14 +156,14 @@ exports.getPermintaanBahanForPrint = async (req, res) => {
         const data = await permintaanBahanService.getPermintaanBahanForPrint(nomor);
 
         // Mengirimkan data dalam format yang siap digunakan oleh komponen Vue.js (frontend)
-        return res.status(200).json(data); 
+        return res.status(200).json(data);
 
     } catch (error) {
         // Handle error seperti data tidak ditemukan atau kesalahan database
         const status = error.message.includes("tidak ditemukan") ? 404 : 500;
-        return res.status(status).json({ 
-            message: "Gagal memuat data cetak Permintaan Bahan.", 
-            error: error.message 
+        return res.status(status).json({
+            message: "Gagal memuat data cetak Permintaan Bahan.",
+            error: error.message
         });
     }
 };

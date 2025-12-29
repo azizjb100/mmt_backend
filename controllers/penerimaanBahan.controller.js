@@ -1,6 +1,6 @@
 // backend/src/controllers/penerimaanBahanController.js
 
-const penerimaanBahanService = require('../services/penerimaanBahan.service'); 
+const penerimaanBahanService = require('../services/penerimaanBahan.service');
 
 // ===================================
 // READ ALL (btnRefreshClick)
@@ -27,7 +27,7 @@ exports.getRecMmt = async (req, res) => {
         console.error('Error in getRecMmt controller:', error.message);
         return res.status(500).json({
             message: "Gagal mengambil data transaksi Penerimaan MMT.",
-            error: error.message 
+            error: error.message
         });
     }
 };
@@ -38,12 +38,12 @@ exports.getRecMmt = async (req, res) => {
 exports.deleteRecMmt = async (req, res) => {
     try {
         const { nomor } = req.params;
-        
+
         // Cek Status Receipt
         const status = await penerimaanBahanService.checkRecStatus(nomor);
         if (status === 1) {
             return res.status(403).json({
-                 message: `Gagal Hapus. Transaksi ${nomor} sudah diproses (Status Receipt: 1).`
+                message: `Gagal Hapus. Transaksi ${nomor} sudah diproses (Status Receipt: 1).`
             });
         }
 
@@ -51,9 +51,9 @@ exports.deleteRecMmt = async (req, res) => {
         const isDeleted = await penerimaanBahanService.deleteRecMmt(nomor);
 
         if (isDeleted) {
-             return res.status(200).json({
-                 message: `Data berhasil di Hapus.`
-             });
+            return res.status(200).json({
+                message: `Data berhasil di Hapus.`
+            });
         }
 
         return res.status(404).json({
@@ -77,14 +77,14 @@ exports.checkEditStatus = async (req, res) => {
     try {
         const { nomor } = req.params;
         const status = await penerimaanBahanService.checkRecStatus(nomor);
-        
+
         if (status === 1) {
             return res.status(200).json({
                 canEdit: false,
                 message: "Transaksi ini sudah ada Receipt Barang, Tidak dapat di edit."
             });
         }
-        
+
         return res.status(200).json({
             canEdit: true,
             message: "Transaksi siap diedit."
@@ -100,7 +100,7 @@ exports.getRecMmtById = async (req, res) => {
     try {
         const { nomor } = req.params;
         const data = await penerimaanBahanService.loadRecMmtById(nomor);
-        
+
         if (!data) {
             // Replikasi ShowMessage('Nomor so tidak di temukan')
             return res.status(404).json({ message: "Nomor transaksi tidak ditemukan." });
@@ -115,11 +115,12 @@ exports.getRecMmtById = async (req, res) => {
 // CREATE & UPDATE (simpandata)
 // ===================================
 exports.saveRecMmt = async (req, res) => {
+    console.log("BODY MASUK:", JSON.stringify(req.body, null, 2));
     try {
         const data = req.body;
-        const nomorToEdit = req.params.nomor || null; 
-        const currentUser = req.user ? req.user.KDUSER : 'SYSTEM'; 
-        
+        const nomorToEdit = req.params.nomor || null;
+        const currentUser = req.user ? req.user.KDUSER : 'SYSTEM';
+
         // --- Validasi awal sebelum kirim ke service ---
         if (!data.header?.supplier_kode || !data.header?.gudang_kode) {
             return res.status(400).json({
@@ -138,13 +139,50 @@ exports.saveRecMmt = async (req, res) => {
         // --- Simpan ---
         const result = await penerimaanBahanService.saveRecMmt(data, nomorToEdit, currentUser);
 
-        res.status(200).json({ 
-            message: 'Data berhasil disimpan.', 
-            data: result 
+        res.status(200).json({
+            message: 'Data berhasil disimpan.',
+            data: result
         });
 
     } catch (error) {
         res.status(500).json({ message: 'Gagal Simpan.', error: error.message });
+    }
+};
+
+exports.getGeneratedBarcodes = async (req, res) => {
+    try {
+        const { nomor } = req.params;
+
+        if (!nomor) {
+            return res.status(400).json({
+                success: false,
+                message: "Nomor referensi (transaksi) tidak ditemukan."
+            });
+        }
+
+        // Memanggil fungsi service yang sudah kita buat sebelumnya
+        const barcodes = await penerimaanBahanService.getBarcodesByNomor(nomor);
+
+        if (barcodes.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "Barcode belum di-generate atau transaksi tidak memiliki detail barang."
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Daftar barcode berhasil diambil.",
+            data: barcodes
+        });
+
+    } catch (error) {
+        console.error("Error in getGeneratedBarcodes Controller:", error.message);
+        return res.status(500).json({
+            success: false,
+            message: "Gagal mengambil data barcode dari database.",
+            error: error.message
+        });
     }
 };
 

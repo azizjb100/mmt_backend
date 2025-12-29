@@ -1,6 +1,6 @@
 // backend/src/services/penerimaanBahanService.js
 
-const pool = require('../config/db.config'); 
+const pool = require('../config/db.config');
 const { format } = require('date-fns');
 
 const throwDbError = (message, error) => {
@@ -43,21 +43,26 @@ exports.getRecMmtData = async (startDate, endDate) => {
         // Query SQL Detail (Logika SAMA)
         const sqlDetail = `
             SELECT
-                recd_rec_nomor AS Nomor,
-                brg_kode AS Kode,
-                brg_nama AS Nama_Bahan,
-                brg_panjang AS Panjang,
-                brg_lebar AS Lebar,
-                recd_brg_satuan AS Satuan,
-                recd_qty AS Jumlah_PO,
-                recd_qty_terima AS Jumlah_Terima,
-                recd_keterangan AS Keterangan
-            FROM trec_mmt_dtl
-            INNER JOIN tbarang_mmt ON recd_brg_kode = brg_kode
-            WHERE recd_rec_nomor IN (?)
-            ORDER BY recd_rec_nomor, recd_nourut;
+        d.recd_rec_nomor AS Nomor,
+        d.recd_brg_kode AS Kode,
+        b.brg_nama AS Nama_Bahan,
+        b.brg_panjang AS Panjang,
+        b.brg_lebar AS Lebar,
+        d.recd_brg_satuan AS Satuan,
+        d.recd_qty AS Jumlah_PO,
+        d.recd_qty_terima AS Jumlah_Terima,
+        d.recd_keterangan AS Keterangan,
+        -- Tambahkan ini untuk mengambil barcode dari tabel stok
+        (SELECT GROUP_CONCAT(mst_barcode ORDER BY mst_barcode ASC) 
+         FROM tmasterstok_mmt 
+         WHERE mst_noreferensi = d.recd_rec_nomor 
+         AND mst_brg_kode = d.recd_brg_kode) AS List_Barcode
+    FROM trec_mmt_dtl d
+    INNER JOIN tbarang_mmt b ON d.recd_brg_kode = b.brg_kode
+    WHERE d.recd_rec_nomor IN (?)
+    ORDER BY d.recd_rec_nomor, d.recd_nourut;
         `;
-        const [detailResults] = await pool.query(sqlDetail, [masterNomors]); 
+        const [detailResults] = await pool.query(sqlDetail, [masterNomors]);
 
         const dataMap = new Map();
         masterResults.forEach(item => dataMap.set(item.Nomor, { ...item, Detail: [] }));
@@ -66,7 +71,7 @@ exports.getRecMmtData = async (startDate, endDate) => {
                 dataMap.get(detail.Nomor).Detail.push(detail);
             }
         });
-        
+
         return Array.from(dataMap.values());
 
     } catch (error) {
@@ -84,14 +89,14 @@ exports.deleteRecMmt = async (nomor) => {
 
         await connection.query('DELETE FROM trec_mmt_dtl WHERE recd_rec_nomor = ?', [nomor]);
         const [headerResult] = await connection.query('DELETE FROM trec_mmt_hdr WHERE rec_nomor = ?', [nomor]);
-        
+
         if (headerResult.affectedRows === 0) {
             throw new Error("Nomor transaksi tidak ditemukan atau sudah terhapus.");
         }
-        
+
         await connection.commit();
         return true;
-        
+
     } catch (error) {
         await connection.rollback();
         throwDbError('Gagal menghapus transaksi Penerimaan MMT', error);
@@ -111,7 +116,7 @@ exports.checkRecStatus = async (nomor) => {
         if (rows.length === 0) {
             return 0;
         }
-        return parseInt(rows[0].rec_status_rec) || 0; 
+        return parseInt(rows[0].rec_status_rec) || 0;
 
     } catch (error) {
         throwDbError('Gagal memeriksa status receipt', error);
@@ -147,11 +152,7 @@ exports.generateMaxKode = async (tanggal, isTaxed) => {
 };
 
 
-// ===================================
-// SAVE (Insert / Update) - Replikasi simpandata
-// ===================================
-
-exports.saveRecMmt = async (data, nomorToEdit, user) => { 
+exports.saveRecMmt = async (data, nomorToEdit, user) => {
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
@@ -159,7 +160,7 @@ exports.saveRecMmt = async (data, nomorToEdit, user) => {
         const {
             nomor, tanggal, supplier_kode, gudang_kode, no_permintaan, keterangan
         } = data.header;
-        
+
         const headerData = {
             Tanggal: tanggal,
             NoMinta: no_permintaan,
@@ -172,7 +173,7 @@ exports.saveRecMmt = async (data, nomorToEdit, user) => {
             PPN: 0,
             isTaxed: false,
             Dateline: tanggal,
-            Pemesan: user 
+            Pemesan: user
         };
 
         const currentNomor = nomorToEdit || await exports.generateMaxKode(headerData.Tanggal, headerData.isTaxed);
@@ -183,7 +184,7 @@ exports.saveRecMmt = async (data, nomorToEdit, user) => {
             throw new Error("Supplier dan Kode Gudang wajib diisi.");
         }
 
-        if (!data.details || data.details.length === 0) { 
+        if (!data.details || data.details.length === 0) {
             throw new Error('Detail item wajib diisi.');
         }
 
@@ -226,36 +227,29 @@ exports.saveRecMmt = async (data, nomorToEdit, user) => {
                 headerData.Dateline, headerData.Pemesan, serverTime, user, headerData.KeteranganHeader
             ]);
         }
-        
+
         // =============================
         //         INSERT DETAIL
         // =============================
         const detailValues = data.details
-            .filter(d => d.kode)
             .map((d, index) => [
                 currentNomor,
-                d.kode,
-                d.satuan,
+                d.kode,               // Sesuaikan dengan payload Vue (d.kode)
+                d.satuan || '',
                 parseFloat(d.qtyPO) || 0,
                 parseFloat(d.qtyTerima) || 0,
-                0,
-                0,
+                0, 0,                 // disc & harga
                 d.keterangan || '',
                 index + 1
             ]);
 
-        if (detailValues.length === 0) {
-            throw new Error('Detail item wajib diisi.');
-        }
-
         const sqlInsertDetail = `
-            INSERT INTO trec_mmt_DTL 
-            (recd_rec_nomor, recd_brg_kode, recd_brg_satuan, recd_qty, recd_qty_terima, 
-             recd_discpr, recd_harga, recd_keterangan, recd_nourut) 
-            VALUES ?
-        `;
-        await connection.query(sqlInsertDetail, [detailValues]); 
-
+    INSERT INTO trec_mmt_dtl 
+    (recd_rec_nomor, recd_brg_kode, recd_brg_satuan, recd_qty, recd_qty_terima, 
+     recd_discpr, recd_harga, recd_keterangan, recd_nourut) 
+    VALUES ?
+`;
+        await connection.query(sqlInsertDetail, [detailValues]);
         // =============================================
         // ❌ Dihapus total — stok sudah dihandle TRIGGER
         // =============================================
@@ -263,7 +257,7 @@ exports.saveRecMmt = async (data, nomorToEdit, user) => {
 
         await connection.commit();
         return { Nomor: currentNomor, message: 'Data berhasil disimpan.' };
-        
+
     } catch (error) {
         await connection.rollback();
         throw new Error('Database Transaction Error on Save: ' + error.message);
@@ -333,10 +327,10 @@ exports.getPOLookupData = async (keyword) => {
                 DATE_FORMAT(po_tanggal, '%d-%m-%Y') AS Tanggal, 
                 po_sup_kode AS Supplier
             FROM tpo_mmt_hdr 
-        `; 
-        
+        `;
+
         const params = [];
-        
+
         if (keyword) {
             // Filter berdasarkan Nomor PO atau Nama Supplier
             sql += ` AND (po_nomor LIKE ? OR po_sup_kode LIKE ?)`;
@@ -345,7 +339,7 @@ exports.getPOLookupData = async (keyword) => {
         }
 
         sql += ` ORDER BY po_nomor DESC LIMIT 100`; // Batasi hasil
-        
+
         const [rows] = await pool.query(sql, params);
         return rows;
     } catch (error) {
@@ -364,14 +358,14 @@ exports.getPODetail = async (poNomor) => {
                 po_nomor AS Nomor, 
                 DATE_FORMAT(po_tanggal, '%Y-%m-%d') AS Tanggal, 
                 po_sup_kode AS Kode_Supplier
-            FROM tpo_mmt_hdr WHERE po_nomor = ?`, 
+            FROM tpo_mmt_hdr WHERE po_nomor = ?`,
             [poNomor]
         );
-        
+
         if (headerRows.length === 0) {
             throw new Error(`Nomor PO ${poNomor} tidak ditemukan.`);
         }
-        
+
         const header = headerRows[0];
 
         // 2. Ambil Data Detail Item (Gabung dengan Master Bahan untuk Panjang/Lebar)
@@ -388,7 +382,7 @@ exports.getPODetail = async (poNomor) => {
             WHERE D.pod_po_nomor = ?`,
             [poNomor]
         );
-        
+
         // 3. Gabungkan Header dan Detail
         return {
             header,
@@ -397,5 +391,25 @@ exports.getPODetail = async (poNomor) => {
 
     } catch (error) {
         throwDbError(`Gagal memuat detail PO ${poNomor}`, error);
+    }
+};
+
+// Tambahkan di penerimaanBahanService.js atau panggil di endpoint terkait
+exports.getBarcodesByNomor = async (nomor) => {
+    try {
+        const sql = `
+            SELECT 
+                mst_brg_kode as kode, 
+                mst_barcode as barcode,
+                b.brg_nama as namaBahan
+            FROM tmasterstok_mmt s
+            JOIN tbarang_mmt b ON s.mst_brg_kode = b.brg_kode
+            WHERE mst_noreferensi = ?
+            ORDER BY mst_barcode ASC
+        `;
+        const [rows] = await pool.query(sql, [nomor]);
+        return rows;
+    } catch (error) {
+        throw error;
     }
 };
