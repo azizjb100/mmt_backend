@@ -296,7 +296,7 @@ const getUnfulfilledMbDetail = async (mbNomor) => {
       req.mbd_spk_nomor AS Nomor_SPK, req.mbd_qty AS Required_Qty, req.mbd_qty_po AS Committed_PO_Qty,
       (req.mbd_qty - req.mbd_qty_po) AS Sisa_Qty_Diminta FROM tmintabahan_mmt_dtl req
       LEFT JOIN tbarang_mmt b ON req.mbd_brg_kode = b.brg_kode
-      WHERE req.mbd_mb_nomor = ? AND (req.mbd_qty - COALESCE(req.mbd_qty_po, 0)) > 0 ORDER BY req.mbd_nourut`;
+      WHERE req.mbd_mb_nomor = ? AND mbd_acc ='Y' AND (req.mbd_qty - COALESCE(req.mbd_qty_po, 0)) > 0 ORDER BY req.mbd_nourut`;
   const [rows] = await pool.query(sql, [mbNomor]);
   const [hRows] = await pool.query(`SELECT mb_memo FROM tmintabahan_mmt_hdr WHERE mb_nomor = ?`, [mbNomor]);
   return {

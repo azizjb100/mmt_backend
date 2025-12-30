@@ -18,7 +18,7 @@ const loginUser = async (username, password) => {
     FROM tuser 
     WHERE upper(user_kode) = ? AND user_password = ?
   `;
-  
+
   const [rows] = await pool.query(s, [username.toUpperCase(), password]);
 
   if (rows.length === 0) {
@@ -76,7 +76,7 @@ const registerDevice = async (username, cpuId, macAddress) => {
     VALUES (?, ?, ?, "N") 
     ON DUPLICATE KEY UPDATE register_user = ?
   `;
-  
+
   // Ganti 'MOCK_CPU_ID' dan 'MOCK_MAC' dengan data asli jika bisa didapat
   const [result] = await pool.query(s, [cpuId || 'MOCK_CPU_ID', macAddress || 'MOCK_MAC', username, username]);
   return result.affectedRows > 0;

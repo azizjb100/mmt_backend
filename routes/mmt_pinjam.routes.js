@@ -8,4 +8,6 @@ router.post('/', MmtController.handleRequestPinjam);
 // Route untuk melihat daftar pinjaman (dipanggil untuk notifikasi di Permintaan Produksi)
 router.get('/', MmtController.getPendingLoans);
 
+router.post('/approve-pinjam', MmtController.handleApprovePinjam);
+
 module.exports = router;

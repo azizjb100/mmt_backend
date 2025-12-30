@@ -81,7 +81,7 @@ exports.getPermintaanBahanData = async (startDate, endDate) => {
         const sqlDetail = `
             SELECT
                 mbd_mb_nomor AS Nomor, mbd_spk_nomor AS Nomor_SPK, TRIM(spk_nama) AS spk_nama,
-                brg_kode AS Kode, mbd_qty_terima AS Jumlah_terima, TRIM(brg_nama) AS Nama_Bahan, mbd_qty AS Jumlah,
+                brg_kode AS Kode, mbd_acc AS Is_Acc, mbd_qty_terima AS Jumlah_terima, TRIM(brg_nama) AS Nama_Bahan, mbd_qty AS Jumlah,
                 mbd_brg_satuan AS Satuan, brg_panjang AS Panjang, brg_lebar AS Lebar
             FROM tmintabahan_mmt_dtl
             LEFT JOIN tbarang_mmt ON mbd_brg_kode = brg_kode
@@ -119,16 +119,7 @@ exports.approveBySPV = async (nomor, userKD) => {
 };
 
 // Fungsi Approval Final oleh Manager
-exports.approveByManager = async (nomor, userKD) => {
-    const sql = `
-        UPDATE tmintabahan_mmt_hdr 
-        SET mb_acc = 'Y', mb_acc_user = ?, date_modified = NOW() 
-        WHERE mb_nomor = ? AND mb_acc_req = 'Y'
-    `;
-    // Syarat: Manager hanya bisa approve jika SPV sudah (mb_acc_req = 'Y')
-    const [result] = await pool.query(sql, [userKD, nomor]);
-    return result.affectedRows > 0;
-};
+
 
 exports.getPermintaanBahanByNomor = async (nomor) => {
     try {
@@ -137,7 +128,7 @@ exports.getPermintaanBahanByNomor = async (nomor) => {
             SELECT
                 mb_nomor AS Nomor, mb_tanggal AS Tanggal, mb_gdg_kode AS Gudang_Asal_Kode,
                 tgudang.gdg_nama AS Gudang_Asal_Nama, mb_keterangan AS Keterangan,
-                mb_acc_req AS Req_ACC, mb_acc_req_user AS Req_ACC_User,
+                mb_acc_req AS Req_ACC, mb_acc_req_user AS Req_ACC_User, mb_to_user AS Kepada, mb_to_cab AS Cabang,
                 mb_acc AS ACC, mb_acc_user AS Acc_User
             FROM tmintabahan_mmt_hdr
             LEFT JOIN tgudang ON tgudang.gdg_kode = mb_gdg_kode
@@ -160,7 +151,7 @@ exports.getPermintaanBahanByNomor = async (nomor) => {
                 mbd_brg_kode AS Kode, TRIM(tbarang_mmt.brg_nama) AS Nama_Bahan,
                 mbd_qty AS Jumlah, mbd_brg_satuan AS Satuan,
                 tbarang_mmt.brg_panjang AS Panjang, tbarang_mmt.brg_lebar AS Lebar,
-                mbd_keterangan AS KeteranganItem
+                mbd_keterangan AS KeteranganItem,mbd_acc AS Is_Acc -- TAMBAHKAN INI
             FROM tmintabahan_mmt_dtl
             LEFT JOIN tbarang_mmt ON mbd_brg_kode = tbarang_mmt.brg_kode
             WHERE mbd_mb_nomor = ?
@@ -215,6 +206,7 @@ exports.getPermintaanBahanForLookup = async (startDate, endDate, status = 'OPEN'
             LEFT JOIN tbarang_mmt ON mbd_brg_kode = brg_kode
             LEFT JOIN (SELECT spk_nomor, spk_nama FROM tspk UNION ALL SELECT mspk_nomor, mspk_nama from tmemospk) x ON x.spk_nomor=mbd_spk_nomor
             WHERE mbd_mb_nomor IN (?)
+            AND mbd_acc = 'Y'
             ORDER BY mbd_mb_nomor, mbd_nourut;
         `;
         const [detailResults] = await pool.query(sqlDetail, [masterNomors]);
@@ -264,9 +256,6 @@ exports.deletePermintaanBahan = async (nomor) => {
     }
 };
 
-// backend/src/services/permintaanBahan.service.js
-
-// backend/src/services/permintaanBahan.service.js
 
 exports.generateMaxKode = async (tanggal) => {
     const NOMERATOR = 'MMT.MB';
@@ -277,11 +266,7 @@ exports.generateMaxKode = async (tanggal) => {
     const [rows] = await pool.query(sql, [prefix]);
 
     const maxNum = rows[0].max_num ? parseInt(rows[0].max_num) : 0;
-
-    // --- KOREKSI LOGIKA KRITIS: MENGGUNAKAN padStart ---
-    const nextNumber = maxNum + 1; // Jika maxNum=1, nextNumber=2
-
-    // Menghasilkan string 4 digit (misal: 2 menjadi '0002')
+    const nextNumber = maxNum + 1;
     const paddedNextNumber = String(nextNumber).padStart(4, '0');
 
     return `${NOMERATOR}.${yyMm}.${paddedNextNumber}`;
@@ -353,19 +338,17 @@ exports.savePermintaanBahan = async (data, nomorToEdit, userLogin) => {
                 data.Cabang,
                 data.Keterangan,
                 serverTime,
-                userLogin, // user_create (tetap terisi sebagai pembuat)
-                // mb_acc_req_user sudah NULL di query string atas
+                userLogin,
             ]);
         }
-        // --- INSERT DETAIL ---
         if (data.Detail && data.Detail.length > 0) {
             const detailValues = data.Detail.map((d, index) => [
-                currentNomor, d.SPK || null, d.SKU, d.Satuan, d.QTY, d.KeteranganItem || null, index + 1
+                currentNomor, d.SPK || null, d.SKU, d.Satuan, d.QTY, d.KeteranganItem || null, index + 1, d.IsAcc === 'N' ? 'N' : 'Y'
             ]);
 
             const sqlInsertDetail = `
                 INSERT INTO tmintabahan_mmt_dtl 
-                (mbd_mb_nomor, mbd_spk_nomor, mbd_brg_kode, mbd_brg_satuan, mbd_qty, mbd_keterangan, mbd_nourut) 
+                (mbd_mb_nomor, mbd_spk_nomor, mbd_brg_kode, mbd_brg_satuan, mbd_qty, mbd_keterangan, mbd_nourut, mbd_acc) 
                 VALUES ?
             `;
             await connection.query(sqlInsertDetail, [detailValues]);
@@ -414,7 +397,7 @@ exports.getPermintaanBahanForPrint = async (nomor) => {
             SELECT
                 mbd_nourut AS No, mbd_spk_nomor AS SPK, 
                 IF(brg_panjang IS NULL, TRIM(brg_nama), CONCAT(TRIM(brg_nama), ' (', brg_panjang, ' x ', brg_lebar, ')')) AS Jenis,
-                mbd_keterangan AS Keterangan, 
+                mbd_keterangan AS Keterangan, mbd_acc AS Is_Acc,
                 mbd_brg_satuan AS Satuan,
                 mbd_qty AS QTY,
                 CONCAT(mbd_qty, ' ', mbd_brg_satuan) AS Jumlah
@@ -435,5 +418,48 @@ exports.getPermintaanBahanForPrint = async (nomor) => {
         };
     } catch (error) {
         throwDbError(`Gagal mengambil data cetak`, error);
+    }
+};
+
+// backend/src/services/permintaanBahan.service.js
+
+exports.approveByManager = async (nomor, userKD, itemApprovals) => {
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+
+        // 1. Update Header: Set Manager ACC = 'Y'
+        const sqlHeader = `
+            UPDATE tmintabahan_mmt_hdr 
+            SET mb_acc = 'Y', mb_acc_user = ?, date_modified = NOW() 
+            WHERE mb_nomor = ? AND mb_acc_req = 'Y'
+        `;
+        const [headerResult] = await connection.query(sqlHeader, [userKD, nomor]);
+
+        if (headerResult.affectedRows === 0) {
+            throw new Error("Gagal ACC Header. Pastikan SPV sudah melakukan ACC terlebih dahulu.");
+        }
+
+        // 2. Update Detail: Loop melalui item yang dikirim dari frontend
+        // itemApprovals diharapkan berisi: [{ sku: 'A', isAcc: true }, { sku: 'C', isAcc: false }]
+        if (itemApprovals && itemApprovals.length > 0) {
+            const queries = itemApprovals.map(item => {
+                return connection.query(
+                    `UPDATE tmintabahan_mmt_dtl 
+                     SET mbd_acc = ? 
+                     WHERE mbd_mb_nomor = ? AND mbd_brg_kode = ?`,
+                    [item.isAcc ? 'Y' : 'N', nomor, item.sku]
+                );
+            });
+            await Promise.all(queries);
+        }
+
+        await connection.commit();
+        return true;
+    } catch (error) {
+        await connection.rollback();
+        throw error;
+    } finally {
+        connection.release();
     }
 };
