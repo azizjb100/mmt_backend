@@ -73,11 +73,36 @@ const getReport = async (startDate, endDate) => {
     
     WHERE brg_gdg_Default = 'WH-16' AND brg_ktg_kode IN ('BU')
   `;
-  
+
   const [rows] = await pool.query(ssql, [tglMulai, tglMulai, tglSelesai, tglSelesai]);
   return rows;
 };
 
+const getTotalRollSekarang = async () => {
+  const ssql = `
+    SELECT 
+      SUM(IFNULL(b.stok_sekarang, 0)) AS total_roll,
+      COUNT(a.brg_kode) AS total_jenis_barang
+    FROM tbarang_mmt a
+    LEFT JOIN (
+      SELECT 
+        mst_brg_kode, 
+        SUM(mst_Stok_in - mst_stok_out) AS stok_sekarang
+      FROM tmasterstok_mmt
+      WHERE mst_gdg_kode = 'WH-16'
+      GROUP BY mst_brg_kode
+    ) b ON (b.mst_brg_kode = a.brg_kode)
+    WHERE a.brg_gdg_Default = 'WH-16' 
+      AND a.brg_ktg_kode = 'BU'
+      AND b.stok_sekarang > 0
+  `;
+
+  const [rows] = await pool.query(ssql);
+  return rows[0]; // Mengembalikan object { total_roll: X, total_jenis_barang: Y }
+};
+
 module.exports = {
-  getReport
+  getReport,
+  getTotalRollSekarang
+
 };

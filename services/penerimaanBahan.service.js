@@ -158,7 +158,7 @@ exports.saveRecMmt = async (data, nomorToEdit, user) => {
         await connection.beginTransaction();
 
         const {
-            nomor, tanggal, supplier_kode, gudang_kode, no_permintaan, keterangan
+            nomor, tanggal, supplier_kode, gudang_kode, no_permintaan, keterangan, no_resi
         } = data.header;
 
         const headerData = {
@@ -193,14 +193,14 @@ exports.saveRecMmt = async (data, nomorToEdit, user) => {
 
             const sqlUpdate = `
                 UPDATE Trec_mmt_hdr SET
-                    rec_sup_kode = ?, rec_gdg_kode = ?, rec_memo = ?, rec_disc_faktur = ?,
+                    rec_sup_kode = ?, rec_gdg_kode = ?, rec_memo = ?, rec_resi, rec_disc_faktur = ?,
                     rec_disc_fakturpr = ?, rec_amount = ?, rec_taxamount = ?, rec_istax = ?,
                     rec_dateline = ?, rec_pemesan = ?, date_modified = ?, user_modified = ?,
                     rec_keterangan = ?
                 WHERE rec_nomor = ?
             `;
             await connection.query(sqlUpdate, [
-                headerData.SupplierKode, headerData.GudangKode, headerData.NoMinta,
+                headerData.SupplierKode, headerData.GudangKode, headerData.NoMinta, no_resi,
                 headerData.DiscFaktur, headerData.DiscPr, headerData.Total, headerData.PPN,
                 aistax, headerData.Dateline, headerData.Pemesan,
                 serverTime, user, headerData.KeteranganHeader, currentNomor
@@ -214,17 +214,20 @@ exports.saveRecMmt = async (data, nomorToEdit, user) => {
             //        MODE INSERT
             // =============================
             const sqlInsert = `
-                INSERT INTO Trec_mmt_hdr 
-                (rec_nomor, rec_tanggal, rec_memo, rec_sup_kode, rec_gdg_kode, rec_disc_faktur,
-                 rec_disc_fakturpr, rec_amount, rec_taxamount, rec_istax, rec_dateline, 
-                 rec_pemesan, date_create, user_create, rec_keterangan)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `;
+        INSERT INTO Trec_mmt_hdr 
+        (rec_nomor, rec_tanggal, rec_memo, rec_sup_kode, rec_gdg_kode, 
+         rec_resi, -- Tambahkan kolom ini
+         rec_disc_faktur, rec_disc_fakturpr, rec_amount, rec_taxamount, 
+         rec_istax, rec_dateline, rec_pemesan, date_create, user_create, rec_keterangan)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
             await connection.query(sqlInsert, [
                 currentNomor, headerData.Tanggal, headerData.NoMinta,
-                headerData.SupplierKode, headerData.GudangKode, headerData.DiscFaktur,
-                headerData.DiscPr, headerData.Total, headerData.PPN, aistax,
-                headerData.Dateline, headerData.Pemesan, serverTime, user, headerData.KeteranganHeader
+                headerData.SupplierKode, headerData.GudangKode,
+                no_resi,
+                headerData.DiscFaktur, headerData.DiscPr, headerData.Total,
+                headerData.PPN, aistax, headerData.Dateline, headerData.Pemesan,
+                serverTime, user, headerData.KeteranganHeader
             ]);
         }
 
@@ -292,6 +295,7 @@ exports.loadRecMmtById = async (nomor) => {
         Nomor: rows[0].rec_nomor,
         Tanggal: format(rows[0].rec_tanggal, 'yyyy-MM-dd'),
         NoMinta: rows[0].rec_memo,
+        no_resi: rows[0].rec_resi,
         SupplierKode: rows[0].rec_sup_kode,
         GudangKode: rows[0].rec_gdg_kode,
         DiscPr: rows[0].rec_disc_fakturpr,

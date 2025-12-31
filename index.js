@@ -28,6 +28,8 @@ const stokGudangMmtRoutes = require("./routes/stokGudangMmt.routes");
 const recreateBarcodeRoutes = require("./routes/recreateBarcode.routes");
 const mmtPinjamRoutes = require("./routes/mmt_pinjam.routes");
 const lookupPabrikRoutes = require("./routes/lookupPabrik.routes");
+const lapLmkpMmtRoutes = require("./routes/lapLmkpMmt.routes");
+
 
 
 
@@ -93,6 +95,7 @@ app.use("/api/mmt/lhk-finishing", lhkFinishingRoutes);
 app.use("/api/mmt/laporan-stbj", stbjMmtRoutes);
 app.use("/api/mmt/laporan-ls-bahan-utama", lapLsBahanUtamaRoutes);
 app.use("/api/mmt/laporan-ls-bahan-penolong", lapLsBahanPenolongRoutes);
+app.use("/api/mmt/monitoring/laporan-lmkp", lapLmkpMmtRoutes);
 app.use("/api/mmt/monitoring-cetak", lapMonCetakRoutes);
 app.use("/api/mmt/permintaan-bahan", permintaanBahanRoutes);
 app.use("/api/mmt/penerimaan-bahan", penerimaanBahanRoutes);

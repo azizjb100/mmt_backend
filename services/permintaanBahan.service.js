@@ -15,13 +15,15 @@ const throwDbError = (message, error) => {
 // ===================================
 exports.getPermintaanBahanData = async (startDate, endDate) => {
     try {
-        // --- 1. Sub-query untuk menghitung total kuantitas dari Detail ---
+        // --- 1. Sub-query Agregasi (Menghitung item yang di-ACC dan total baris) ---
         const sqlAggregates = `
             SELECT
                 mbd_mb_nomor,
-                SUM(mbd_qty) AS Total_Diminta,
-                SUM(mbd_qty_po) AS Total_DiPO,
-                SUM(mbd_qty_terima) AS Total_Diterima
+                SUM(CASE WHEN mbd_acc = 'Y' THEN mbd_qty ELSE 0 END) AS Total_Diminta,
+                SUM(CASE WHEN mbd_acc = 'Y' THEN mbd_qty_po ELSE 0 END) AS Total_DiPO,
+                SUM(CASE WHEN mbd_acc = 'Y' THEN mbd_qty_terima ELSE 0 END) AS Total_Diterima,
+                COUNT(CASE WHEN mbd_acc = 'Y' THEN 1 END) AS Jml_Item_Acc,
+                COUNT(*) AS Total_Baris_Detail
             FROM tmintabahan_mmt_dtl
             GROUP BY mbd_mb_nomor
         `;
@@ -30,70 +32,94 @@ exports.getPermintaanBahanData = async (startDate, endDate) => {
             SELECT
                 t1.mb_nomor AS Nomor,
                 t1.mb_gdg_kode AS Gudang,
-                t1.mb_to_user AS To_User,
-                t1.mb_to_cab AS To_Cabang,
                 t3.gdg_nama AS Nama,
                 DATE_FORMAT(t1.mb_tanggal, '%d-%M-%Y') AS Tanggal,
                 t1.mb_keterangan AS Keterangan,
-                IFNULL(t2.user_nama, t1.user_create) AS Dibuat,
-                t1.mb_acc_req AS Req_ACC,
-                t1.mb_acc AS ACC,
-
-                -- TAMBAHKAN LOGIKA STATUS ACC DI SINI --
+                
+                -- STATUS ACC HEADER --
                 CASE 
                     WHEN t1.mb_acc = 'Y' THEN 'Acc Manager'
                     WHEN t1.mb_acc_req = 'Y' THEN 'Acc SPV'
                     ELSE 'PENDING'
                 END AS Status_Acc,
                 
-                -- JOIN KE HASIL AGREGASI DETAIL
-                t2.Total_Diminta,
-                t2.Total_DiPO,
-                t2.Total_Diterima,
+                -- DATA AGREGASI
+                IFNULL(t2.Total_Diminta, 0) AS Total_Diminta,
+                IFNULL(t2.Total_DiPO, 0) AS Total_DiPO,
+                IFNULL(t2.Total_Diterima, 0) AS Total_Diterima,
 
-                -- LOGIKA STATUS PO BARU
+                -- LOGIKA STATUS PO (PERBAIKAN) --
                 CASE
-                    WHEN t2.Total_DiPO = t2.Total_Diminta THEN 'CLOSED'
-                    WHEN t2.Total_DiPO > 0 AND t2.Total_DiPO < t2.Total_Diminta THEN 'ONPROSES'
+                    -- Jika tidak ada detail sama sekali, status OPEN
+                    WHEN t2.Total_Baris_Detail IS NULL OR t2.Total_Baris_Detail = 0 THEN 'OPEN'
+                    
+                    -- Jika Manager sudah proses tapi SEMUA item ditolak (Is_Acc = 'N' semua)
+                    -- Maka status CLOSED karena tidak ada yang bisa dibuatkan PO
+                    WHEN t1.mb_acc = 'Y' AND IFNULL(t2.Jml_Item_Acc, 0) = 0 THEN 'CLOSED'
+                    
+                    -- Jika ada item di-ACC dan sudah terpenuhi oleh PO
+                    WHEN t2.Jml_Item_Acc > 0 AND t2.Total_DiPO >= t2.Total_Diminta THEN 'CLOSED'
+                    
+                    -- Jika sudah ada PO yang dibuat (sebagian)
+                    WHEN t2.Total_DiPO > 0 THEN 'ONPROSES'
+                    
+                    -- Selain itu OPEN
                     ELSE 'OPEN'
                 END AS Status_PO,
 
-                -- LOGIKA STATUS DITERIMA BARU
+                -- LOGIKA STATUS DITERIMA (PERBAIKAN) --
                 CASE
-                    WHEN t2.Total_Diterima >= t2.Total_Diminta THEN 'CLOSED'
-                    WHEN t2.Total_Diterima > 0 AND t2.Total_Diterima < t2.Total_Diminta THEN 'ONPROSES'
+                    WHEN t2.Total_Baris_Detail IS NULL OR t2.Total_Baris_Detail = 0 THEN 'OPEN'
+                    WHEN t1.mb_acc = 'Y' AND IFNULL(t2.Jml_Item_Acc, 0) = 0 THEN 'CLOSED'
+                    WHEN t2.Jml_Item_Acc > 0 AND t2.Total_Diterima >= t2.Total_Diminta THEN 'CLOSED'
+                    WHEN t2.Total_Diterima > 0 THEN 'ONPROSES'
                     ELSE 'OPEN'
                 END AS Status_Diterima
 
             FROM tmintabahan_mmt_hdr t1
             LEFT JOIN (${sqlAggregates}) t2 ON t2.mbd_mb_nomor = t1.mb_nomor
             LEFT JOIN tgudang t3 ON t3.gdg_kode = t1.mb_gdg_kode
-            LEFT JOIN tuser t2 ON t1.user_create = t2.user_kode
+            LEFT JOIN tuser tu ON t1.user_create = tu.user_kode 
             WHERE t1.mb_tanggal BETWEEN ? AND ?
             ORDER BY t1.mb_tanggal DESC;
         `;
 
         const [masterResults] = await pool.query(sqlMaster, [startDate, endDate]);
         const masterNomors = masterResults.map(row => row.Nomor);
+
         if (masterNomors.length === 0) return [];
 
-        // Query Detail tetap sama
+        // --- 2. Query Detail ---
         const sqlDetail = `
             SELECT
-                mbd_mb_nomor AS Nomor, mbd_spk_nomor AS Nomor_SPK, TRIM(spk_nama) AS spk_nama,
-                brg_kode AS Kode, mbd_acc AS Is_Acc, mbd_qty_terima AS Jumlah_terima, TRIM(brg_nama) AS Nama_Bahan, mbd_qty AS Jumlah,
-                mbd_brg_satuan AS Satuan, brg_panjang AS Panjang, brg_lebar AS Lebar
+                mbd_mb_nomor AS Nomor, 
+                mbd_spk_nomor AS Nomor_SPK, 
+                TRIM(spk_nama) AS spk_nama,
+                brg_kode AS Kode, 
+                mbd_acc AS Is_Acc, 
+                mbd_qty_terima AS Jumlah_terima, 
+                TRIM(brg_nama) AS Nama_Bahan, 
+                mbd_qty AS Jumlah,
+                mbd_brg_satuan AS Satuan, 
+                brg_panjang AS Panjang, 
+                brg_lebar AS Lebar
             FROM tmintabahan_mmt_dtl
             LEFT JOIN tbarang_mmt ON mbd_brg_kode = brg_kode
-            LEFT JOIN (SELECT spk_nomor, spk_nama FROM tspk UNION ALL SELECT mspk_nomor, mspk_nama from tmemospk) x ON x.spk_nomor=mbd_spk_nomor
+            LEFT JOIN (
+                SELECT spk_nomor, spk_nama FROM tspk 
+                UNION ALL 
+                SELECT mspk_nomor, mspk_nama FROM tmemospk
+            ) x ON x.spk_nomor = mbd_spk_nomor
             WHERE mbd_mb_nomor IN (?)
             ORDER BY mbd_mb_nomor, mbd_nourut;
         `;
 
         const [detailResults] = await pool.query(sqlDetail, [masterNomors]);
 
+        // --- 3. Mapping Data ---
         const dataMap = new Map();
         masterResults.forEach(item => dataMap.set(item.Nomor, { ...item, Detail: [] }));
+
         detailResults.forEach(detail => {
             if (dataMap.has(detail.Nomor)) {
                 dataMap.get(detail.Nomor).Detail.push(detail);
@@ -103,7 +129,8 @@ exports.getPermintaanBahanData = async (startDate, endDate) => {
         return Array.from(dataMap.values());
 
     } catch (error) {
-        throwDbError('Gagal mengambil data Permintaan Bahan', error);
+        console.error("Database Error:", error);
+        throw new Error('Gagal mengambil data Permintaan Bahan');
     }
 };
 
@@ -206,7 +233,7 @@ exports.getPermintaanBahanForLookup = async (startDate, endDate, status = 'OPEN'
             LEFT JOIN tbarang_mmt ON mbd_brg_kode = brg_kode
             LEFT JOIN (SELECT spk_nomor, spk_nama FROM tspk UNION ALL SELECT mspk_nomor, mspk_nama from tmemospk) x ON x.spk_nomor=mbd_spk_nomor
             WHERE mbd_mb_nomor IN (?)
-            AND mbd_acc = 'Y'
+            
             ORDER BY mbd_mb_nomor, mbd_nourut;
         `;
         const [detailResults] = await pool.query(sqlDetail, [masterNomors]);
