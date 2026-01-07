@@ -386,8 +386,6 @@ exports.getPODetail = async (poNomor) => {
             WHERE D.pod_po_nomor = ?`,
             [poNomor]
         );
-
-        // 3. Gabungkan Header dan Detail
         return {
             header,
             details: detailRows
@@ -415,5 +413,101 @@ exports.getBarcodesByNomor = async (nomor) => {
         return rows;
     } catch (error) {
         throw error;
+    }
+};
+
+// ============================================================
+// LOOKUP UNTUK INVOICE (Menampilkan Header Penerimaan)
+// ============================================================
+// services/penerimaanBahan.service.js
+
+exports.getRecLookupForInvoice = async (keyword = '') => {
+    try {
+        let sql = `
+            SELECT DISTINCT
+                h.rec_nomor AS Nomor,
+                DATE_FORMAT(h.rec_tanggal, '%d-%m-%Y') AS Tanggal,
+                s.sup_nama AS Supplier,
+                h.rec_sup_kode AS Kode_Supplier,
+                h.rec_memo AS No_Permintaan,
+                h.rec_keterangan AS Keterangan
+            FROM trec_mmt_hdr h
+            INNER JOIN tsupplier s 
+                ON s.sup_kode = h.rec_sup_kode
+            INNER JOIN trec_mmt_dtl d
+                ON TRIM(d.recd_rec_nomor) = TRIM(h.rec_nomor)
+            WHERE 1=1
+        `;
+
+        const params = [];
+
+        // OPTIONAL: hanya yang belum di-invoice
+        // sql += ` AND (h.rec_inv_nomor IS NULL OR h.rec_inv_nomor = '') `;
+
+        if (keyword && keyword.trim() !== '') {
+            sql += `
+                AND (
+                    TRIM(h.rec_nomor) LIKE ?
+                    OR s.sup_nama LIKE ?
+                    OR h.rec_memo LIKE ?
+                )
+            `;
+            const search = `%${keyword.trim()}%`;
+            params.push(search, search, search);
+        }
+
+        sql += ` ORDER BY h.rec_nomor DESC LIMIT 50`;
+
+        const [rows] = await pool.query(sql, params);
+        return rows;
+
+    } catch (error) {
+        console.error('ERROR SQL getRecLookupForInvoice:', error);
+        throwDbError('Gagal mengambil data lookup penerimaan', error);
+    }
+};
+
+exports.getRecDetailForInvoice = async (recNomor) => {
+    try {
+        const nomor = recNomor.trim();
+
+        const [header] = await pool.query(
+            `SELECT 
+                rec_nomor,
+                rec_sup_kode,
+                rec_istax,
+                rec_taxamount
+             FROM trec_mmt_hdr
+             WHERE TRIM(rec_nomor) = TRIM(?)`,
+            [nomor]
+        );
+
+        if (header.length === 0) {
+            throw new Error(`Nomor penerimaan ${nomor} tidak ditemukan`);
+        }
+
+        const [details] = await pool.query(
+            `SELECT 
+                d.recd_brg_kode AS Kode,
+                b.brg_nama AS Nama_Barang,
+                d.recd_brg_satuan AS Satuan,
+                d.recd_qty_terima AS Qty,
+                d.recd_harga AS Harga_Beli,
+                d.recd_discpr AS Diskon_Item
+             FROM trec_mmt_dtl d
+             INNER JOIN tbarang_mmt b
+                ON b.brg_kode = d.recd_brg_kode
+             WHERE TRIM(d.recd_rec_nomor) = TRIM(?)`,
+            [nomor]
+        );
+
+        return {
+            header: header[0],
+            details
+        };
+
+    } catch (error) {
+        console.error('ERROR SQL getRecDetailForInvoice:', error);
+        throwDbError('Gagal mengambil detail penerimaan untuk invoice', error);
     }
 };

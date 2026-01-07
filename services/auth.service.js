@@ -2,11 +2,16 @@
 const pool = require('../config/db.config');
 const jwt = require('jsonwebtoken'); // Kita butuh ini untuk membuat token
 
-// Kunci rahasia untuk token Anda (simpan di file .env di aplikasi nyata)
-const JWT_SECRET = 'kunci-rahasia-anda-yang-sangat-aman';
+
+// ✅ AMBIL DARI ENV (HARUS SAMA DENGAN MIDDLEWARE)
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET belum diset di environment');
+}
 
 /**
- * Pengganti btnLoginClick
+ * LOGIN
  */
 const loginUser = async (username, password) => {
   const s = `
@@ -16,7 +21,7 @@ const loginUser = async (username, password) => {
       user_lihat_cus, user_cmo, user_cmo3, user_manager, 
       user_ppic, user_bagian, user_jabat, user_acckor, user_cabkaos 
     FROM tuser 
-    WHERE upper(user_kode) = ? AND user_password = ?
+    WHERE UPPER(user_kode) = ? AND user_password = ?
   `;
 
   const [rows] = await pool.query(s, [username.toUpperCase(), password]);
@@ -31,41 +36,55 @@ const loginUser = async (username, password) => {
     throw new Error('User sudah pasif');
   }
 
-  // Logika sukses login:
-  // 1. Simpan data user untuk token
+  // =========================
+  // PAYLOAD JWT (MINIMAL & AMAN)
+  // =========================
   const userPayload = {
     kdUser: user.user_kode,
     nmUser: user.user_nama,
+    bagian: user.user_bagian,
     jabat: user.user_jabat,
     divisi: user.user_divisi,
     cab: user.user_cab,
-    // Tambahkan field lain yang dibutuhkan di frontend
     lihatHarga: user.user_lihat_harga,
-    editReport: user.user_edit_report,
-    bagian: user.user_bagian
+    editReport: user.user_edit_report
   };
 
-  // 2. Buat Token (Pengganti session global frmMenu)
-  const token = jwt.sign(userPayload, JWT_SECRET, { expiresIn: '8h' });
+  // =========================
+  // BUAT TOKEN (FIX UTAMA)
+  // =========================
+  const token = jwt.sign(
+    userPayload,
+    JWT_SECRET,
+    { expiresIn: '8h' }
+  );
 
-  // 3. Log last update (tanpa menunggu selesai)
+  // =========================
+  // LOG LAST LOGIN (ASYNC)
+  // =========================
   const logSql = `
     INSERT INTO pengaturan.tuser_lastupdate (computer, app, versi, usr, date_update) 
-    VALUES (?, "WEB_APP", ?, ?, NOW()) 
+    VALUES (?, 'WEB_APP', ?, ?, NOW())
     ON DUPLICATE KEY UPDATE versi = ?, usr = ?, date_update = NOW()
   `;
-  // Ganti 'COMPUTER_NAME', '1.0.0' dengan data asli jika ada
-  pool.query(logSql, ['COMPUTER_NAME', '1.0.0', user.user_kode, '1.0.0', user.user_kode]);
 
-  // 4. Kirim kembali data penting
+  pool.query(logSql, [
+    'WEB',
+    '1.0.0',
+    user.user_kode,
+    '1.0.0',
+    user.user_kode
+  ]);
+
   return {
     token,
     user: userPayload,
     info: {
-      mustChangePassword: (password === '123') // Info tambahan
+      mustChangePassword: password === '123'
     }
   };
 };
+
 
 /**
  * Pengganti btnRegisterClick / registrasi

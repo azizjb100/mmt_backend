@@ -52,7 +52,7 @@ const getReport = async (startDate, endDate) => {
     WHERE spk_tanggal BETWEEN ? AND ?
     AND spk_divisi IN (5)
   `;
-  
+
   const [rows] = await pool.query(sql, [tglMulai, tglSelesai]);
   return rows;
 };

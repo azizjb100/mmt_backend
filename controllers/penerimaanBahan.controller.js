@@ -207,3 +207,44 @@ exports.getPODetail = async (req, res) => {
         res.status(500).json({ status: 'error', message: error.message });
     }
 };
+
+// controllers/penerimaanBahan.controller.js
+
+exports.lookupPenerimaan = async (req, res) => {
+    try {
+        const q = req.query.q || ''; // ← NORMALISASI
+        const data = await penerimaanBahanService.getRecLookupForInvoice(q);
+
+        res.status(200).json({
+            success: true,
+            data
+        });
+
+    } catch (error) {
+        console.error('lookupPenerimaan ERROR:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+
+exports.getDetailPenerimaan = async (req, res) => {
+    try {
+        const { nomor } = req.params;
+        const data = await penerimaanBahanService.getRecDetailForInvoice(nomor);
+
+        res.status(200).json({
+            success: true,
+            data
+        });
+
+    } catch (error) {
+        console.error('getDetailPenerimaan ERROR:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};

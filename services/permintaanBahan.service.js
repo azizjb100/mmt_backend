@@ -307,6 +307,8 @@ exports.generateMaxKode = async (tanggal) => {
 // backend/src/services/permintaanBahan.service.js
 
 // Perhatikan parameter ketiga: saya beri nama 'user'
+// ... kode lainnya tetap sama
+
 exports.savePermintaanBahan = async (data, nomorToEdit, userLogin) => {
     const connection = await pool.getConnection();
     try {
@@ -318,59 +320,71 @@ exports.savePermintaanBahan = async (data, nomorToEdit, userLogin) => {
         if (nomorToEdit) {
             // UPDATE HEADER
             const sqlUpdate = `
-    UPDATE tmintabahan_mmt_hdr SET
-        mb_gdg_kode   = ?,
-        mb_tanggal    = ?,
-        mb_to_user    = ?,
-        mb_to_cab     = ?,
-        mb_keterangan = ?,
-        date_modified = ?,
-        user_modified = ?
-    WHERE mb_nomor = ?
-`;
+                UPDATE tmintabahan_mmt_hdr SET
+                    mb_gdg_kode   = ?,
+                    mb_tanggal    = ?,
+                    mb_to_user    = ?,
+                    mb_to_cab     = ?,
+                    mb_priority   = ?,
+                    mb_keterangan = ?,
+                    date_modified = ?,
+                    user_modified = ?
+                WHERE mb_nomor = ?
+            `;
 
             await connection.query(sqlUpdate, [
                 data.GudangKode,
                 data.Tanggal,
                 data.Kepada,
                 data.Cabang,
+                data.Priority,
                 data.Keterangan,
                 serverTime,
                 userLogin,
                 currentNomor
             ]);
 
-
-            // 🔥 WAJIB: HAPUS DETAIL LAMA
+            // HAPUS DETAIL LAMA
             await connection.query(
                 'DELETE FROM tmintabahan_mmt_dtl WHERE mbd_mb_nomor = ?',
                 [currentNomor]
             );
-        }
-        else {
+        } else {
+            // INSERT HEADER - PERBAIKAN: Tambah koma setelah mb_priority dan urutan kolom
             const sqlInsert = `
                 INSERT INTO tmintabahan_mmt_hdr 
                 (
                     mb_nomor, mb_tanggal, mb_gdg_kode, mb_to_user, 
-                    mb_to_cab, mb_keterangan, date_create, user_create, 
+                    mb_to_cab, mb_priority, mb_keterangan, date_create, user_create, 
                     mb_acc_req, mb_acc_req_user
                 ) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'N', NULL)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'N', NULL)
             `;
+
             await connection.query(sqlInsert, [
                 currentNomor,
                 data.Tanggal,
                 data.GudangKode,
                 data.Kepada,
                 data.Cabang,
+                data.Priority,   // Pastikan ini ada di payload frontend
                 data.Keterangan,
                 serverTime,
-                userLogin,
+                userLogin
             ]);
         }
+
+        // INSERT DETAIL
         if (data.Detail && data.Detail.length > 0) {
             const detailValues = data.Detail.map((d, index) => [
-                currentNomor, d.SPK || null, d.SKU, d.Satuan, d.QTY, d.KeteranganItem || null, index + 1, d.IsAcc === 'N' ? 'N' : 'Y'
+                currentNomor,
+                d.SPK || null,
+                d.SKU,
+                d.Satuan,
+                d.QTY,
+                d.KeteranganItem || null,
+                index + 1,
+                d.IsAcc === 'N' ? 'N' : 'Y'
             ]);
 
             const sqlInsertDetail = `
@@ -386,7 +400,9 @@ exports.savePermintaanBahan = async (data, nomorToEdit, userLogin) => {
 
     } catch (error) {
         await connection.rollback();
-        throw error; // Melempar error agar ditangkap oleh catch di Controller
+        // Log error spesifik untuk debugging
+        console.error("Error in savePermintaanBahan:", error);
+        throw error;
     } finally {
         connection.release();
     }
@@ -399,6 +415,7 @@ exports.getPermintaanBahanForPrint = async (nomor) => {
             SELECT
                 t1.mb_nomor AS NoPermintaan,
                 IFNULL(CONCAT(t1.mb_to_user, ' - ', t1.mb_to_cab), t1.mb_to_cab) AS Kepada,
+                t1.mb_priority AS Priority,
                 t1.mb_keterangan AS Keterangan,
                 DATE_FORMAT(t1.mb_tanggal, '%d %M %Y') AS Tanggal, 
                 
