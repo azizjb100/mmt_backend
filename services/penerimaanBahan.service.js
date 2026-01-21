@@ -428,6 +428,7 @@ exports.getRecLookupForInvoice = async (keyword = '') => {
                 h.rec_nomor AS Nomor,
                 DATE_FORMAT(h.rec_tanggal, '%d-%m-%Y') AS Tanggal,
                 s.sup_nama AS Supplier,
+                h.rec_memo AS No_Permintaan,
                 h.rec_sup_kode AS Kode_Supplier,
                 h.rec_memo AS No_Permintaan,
                 h.rec_keterangan AS Keterangan
@@ -471,14 +472,16 @@ exports.getRecDetailForInvoice = async (recNomor) => {
     try {
         const nomor = recNomor.trim();
 
+        // 1. Ambil Header Penerimaan
         const [header] = await pool.query(
             `SELECT 
                 rec_nomor,
                 rec_sup_kode,
                 rec_istax,
-                rec_taxamount
+                rec_taxamount,
+                rec_memo -- Asumsi No PO disimpan di kolom rec_memo
              FROM trec_mmt_hdr
-             WHERE TRIM(rec_nomor) = TRIM(?)`,
+             WHERE TRIM(rec_nomor) = ?`,
             [nomor]
         );
 
@@ -486,28 +489,92 @@ exports.getRecDetailForInvoice = async (recNomor) => {
             throw new Error(`Nomor penerimaan ${nomor} tidak ditemukan`);
         }
 
+        const noPO = header[0].rec_memo ? header[0].rec_memo.trim() : '';
+
+        // 2. Ambil Details + JOIN ke PO Detail untuk ambil Harga
         const [details] = await pool.query(
             `SELECT 
                 d.recd_brg_kode AS Kode,
                 b.brg_nama AS Nama_Barang,
                 d.recd_brg_satuan AS Satuan,
                 d.recd_qty_terima AS Qty,
-                d.recd_harga AS Harga_Beli,
+                -- Ambil harga dari PO, jika tidak ada baru ambil dari recd_harga
+                COALESCE(po.pod_harga, d.recd_harga, 0) AS Harga_Beli,
                 d.recd_discpr AS Diskon_Item
              FROM trec_mmt_dtl d
-             INNER JOIN tbarang_mmt b
-                ON b.brg_kode = d.recd_brg_kode
-             WHERE TRIM(d.recd_rec_nomor) = TRIM(?)`,
-            [nomor]
+             INNER JOIN tbarang_mmt b ON b.brg_kode = d.recd_brg_kode
+             -- JOIN ke detail PO berdasarkan No PO dan Kode Barang
+             LEFT JOIN tpo_mmt_dtl po 
+                ON TRIM(po.pod_po_nomor) = ? 
+                AND TRIM(po.pod_brg_kode) = TRIM(d.recd_brg_kode)
+             WHERE TRIM(d.recd_rec_nomor) = ?`,
+            [noPO, nomor]
         );
 
         return {
             header: header[0],
-            details
+            details: details
         };
 
     } catch (error) {
         console.error('ERROR SQL getRecDetailForInvoice:', error);
-        throwDbError('Gagal mengambil detail penerimaan untuk invoice', error);
+        throw (error);
     }
 };
+
+
+exports.getPenerimaanBahanForPrint = async (nomor) => {
+    try {
+        // --- HEADER ---
+        const sqlHeader = `
+            SELECT
+                r.rec_nomor AS NoPenerimaan,
+                r.rec_memo AS NoPO,
+                IFNULL(s.sup_nama, r.rec_sup_kode) AS Supplier,
+                r.rec_gdg_kode AS Gudang,
+                DATE_FORMAT(r.rec_tanggal, '%d %M %Y') AS Tanggal,
+                
+                -- Mapping user / tanda tangan
+                IFNULL(u1.user_nama, r.rec_pemesan) AS Dibuat
+
+            FROM trec_mmt_hdr r
+            LEFT JOIN tsupplier s ON r.rec_sup_kode = s.sup_kode
+            LEFT JOIN tuser u1 ON r.rec_pemesan = u1.user_kode
+            WHERE r.rec_nomor = ?;
+        `;
+        const [headerResult] = await pool.query(sqlHeader, [nomor]);
+        if (headerResult.length === 0) throw new Error("Data penerimaan tidak ditemukan.");
+        const header = headerResult[0];
+
+        // --- DETAIL ---
+        const sqlDetail = `
+            SELECT
+                d.recd_nourut AS No,
+                d.recd_brg_kode AS Kode,
+                b.brg_nama AS Nama_Barang,
+                d.recd_brg_satuan AS Satuan,
+                d.recd_qty AS Qty_PO,
+                d.recd_qty_terima AS Qty_Terima,
+                d.recd_harga AS Harga,
+                d.recd_keterangan AS Keterangan,
+                0 AS Is_Acc -- bisa pakai flag jika ingin ACC
+            FROM trec_mmt_dtl d
+            LEFT JOIN tbarang_mmt b ON d.recd_brg_kode = b.brg_kode
+            WHERE d.recd_rec_nomor = ?
+            ORDER BY d.recd_nourut;
+        `;
+        const [detailResults] = await pool.query(sqlDetail, [nomor]);
+
+        return {
+            ...header,
+            Details: detailResults,
+            Dibuat: header.Dibuat || '................',
+            Diketahui: header.Diketahui || '................',
+            Disetujui: header.Disetujui || '................'
+        };
+
+    } catch (error) {
+        throwDbError('Gagal mengambil data cetak penerimaan bahan', error);
+    }
+};
+

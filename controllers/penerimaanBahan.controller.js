@@ -248,3 +248,32 @@ exports.getDetailPenerimaan = async (req, res) => {
         });
     }
 };
+
+
+exports.printPenerimaanBahan = async (req, res) => {
+    try {
+        const { nomor } = req.params;
+
+        if (!nomor) {
+            return res.status(400).json({
+                success: false,
+                message: "Nomor penerimaan wajib diberikan."
+            });
+        }
+
+        const data = await penerimaanBahanService.getPenerimaanBahanForPrint(nomor);
+
+        res.status(200).json({
+            success: true,
+            data
+        });
+
+    } catch (error) {
+        console.error('printPenerimaanBahan ERROR:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Gagal mengambil data untuk print.',
+            error: error.message
+        });
+    }
+};

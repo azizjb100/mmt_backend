@@ -29,8 +29,10 @@ const recreateBarcodeRoutes = require("./routes/recreateBarcode.routes");
 const mmtPinjamRoutes = require("./routes/mmt_pinjam.routes");
 const lookupPabrikRoutes = require("./routes/lookupPabrik.routes");
 const lapLmkpMmtRoutes = require("./routes/lapLmkpMmt.routes");
-const invoiceRoutes = require("./routes/invoice.routes");
+const invoicePembelianRoutes = require("./routes/invoicePembelian.routes");
 const customerRoutes = require("./routes/customer.routes");
+const pengajuanPermintaanRoutes = require("./routes/pengajuanPermintaan.routes");
+
 
 
 
@@ -116,8 +118,11 @@ app.use("/api/mmt/stok-gudang", stokGudangMmtRoutes);
 app.use("/api/mmt/recreate-barcode", recreateBarcodeRoutes);
 app.use("/api/mmt/request-pinjam", mmtPinjamRoutes);
 app.use("/api/mmt/lookup-pabrik", lookupPabrikRoutes);
-app.use("/api/mmt/invoice", invoiceRoutes);
+app.use("/api/mmt/invoice", invoicePembelianRoutes);
 app.use("/api/mmt/customer", customerRoutes);
+app.use("/api/mmt/pengajuan-permintaan", pengajuanPermintaanRoutes);
+
+
 
 
 

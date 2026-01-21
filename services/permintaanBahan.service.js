@@ -200,7 +200,6 @@ exports.getPermintaanBahanByNomor = async (nomor) => {
 
 exports.getPermintaanBahanForLookup = async (startDate, endDate, status = 'OPEN') => {
     try {
-        // --- 1. AMBIL HEADER (Sama seperti sebelumnya) ---
         const sqlMaster = `
             SELECT
                 mb_nomor AS Nomor,
@@ -225,12 +224,18 @@ exports.getPermintaanBahanForLookup = async (startDate, endDate, status = 'OPEN'
 
         // --- 2. AMBIL DETAIL (Menggunakan IN (?)) ---
         const sqlDetail = `
-            SELECT
-                mbd_mb_nomor AS Nomor, mbd_spk_nomor AS Nomor_SPK, TRIM(spk_nama) AS spk_nama,
-                brg_kode AS Kode, TRIM(brg_nama) AS Nama_Bahan, mbd_qty AS Jumlah,
-                mbd_brg_satuan AS Satuan, brg_panjang AS Panjang, brg_lebar AS Lebar
-            FROM tmintabahan_mmt_dtl
-            LEFT JOIN tbarang_mmt ON mbd_brg_kode = brg_kode
+    SELECT
+        mbd_mb_nomor AS Nomor, 
+        mbd_spk_nomor AS Nomor_SPK, 
+        TRIM(spk_nama) AS spk_nama,
+        brg_kode AS Kode, 
+        TRIM(brg_nama) AS Nama_Bahan, 
+        mbd_qty AS Jumlah,
+        mbd_brg_satuan AS Satuan, 
+        brg_panjang AS Panjang, 
+        brg_lebar AS Lebar 
+    FROM tmintabahan_mmt_dtl
+    LEFT JOIN tbarang_mmt ON mbd_brg_kode = brg_kode
             LEFT JOIN (SELECT spk_nomor, spk_nama FROM tspk UNION ALL SELECT mspk_nomor, mspk_nama from tmemospk) x ON x.spk_nomor=mbd_spk_nomor
             WHERE mbd_mb_nomor IN (?)
             
@@ -306,8 +311,7 @@ exports.generateMaxKode = async (tanggal) => {
 
 // backend/src/services/permintaanBahan.service.js
 
-// Perhatikan parameter ketiga: saya beri nama 'user'
-// ... kode lainnya tetap sama
+
 
 exports.savePermintaanBahan = async (data, nomorToEdit, userLogin) => {
     const connection = await pool.getConnection();
@@ -317,18 +321,45 @@ exports.savePermintaanBahan = async (data, nomorToEdit, userLogin) => {
         const currentNomor = nomorToEdit || await exports.generateMaxKode(data.Tanggal);
         const serverTime = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
 
+        // =====================================
+        // AMBIL STATUS ACC DARI PENGAJUAN
+        // =====================================
+        let accSpv = 'N';
+        let accSpvUser = null;
+
+        if (data.NoPengajuan) {
+            const [rows] = await connection.query(`
+                SELECT 
+                    pp_acc      AS acc,
+                    pp_acc_user AS acc_user
+                FROM tpengajuan_permintaan_hdr
+                WHERE pp_nomor = ?
+                LIMIT 1
+            `, [data.NoPengajuan]);
+
+            if (rows.length && rows[0].acc === 'Y') {
+                accSpv = 'Y';
+                accSpvUser = rows[0].acc_user;
+            }
+        }
+
+        // =====================================
+        // UPDATE / INSERT HEADER
+        // =====================================
         if (nomorToEdit) {
-            // UPDATE HEADER
+
             const sqlUpdate = `
                 UPDATE tmintabahan_mmt_hdr SET
-                    mb_gdg_kode   = ?,
-                    mb_tanggal    = ?,
-                    mb_to_user    = ?,
-                    mb_to_cab     = ?,
-                    mb_priority   = ?,
-                    mb_keterangan = ?,
-                    date_modified = ?,
-                    user_modified = ?
+                    mb_gdg_kode      = ?,
+                    mb_tanggal       = ?,
+                    mb_to_user       = ?,
+                    mb_to_cab        = ?,
+                    mb_priority      = ?,
+                    mb_keterangan    = ?,
+                    mb_acc_req       = ?,
+                    mb_acc_req_user  = ?,
+                    date_modified    = ?,
+                    user_modified    = ?
                 WHERE mb_nomor = ?
             `;
 
@@ -339,26 +370,29 @@ exports.savePermintaanBahan = async (data, nomorToEdit, userLogin) => {
                 data.Cabang,
                 data.Priority,
                 data.Keterangan,
+                accSpv,
+                accSpvUser,
                 serverTime,
                 userLogin,
                 currentNomor
             ]);
 
-            // HAPUS DETAIL LAMA
             await connection.query(
                 'DELETE FROM tmintabahan_mmt_dtl WHERE mbd_mb_nomor = ?',
                 [currentNomor]
             );
+
         } else {
-            // INSERT HEADER - PERBAIKAN: Tambah koma setelah mb_priority dan urutan kolom
+
             const sqlInsert = `
                 INSERT INTO tmintabahan_mmt_hdr 
                 (
                     mb_nomor, mb_tanggal, mb_gdg_kode, mb_to_user, 
-                    mb_to_cab, mb_priority, mb_keterangan, date_create, user_create, 
+                    mb_to_cab, mb_priority, mb_keterangan, 
+                    date_create, user_create,
                     mb_acc_req, mb_acc_req_user
                 ) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'N', NULL)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
 
             await connection.query(sqlInsert, [
@@ -367,15 +401,20 @@ exports.savePermintaanBahan = async (data, nomorToEdit, userLogin) => {
                 data.GudangKode,
                 data.Kepada,
                 data.Cabang,
-                data.Priority,   // Pastikan ini ada di payload frontend
+                data.Priority,
                 data.Keterangan,
                 serverTime,
-                userLogin
+                userLogin,
+                accSpv,
+                accSpvUser
             ]);
         }
 
-        // INSERT DETAIL
-        if (data.Detail && data.Detail.length > 0) {
+        // =====================================
+        // INSERT DETAIL (IKUT STATUS HEADER)
+        // =====================================
+        if (Array.isArray(data.Detail) && data.Detail.length > 0) {
+
             const detailValues = data.Detail.map((d, index) => [
                 currentNomor,
                 d.SPK || null,
@@ -384,14 +423,19 @@ exports.savePermintaanBahan = async (data, nomorToEdit, userLogin) => {
                 d.QTY,
                 d.KeteranganItem || null,
                 index + 1,
-                d.IsAcc === 'N' ? 'N' : 'Y'
+                accSpv === 'Y' ? 'Y' : 'N'   // ✅ ikut header
             ]);
 
             const sqlInsertDetail = `
                 INSERT INTO tmintabahan_mmt_dtl 
-                (mbd_mb_nomor, mbd_spk_nomor, mbd_brg_kode, mbd_brg_satuan, mbd_qty, mbd_keterangan, mbd_nourut, mbd_acc) 
+                (
+                    mbd_mb_nomor, mbd_spk_nomor, mbd_brg_kode,
+                    mbd_brg_satuan, mbd_qty, mbd_keterangan,
+                    mbd_nourut, mbd_acc
+                ) 
                 VALUES ?
             `;
+
             await connection.query(sqlInsertDetail, [detailValues]);
         }
 
@@ -400,13 +444,14 @@ exports.savePermintaanBahan = async (data, nomorToEdit, userLogin) => {
 
     } catch (error) {
         await connection.rollback();
-        // Log error spesifik untuk debugging
         console.error("Error in savePermintaanBahan:", error);
         throw error;
     } finally {
         connection.release();
     }
 };
+
+
 
 
 exports.getPermintaanBahanForPrint = async (nomor) => {

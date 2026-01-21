@@ -148,10 +148,10 @@ const getPOById = async (nomor) => {
 
   const [detailRows] = await pool.query(
     `SELECT d.pod_nourut AS no, d.pod_brg_kode AS kode, b.brg_nama AS nama,
-      d.pod_keterangan AS namaext, d.pod_brg_satuan AS satuan, d.pod_qty AS jumlah,
+      d.pod_keterangan AS namaext, d.pod_brg_satuan AS satuan, d.pod_qty AS jumlah, d.pod_m2 AS m2,
       d.pod_harga AS harga, d.pod_discpr AS diskon, d.pod_spk_nomor AS spk,
-      d.pod_mb_nomor AS mb_nomor,
-      d.pod_qty * d.pod_harga * (1 - d.pod_discpr / 100) AS total
+      d.pod_mb_nomor AS mb_nomor, b.brg_panjang AS panjang, b.brg_lebar AS lebar,
+      d.pod_qty * d.pod_m2 * d.pod_harga * (1 - d.pod_discpr / 100) AS total
     FROM tpo_mmt_dtl d
     LEFT JOIN tbarang_mmt b ON d.pod_brg_kode = b.brg_kode
     WHERE d.pod_po_nomor = ? ORDER BY d.pod_nourut`,
@@ -199,9 +199,12 @@ const savePoMmt = async (data, nomorToEdit, currentUser) => {
     const validItems = detail.filter(d => d.kode);
     for (const [index, item] of validItems.entries()) {
       await connection.query(
-        `INSERT INTO tpo_mmt_dtl (pod_po_nomor, pod_nourut, pod_mb_nomor, pod_brg_kode, pod_brg_satuan,
-         pod_qty, pod_harga, pod_discpr, pod_keterangan, pod_spk_nomor) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [poNomor, index + 1, item.mb_nomor || null, item.kode, item.satuan, parseFloat(item.jumlah) || 0,
+        `INSERT INTO tpo_mmt_dtl (
+  pod_po_nomor, pod_nourut, pod_mb_nomor, pod_brg_kode, pod_brg_satuan,
+  pod_qty, pod_m2, pod_harga, pod_discpr, pod_keterangan, pod_spk_nomor
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`,
+        [poNomor, index + 1, item.mb_nomor || null, item.kode, item.satuan, parseFloat(item.jumlah) || 0,   parseFloat(item.m2) || 0,  
           parseFloat(item.harga) || 0, Number(item.diskon) || 0, String(item.namaext || item.nama || ''), item.spk || null]
       );
     }
@@ -275,38 +278,134 @@ const loadMkbDetail = async (nomorMkb) => {
 const getPoDataForPrint = async (nomor) => {
   const poData = await getPOById(nomor);
   if (!poData) throw new Error("Data PO tidak ditemukan.");
-  const [compRows] = await pool.query(`SELECT perush_nama, perush_alamat, perush_npwp FROM tperusahaan WHERE perush_kode = 'KP'`);
+
+  const [compRows] = await pool.query(`
+    SELECT perush_nama, perush_alamat, perush_npwp
+    FROM tperusahaan
+    WHERE perush_kode = 'KP'
+  `);
   const comp = compRows[0] || {};
-  const subTotal = poData.Detail.reduce((sum, d) => sum + (d.total || 0), 0);
-  const ppn = poData.IsPpn === 1 ? subTotal * ((poData.PpnRate || 11) / 100) : 0;
+
+  // ✅ HITUNG ULANG DETAIL SESUAI ATURAN BARU (ROLL → M2)
+  const detailPrint = poData.Detail.map(d => {
+    const qtyRoll = Number(d.jumlah) || 0;   // qty roll
+    const m2 = Number(d.m2) || 0;            // m2 per roll
+    const harga = Number(d.harga) || 0;      // harga per m2
+
+    const qtyM2 = qtyRoll * m2;             
+    const total = qtyM2 * harga;            
+
+    return {
+      NoUrut: d.no,
+      Kode: d.kode,
+      Deskripsi: d.namaext || d.nama,
+
+      Quantity: qtyRoll,                     
+      Satuan: d.satuan,
+      UnitPrice: harga,
+      Total: total,
+
+      _qtyRoll: qtyRoll,   // (opsional debug)
+      _m2: m2
+    };
+  });
+
+  // ✅ SUBTOTAL DARI TOTAL BARU
+  const subTotal = detailPrint.reduce((sum, d) => sum + d.Total, 0);
+
+  const ppn =
+    poData.IsPpn === 1
+      ? subTotal * ((poData.PpnRate || 11) / 100)
+      : 0;
 
   return {
     Header: {
-      Nomor: poData.Nomor, Tanggal: formatDateForPrint(poData.Tanggal), TglPengiriman: formatDateForPrint(poData.Dateline),
-      KeteranganHeader: poData.Keterangan, IsPpn: poData.IsPpn, SubTotal: subTotal, TotalPpn: ppn, GrandTotal: subTotal + ppn,
-      NamaSupplier: poData.SupNama, AlamatSupplier: poData.SupAlamat, KotaSupplier: poData.SupKota, AlamatPabrik: poData.AlamatPabrik,
-      NamaPerusahaan: comp.perush_nama || 'CV. KENCANA PRINT', AlamatPerusahaan: comp.perush_alamat, NPWPPerusahaan: comp.perush_npwp
+      Nomor: poData.Nomor,
+      Tanggal: formatDateForPrint(poData.Tanggal),
+      TglPengiriman: formatDateForPrint(poData.Dateline),
+      KeteranganHeader: poData.Keterangan,
+      IsPpn: poData.IsPpn,
+      PpnRate: poData.PpnRate || 11,
+
+      SubTotal: subTotal,
+      TotalPpn: ppn,
+      GrandTotal: subTotal + ppn,
+
+      NamaSupplier: poData.SupNama,
+      AlamatSupplier: poData.SupAlamat,
+      KotaSupplier: poData.SupKota,
+      AlamatPabrik: poData.AlamatPabrik,
+
+      NamaPerusahaan: comp.perush_nama || 'CV. KENCANA PRINT',
+      AlamatPerusahaan: comp.perush_alamat,
+      NPWPPerusahaan: comp.perush_npwp
     },
-    Detail: poData.Detail.map(d => ({ NoUrut: d.no, Kode: d.kode, Deskripsi: d.namaext || d.nama, Quantity: d.jumlah, Satuan: d.satuan, UnitPrice: d.harga, Total: d.total }))
+    Detail: detailPrint
   };
 };
 
+
 const getUnfulfilledMbDetail = async (mbNomor) => {
-  const sql = `SELECT req.mbd_brg_kode AS Kode, b.brg_nama AS Nama_Bahan, req.mbd_brg_satuan AS Satuan,
-      req.mbd_spk_nomor AS Nomor_SPK, req.mbd_qty AS Required_Qty, req.mbd_qty_po AS Committed_PO_Qty,
-      (req.mbd_qty - req.mbd_qty_po) AS Sisa_Qty_Diminta FROM tmintabahan_mmt_dtl req
-      LEFT JOIN tbarang_mmt b ON req.mbd_brg_kode = b.brg_kode
-      WHERE req.mbd_mb_nomor = ? AND mbd_acc ='Y' AND (req.mbd_qty - COALESCE(req.mbd_qty_po, 0)) > 0 ORDER BY req.mbd_nourut`;
+  const sql = `
+    SELECT 
+      req.mbd_brg_kode AS Kode,
+      b.brg_nama AS Nama_Bahan,
+      req.mbd_brg_satuan AS Satuan,
+      req.mbd_spk_nomor AS Nomor_SPK,
+
+      req.mbd_qty AS Qty_Roll,
+      req.mbd_qty_po AS Committed_PO_Qty,
+      (req.mbd_qty - COALESCE(req.mbd_qty_po, 0)) AS Sisa_Qty_Roll,
+
+      b.brg_panjang AS Panjang,
+      b.brg_lebar   AS Lebar
+
+    FROM tmintabahan_mmt_dtl req
+    LEFT JOIN tbarang_mmt b 
+      ON req.mbd_brg_kode = b.brg_kode
+
+    WHERE 
+      req.mbd_mb_nomor = ?
+      AND req.mbd_acc = 'Y'
+      AND (req.mbd_qty - COALESCE(req.mbd_qty_po, 0)) > 0
+
+    ORDER BY req.mbd_nourut
+  `;
+
   const [rows] = await pool.query(sql, [mbNomor]);
-  const [hRows] = await pool.query(`SELECT mb_memo FROM tmintabahan_mmt_hdr WHERE mb_nomor = ?`, [mbNomor]);
+
+  const [hRows] = await pool.query(
+    `SELECT mb_memo FROM tmintabahan_mmt_hdr WHERE mb_nomor = ?`,
+    [mbNomor]
+  );
+
   return {
-    Nomor: mbNomor, Keterangan: hRows[0]?.mb_memo || '',
-    Detail: rows.map(item => ({
-      Kode: item.Kode, Nama_Bahan: item.Nama_Bahan, Satuan: item.Satuan, Nomor_SPK: item.Nomor_SPK,
-      Jumlah: parseFloat(item.Sisa_Qty_Diminta), Harga: 0, Diskon: 0, mb_nomor: mbNomor
-    }))
+    Nomor: mbNomor,
+    Keterangan: hRows[0]?.mb_memo || '',
+    Detail: rows.map(item => {
+      const panjang = parseFloat(item.Panjang) || 0;
+      const lebar   = parseFloat(item.Lebar) || 0;
+      const m2      = panjang * lebar;
+
+      return {
+        Kode: item.Kode,
+        Nama_Bahan: item.Nama_Bahan,
+        Satuan: item.Satuan,
+        Nomor_SPK: item.Nomor_SPK,
+
+        Jumlah: parseFloat(item.Sisa_Qty_Roll), // ✅ qty roll
+        Panjang: panjang,
+        Lebar: lebar,
+        M2: m2,                                  // ✅ luas per roll
+
+        Harga: 0,
+        Diskon: 0,
+        mb_nomor: mbNomor
+      };
+    })
   };
 };
+
 
 const getPOLookupData = async (keyword) => {
   try {
@@ -317,39 +416,31 @@ const getPOLookupData = async (keyword) => {
                     DATE_FORMAT(h.po_tanggal, '%d-%m-%Y') AS Tanggal, 
                     h.po_sup_kode AS Supplier,
                     s.sup_nama AS NamaSupplier,
+                    (SELECT SUM(d.pod_qty * d.pod_harga) 
+                     FROM tpo_mmt_dtl d 
+                     WHERE d.pod_po_nomor = h.po_nomor) AS TotalHarga,
                     CASE
-                        -- 1. Cek jika ditutup manual
                         WHEN h.po_isclosed = 1 THEN 'CLOSE'
-
-                        -- 2. Cek jika SEMUA item sudah diterima penuh (Otomatis CLOSED)
                         WHEN NOT EXISTS (
                             SELECT 1 FROM tpo_mmt_dtl d 
                             WHERE d.pod_po_nomor = h.po_nomor 
                             AND d.pod_qty_terima < d.pod_qty
                         ) THEN 'CLOSED'
-
-                        -- 3. Cek jika ada item yang mulai diterima (ONPROSES)
                         WHEN EXISTS (
                             SELECT 1 FROM tpo_mmt_dtl d 
                             WHERE d.pod_po_nomor = h.po_nomor 
                             AND d.pod_qty_terima > 0
                         ) THEN 'ONPROSES'
-
-                        -- 4. Default OPEN
                         ELSE 'OPEN'
                     END AS Status
                 FROM tpo_mmt_hdr h
                 LEFT JOIN tsupplier s ON h.po_sup_kode = s.sup_kode
             ) AS LookupTable
-            -- Hanya tampilkan yang masih bisa diproses (OPEN & ONPROSES)
-            -- Status 'CLOSE' (manual) dan 'CLOSED' (penuh) tidak akan tampil
             WHERE Status IN ('OPEN', 'ONPROSES')
         `;
 
     const params = [];
-
     if (keyword) {
-      // Filter pencarian berdasarkan Nomor PO, Kode Supplier, atau Nama Supplier
       sql += ` AND (Nomor LIKE ? OR Supplier LIKE ? OR NamaSupplier LIKE ?)`;
       const searchKeyword = `%${keyword}%`;
       params.push(searchKeyword, searchKeyword, searchKeyword);
@@ -360,22 +451,46 @@ const getPOLookupData = async (keyword) => {
     const [rows] = await pool.query(sql, params);
     return rows;
   } catch (error) {
-    // Pastikan fungsi throwDbError sudah didefinisikan di file service Anda
     throwDbError('Gagal mengambil data PO untuk lookup', error);
   }
 };
 
 const getPODetail = async (poNomor) => {
   try {
-    const [hRows] = await pool.query(`SELECT po_nomor AS Nomor, DATE_FORMAT(po_tanggal, '%Y-%m-%d') AS Tanggal, po_sup_kode AS Kode_Supplier FROM tpo_mmt_hdr WHERE po_nomor = ?`, [poNomor]);
-    if (hRows.length === 0) throw new Error(`Nomor PO ${poNomor} tidak ditemukan.`);
-    const [dRows] = await pool.query(`SELECT D.pod_brg_kode AS SKU, B.brg_nama AS Nama_Bahan, D.pod_qty AS QTY_PO, B.brg_satuan AS Satuan, B.brg_panjang AS Panjang, B.brg_lebar AS Lebar
-      FROM tpo_mmt_dtl D INNER JOIN tbarang_mmt B ON D.pod_brg_kode = B.brg_kode WHERE D.pod_po_nomor = ?`, [poNomor]);
+    const [hRows] = await pool.query(`
+      SELECT 
+        po_nomor AS Nomor, 
+        DATE_FORMAT(po_tanggal, '%Y-%m-%d') AS Tanggal, 
+        po_sup_kode AS Kode_Supplier 
+      FROM tpo_mmt_hdr 
+      WHERE po_nomor = ?
+    `, [poNomor]);
+
+    if (hRows.length === 0) {
+      throw new Error(`Nomor PO ${poNomor} tidak ditemukan.`);
+    }
+
+    const [dRows] = await pool.query(`
+      SELECT 
+        D.pod_brg_kode AS SKU,
+        B.brg_nama AS Nama_Bahan,
+        D.pod_qty AS QTY_PO,
+        B.brg_satuan AS Satuan,
+        B.brg_panjang AS Panjang,
+        B.brg_lebar AS Lebar,
+        D.pod_harga AS Harga_PO,
+        (D.pod_qty * D.pod_harga) AS Subtotal
+      FROM tpo_mmt_dtl D
+      INNER JOIN tbarang_mmt B ON D.pod_brg_kode = B.brg_kode
+      WHERE D.pod_po_nomor = ?
+    `, [poNomor]);
+
     return { header: hRows[0], details: dRows };
   } catch (error) {
     throwDbError(`Gagal memuat detail PO ${poNomor}`, error);
   }
 };
+
 
 module.exports = {
   getPoMmtData, getPoDetailByNomor, getPoDataForPrint, getPOById, savePoMmt, deletePoMmt,

@@ -170,29 +170,39 @@ exports.getNewNomor = async () => {
     }
 };
 
+
 exports.savePermintaanProduksi = async (data, isUpdate = false) => {
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
-        const { Nomor, Gudang, Tanggal, Keterangan, User, Details, LokasiProduksi } = data;
-        const GudangTujuan = LokasiProduksi || null;
+        let { Nomor, Gudang, Tanggal, Keterangan, User, Details, LokasiProduksi } = data;
 
-        if (isUpdate) {
-            await connection.query(`UPDATE tminta_mmt_hdr SET mnt_gdg_kode=?, mnt_lokasiproduksi=?, mnt_tanggal=?, mnt_keterangan=?, user_modified=? WHERE mnt_nomor=?`,
-                [Gudang, GudangTujuan, Tanggal, Keterangan, User, Nomor]);
-            await connection.query('DELETE FROM tminta_mmt_dtl WHERE mntd_mnt_nomor = ?', [Nomor]);
-        } else {
-            await connection.query(`INSERT INTO tminta_mmt_hdr (mnt_nomor, mnt_gdg_kode, mnt_lokasiproduksi, mnt_tanggal, mnt_keterangan, user_create) VALUES (?, ?, ?, ?, ?, ?)`,
-                [Nomor, Gudang, GudangTujuan, Tanggal, Keterangan, User]);
+        // 1. Generate nomor baru jika simpan baru
+        if (!isUpdate && (!Nomor || Nomor === 'AUTO')) {
+            Nomor = await exports.getNewNomor();
         }
 
-        const detailValues = Details.map((d, index) => [
+        if (isUpdate) {
+            await connection.query(
+                `UPDATE tminta_mmt_hdr SET mnt_gdg_kode=?, mnt_lokasiproduksi=?, mnt_tanggal=?, mnt_keterangan=?, user_modified=? WHERE mnt_nomor=?`,
+                [Gudang, LokasiProduksi, Tanggal, Keterangan, User, Nomor]
+            );
+            await connection.query('DELETE FROM tminta_mmt_dtl WHERE mntd_mnt_nomor = ?', [Nomor]);
+        } else {
+            await connection.query(
+                `INSERT INTO tminta_mmt_hdr (mnt_nomor, mnt_gdg_kode, mnt_lokasiproduksi, mnt_tanggal, mnt_keterangan, user_create) VALUES (?, ?, ?, ?, ?, ?)`,
+                [Nomor, Gudang, LokasiProduksi, Tanggal, Keterangan, User]
+            );
+        }
+
+        // 2. Insert ke tminta_mmt_dtl
+        const detailValues = Details.map(d => [
             Nomor,
-            index + 1,
-            d.sku,       // Kolom mntd_brg_kode
-            d.qty,       // Kolom mntd_qty
-            d.satuan,    // Kolom mntd_brg_satuan
-            null,        // Kolom mntd_operator
+            d.nourut,      // mntd_nourut (Bagian dari Primary Key)
+            d.sku,         // mntd_brg_kode
+            d.qty,
+            d.satuan,
+            null,          // mntd_operator
             d.spk,
             d.keterangan,
             d.barcode

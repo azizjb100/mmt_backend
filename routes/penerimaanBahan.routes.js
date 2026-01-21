@@ -22,5 +22,6 @@ router.post('/', penerimaanBahanController.saveRecMmt);
 router.put('/:nomor', penerimaanBahanController.saveRecMmt);
 router.delete('/:nomor', penerimaanBahanController.deleteRecMmt);
 
+router.get('/print/:nomor', penerimaanBahanController.printPenerimaanBahan);
 
 module.exports = router;

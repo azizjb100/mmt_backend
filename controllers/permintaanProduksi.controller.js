@@ -66,18 +66,16 @@ exports.savePermintaanProduksi = async (req, res) => {
         if (!header) return res.status(400).json({ message: "Header tidak ditemukan." });
 
         let Nomor = header.nomor && header.nomor !== 'AUTO' ? header.nomor : null;
-        if (!Nomor && !isUpdate) {
-            Nomor = await permintaanProduksiService.getNewNomor();
-        }
 
-        // MAPPING: d.sku (Kode Barang) dan d.barcode (Barcode Roll)
-        const normalizedDetails = (details || []).map(d => ({
+        // Mapping Detail: Pastikan index digunakan sebagai no urut
+        const normalizedDetails = (details || []).map((d, index) => ({
             sku: d.sku,
-            barcode: d.barcode || d.Barcode, // Menangani Barcode (B besar) atau barcode (b kecil)
+            barcode: d.barcode,
             qty: parseFloat(d.qty || 0),
             satuan: d.satuan || null,
-            spk: d.spk || null,
-            keterangan: d.keterangan || null
+            spk: d.spk || "0",
+            keterangan: d.keterangan || null,
+            nourut: index + 1 // Menghasilkan 1, 2, 3...
         }));
 
         const serviceData = {
@@ -86,7 +84,7 @@ exports.savePermintaanProduksi = async (req, res) => {
             LokasiProduksi: header.mnt_lokasiproduksi,
             Tanggal: header.tanggal,
             Keterangan: header.mnt_keterangan || null,
-            User: header.user_modified || header.user_create || 'SYSTEM',
+            User: header.user_create || 'ADMIN',
             Details: normalizedDetails
         };
 
@@ -94,7 +92,6 @@ exports.savePermintaanProduksi = async (req, res) => {
         return res.status(200).json({ message: "Berhasil disimpan", nomor: result.nomor });
 
     } catch (error) {
-        console.error("Error saving Permintaan Produksi:", error);
         return res.status(500).json({ message: "Gagal simpan.", error: error.message });
     }
 };
