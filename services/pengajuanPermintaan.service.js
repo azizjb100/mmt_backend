@@ -55,7 +55,7 @@ exports.getPengajuanData = async (startDate, endDate) => {
                 
                 -- STATUS ACC HEADER (EKAMMT) --
                 CASE 
-                    WHEN t1.pp_acc = 'Y' THEN 'ACC EKAMMT'
+                    WHEN t1.pp_acc_req = 'Y' THEN 'ACC EKAMMT'
                     ELSE 'PENDING'
                 END AS Status_Acc,
                 
