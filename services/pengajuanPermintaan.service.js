@@ -143,21 +143,45 @@ exports.savePengajuan = async (data, nomorToEdit, userLogin) => {
 
         if (nomorToEdit) {
             await connection.query(`
-                UPDATE tpengajuan_permintaan_hdr SET 
-                pp_tanggal = ?, pp_jenis = ?, pp_keterangan = ?, pp_to_user = ?, 
-                pp_gdg_kode = ?, pp_gdg_nama = ?, -- Tambahkan ini
-                date_modified = ?, user_modified = ? 
-                WHERE pp_nomor = ?`,
-                [data.Tanggal, data.Jenis, data.Keterangan, data.Kepada, data.GudangKode, data.GudangNama, serverTime, userLogin, currentNomor]
-            );
+    UPDATE tpengajuan_permintaan_hdr SET 
+    pp_tanggal = ?, 
+    pp_jenis = ?, 
+    pp_keterangan = ?, 
+    pp_to_user = ?, 
+    pp_gdg_kode = ?, 
+    date_modified = ?, 
+    user_modified = ? 
+    WHERE pp_nomor = ?`,
+    [
+      data.Tanggal,
+      data.Jenis,
+      data.Keterangan,
+      data.Kepada,
+      data.GudangKode,
+      serverTime,
+      userLogin,
+      currentNomor
+    ]
+);
+
             await connection.query('DELETE FROM tpengajuan_permintaan_dtl WHERE ppd_pp_nomor = ?', [currentNomor]);
         } else {
             await connection.query(`
-                INSERT INTO tpengajuan_permintaan_hdr 
-                (pp_nomor, pp_tanggal, pp_jenis, pp_keterangan, pp_to_user, pp_gdg_kode, pp_gdg_nama, date_create, user_create) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [currentNomor, data.Tanggal, data.Jenis, data.Keterangan, data.Kepada, data.GudangKode, data.GudangNama, serverTime, userLogin]
-            );
+    INSERT INTO tpengajuan_permintaan_hdr 
+    (pp_nomor, pp_tanggal, pp_jenis, pp_keterangan, pp_to_user, pp_gdg_kode, date_create, user_create) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      currentNomor,
+      data.Tanggal,
+      data.Jenis,
+      data.Keterangan,
+      data.Kepada,
+      data.GudangKode,
+      serverTime,
+      userLogin
+    ]
+);
+
         }
 
         const detailValues = data.Detail.map((d, index) => [
