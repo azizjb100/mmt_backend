@@ -1,51 +1,58 @@
-// backend/src/routes/poMmtRoutes.js
-
-// Menggunakan require untuk semua import (CommonJS)
 const express = require('express');
 const router = express.Router();
 
-// Asumsi: Nama file controller yang benar adalah poMmt.controller.js
-// Sesuaikan path jika controller Anda berada di lokasi lain
-const controller = require('../controllers/poBahanMmt.controller'); 
+const controller = require('../controllers/poBahanMmt.controller');
+const verifyToken = require('../middleware/auth.middleware');
 
+/* =========================
+   SEMUA ROUTE WAJIB LOGIN
+========================= */
+router.use(verifyToken);
 
-// 1. GET /api/mmt/po-bahan/ (Browse/Filter)
-router.get('/', controller.browsePO); 
+/* =========================
+   ROUTE KHUSUS (HARUS DI ATAS)
+========================= */
 
-router.get('/detail', controller.getDetailsPO);
-
-// 2. GET /api/mmt/po-bahan/:nomor (Load Data Header + Detail untuk Edit)
-router.get('/:nomor', controller.getPOById);
-
-
-
-// 3. POST /api/mmt/po-bahan/ (Save/Insert)
-router.post('/', controller.savePO);
-
-// 4. PUT /api/mmt/po-bahan/:nomor (Save/Update)
-router.put('/:nomor', controller.savePO); // Menggunakan fungsi savePO yang sama untuk update
-
-// 5. DELETE /api/mmt/po-bahan/:nomor (Hapus PO)
-router.delete('/:nomor', controller.deletePO);
-
-// 6. PUT /api/mmt/po-bahan/:nomor/toggle-close (Close/Open PO)
-router.put('/:nomor/toggle-close', controller.toggleClose);
-
-// 7. GET /api/mmt/po-bahan/load-mkb/:nomor (Lookup MKB)
-// Perbaikan pada path dan sintaks pemanggilan
-router.get('/load-mkb/:nomor', controller.loadMkbDetail);
-
-router.get('/print/:nomor', controller.getPoDataForPrint);
-
-router.get(
-    '/unfulfilled-mb-detail/:mbNomor', 
-    controller.getUnfulfilledMbDetail
-);
-
+// lookup PO
 router.get('/po/lookup', controller.lookupPO);
-
 router.get('/po/lookup/:nomor', controller.getPODetail);
 
+// load MKB
+router.get('/load-mkb/:nomor', controller.loadMkbDetail);
 
-// Ekspor menggunakan sintaks CommonJS
+// print
+router.get('/print/:nomor', controller.getPoDataForPrint);
+
+// MB detail
+router.get('/unfulfilled-mb-detail/:mbNomor', controller.getUnfulfilledMbDetail);
+
+// detail by query
+router.get('/detail', controller.getDetailsPO);
+
+// ACC Manager
+router.put('/:nomor/acc-manager', controller.accManagerPO);
+
+// toggle close
+router.put('/:nomor/toggle-close', controller.toggleClose);
+
+
+/* =========================
+   CRUD PO
+========================= */
+
+// browse
+router.get('/', controller.browsePO);
+
+// get by nomor (EDIT)
+router.get('/:nomor', controller.getPOById);
+
+// insert
+router.post('/', controller.savePO);
+
+// update
+router.put('/:nomor', controller.savePO);
+
+// delete
+router.delete('/:nomor', controller.deletePO);
+
 module.exports = router;

@@ -50,6 +50,7 @@ exports.getPengajuanData = async (startDate, endDate) => {
                 t3.gdg_nama AS Nama,
                 DATE_FORMAT(t1.pp_tanggal, '%d-%M-%Y') AS Tanggal,
                 t1.pp_jenis AS Jenis,
+                t1.pp_priority AS Priority,
                 t1.pp_keterangan AS Keterangan,
                 t1.pp_to_user AS Ditujukan_Ke,
                 
@@ -168,12 +169,13 @@ exports.savePengajuan = async (data, nomorToEdit, userLogin) => {
         } else {
             await connection.query(`
     INSERT INTO tpengajuan_permintaan_hdr 
-    (pp_nomor, pp_tanggal, pp_jenis, pp_keterangan, pp_to_user, pp_gdg_kode, date_create, user_create) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    (pp_nomor, pp_tanggal,  pp_jenis, pp_priority, pp_keterangan, pp_to_user, pp_gdg_kode, date_create, user_create) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?,?)`,
     [
       currentNomor,
       data.Tanggal,
       data.Jenis,
+      data.Priority,
       data.Keterangan,
       data.Kepada,
       data.GudangKode,
@@ -215,16 +217,17 @@ exports.getPengajuanForLookup = async (startDate, endDate) => {
             t1.pp_nomor AS Nomor,
             DATE_FORMAT(t1.pp_tanggal, '%Y-%m-%d') AS Tanggal,
             t1.pp_jenis AS Jenis,
+            t1.pp_priority AS Priority,
             t1.pp_to_user AS Ditujukan_Ke,
             t1.pp_keterangan AS Keterangan,
 
             'Y' AS StatusAccSpv, 
 
-            t1.pp_acc AS Status_Acc,
+            t1.pp_acc_req AS Status_Acc,
             t2.user_nama AS Pembuat
         FROM tpengajuan_permintaan_hdr t1
         LEFT JOIN tuser t2 ON t1.user_create = t2.user_kode
-        WHERE t1.pp_acc = 'Y'
+        WHERE t1.pp_acc_req = 'Y'
         ORDER BY t1.pp_tanggal DESC, t1.pp_nomor DESC;
 
         `;
@@ -299,7 +302,7 @@ exports.getPengajuanByNomor = async (nomor) => {
                 t1.pp_to_user AS Ditujukan_Ke,
                 t1.pp_gdg_kode AS Gudang, 
                 t2.gdg_nama AS Nama, -- Mengambil Nama dari tabel tgudang
-                t1.pp_acc AS Status_Acc,
+                t1.pp_acc_req AS Status_Acc,
                 t1.pp_acc_req_user AS Acc_SPV
             FROM tpengajuan_permintaan_hdr t1
             LEFT JOIN tgudang t2 ON t2.gdg_kode = t1.pp_gdg_kode
@@ -355,6 +358,7 @@ exports.getPengajuanPermintaanForPrint = async (nomor) => {
                 t1.pp_nomor AS NoPengajuan,
                 t1.pp_jenis AS JenisPengajuan,
                 t1.pp_to_user AS Kepada,
+                t1.pp_priority AS Priority,
                 t1.pp_keterangan AS Keterangan,
                 DATE_FORMAT(t1.pp_tanggal, '%d %M %Y') AS Tanggal,
                 
@@ -362,7 +366,7 @@ exports.getPengajuanPermintaanForPrint = async (nomor) => {
                 IFNULL(u1.user_nama, t1.user_create) AS Dibuat,
                 IFNULL(u2.user_nama, 'EKAMMT') AS Diketahui, -- Sesuai request: ACC oleh EKAMMT
                 
-                t1.pp_acc AS Status_Acc
+                t1.pp_acc_req AS Status_Acc
             FROM tpengajuan_permintaan_hdr t1
             LEFT JOIN tuser u1 ON t1.user_create = u1.user_kode
             LEFT JOIN tuser u2 ON u2.user_kode = 'EKAMMT' -- Join manual untuk ambil nama EKAMMT

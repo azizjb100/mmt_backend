@@ -47,7 +47,8 @@ const loginUser = async (username, password) => {
     divisi: user.user_divisi,
     cab: user.user_cab,
     lihatHarga: user.user_lihat_harga,
-    editReport: user.user_edit_report
+    editReport: user.user_edit_report,
+    user_manager: user.user_manager
   };
 
   // =========================

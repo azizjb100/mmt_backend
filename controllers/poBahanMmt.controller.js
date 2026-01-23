@@ -189,3 +189,21 @@ exports.getPODetail = async (req, res) => {
         res.status(500).json({ status: 'error', message: error.message });
     }
 };
+
+
+exports.accManagerPO = async (req, res) => {
+  try {
+    const { nomor } = req.params;
+    const user = req.user?.KDUSER || 'SYSTEM';
+
+    if (req.user?.user_manager !== 1) {
+      return res.status(403).json({ message: 'Hanya Manager yang boleh ACC PO' });
+    }
+
+    await poMmtService.accManagerPO(nomor, user);
+
+    res.status(200).json({ message: 'PO berhasil di ACC Manager' });
+  } catch (error) {
+    res.status(500).json({ message: 'Gagal ACC PO', error: error.message });
+  }
+};

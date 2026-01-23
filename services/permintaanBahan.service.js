@@ -330,8 +330,8 @@ exports.savePermintaanBahan = async (data, nomorToEdit, userLogin) => {
         if (data.NoPengajuan) {
             const [rows] = await connection.query(`
                 SELECT 
-                    pp_acc      AS acc,
-                    pp_acc_user AS acc_user
+                    pp_acc_req      AS acc,
+                    pp_acc_req_user AS acc_user
                 FROM tpengajuan_permintaan_hdr
                 WHERE pp_nomor = ?
                 LIMIT 1

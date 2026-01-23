@@ -67,6 +67,8 @@ const getPoMmtData = async (startDate, endDate, supplier) => {
       h.po_sup_kode AS KodeSup, 
       s.sup_nama AS Nama, 
       h.po_gdg_kode AS Cab,
+      h.po_acc AS Acc,
+
       CASE
         -- 1. Cek jika PO ditutup secara manual oleh user
         WHEN h.po_isclosed = 1 THEN 'CLOSE'
@@ -136,7 +138,7 @@ const getPOById = async (nomor) => {
       h.po_memo AS Keterangan, h.po_istax AS IsPpn,
       h.po_taxamount AS PpnRate, h.po_isclosed AS IsClosed, h.po_type AS JenisPo,
       h.po_dateline AS Dateline,
-      h.po_kirim AS AlamatPabrik
+      h.po_kirim AS AlamatPabrik,  h.po_acc AS PoAcc   
     FROM tpo_mmt_hdr h
     LEFT JOIN tsupplier s ON h.po_sup_kode = s.sup_kode
     WHERE h.po_nomor = ?`,
@@ -286,31 +288,32 @@ const getPoDataForPrint = async (nomor) => {
   `);
   const comp = compRows[0] || {};
 
-  // ✅ HITUNG ULANG DETAIL SESUAI ATURAN BARU (ROLL → M2)
+  // ✅ HITUNG ULANG DETAIL (AUTO: M2 JIKA ADA, QTY JIKA TIDAK ADA)
   const detailPrint = poData.Detail.map(d => {
-    const qtyRoll = Number(d.jumlah) || 0;   // qty roll
-    const m2 = Number(d.m2) || 0;            // m2 per roll
-    const harga = Number(d.harga) || 0;      // harga per m2
+    const qty = Number(d.jumlah) || 0;        // qty roll / pcs
+    const m2 = Number(d.m2) || 0;             // m2 per unit
+    const harga = Number(d.harga) || 0;       // harga per m2 atau per pcs
 
-    const qtyM2 = qtyRoll * m2;             
-    const total = qtyM2 * harga;            
+    const qtyHitung = m2 > 0 ? qty * m2 : qty;   // ← LOGIKA UTAMA
+    const total = qtyHitung * harga;
 
     return {
       NoUrut: d.no,
       Kode: d.kode,
       Deskripsi: d.namaext || d.nama,
 
-      Quantity: qtyRoll,                     
+      Quantity: qty,
       Satuan: d.satuan,
       UnitPrice: harga,
       Total: total,
 
-      _qtyRoll: qtyRoll,   // (opsional debug)
-      _m2: m2
+      _qty: qty,
+      _m2: m2,
+      _qtyHitung: qtyHitung, // debug jika perlu
     };
   });
 
-  // ✅ SUBTOTAL DARI TOTAL BARU
+  // ✅ SUBTOTAL DARI TOTAL FINAL
   const subTotal = detailPrint.reduce((sum, d) => sum + d.Total, 0);
 
   const ppn =
@@ -324,6 +327,7 @@ const getPoDataForPrint = async (nomor) => {
       Tanggal: formatDateForPrint(poData.Tanggal),
       TglPengiriman: formatDateForPrint(poData.Dateline),
       KeteranganHeader: poData.Keterangan,
+       IsAcc: poData.PoAcc,
       IsPpn: poData.IsPpn,
       PpnRate: poData.PpnRate || 11,
 
@@ -343,6 +347,7 @@ const getPoDataForPrint = async (nomor) => {
     Detail: detailPrint
   };
 };
+
 
 
 const getUnfulfilledMbDetail = async (mbNomor) => {
@@ -491,8 +496,27 @@ const getPODetail = async (poNomor) => {
   }
 };
 
+const accManagerPO = async (nomor, user) => {
+  const [result] = await pool.query(
+    `UPDATE tpo_mmt_hdr
+     SET po_acc = 'Y',
+         user_modified = ?,
+         date_modified = NOW()
+     WHERE po_nomor = ?`,
+    [user, nomor]
+  );
+
+  if (result.affectedRows === 0) {
+    throw new Error('PO tidak ditemukan atau gagal ACC');
+  }
+
+  return true;
+};
+
+
 
 module.exports = {
   getPoMmtData, getPoDetailByNomor, getPoDataForPrint, getPOById, savePoMmt, deletePoMmt,
-  toggleCloseStatus, loadMkbDetail, getUnfulfilledMbDetail, getPOLookupData, getPODetail
+  toggleCloseStatus, loadMkbDetail, getUnfulfilledMbDetail, getPOLookupData, getPODetail, accManagerPO
+
 };

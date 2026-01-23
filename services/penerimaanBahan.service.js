@@ -401,13 +401,14 @@ exports.getBarcodesByNomor = async (nomor) => {
     try {
         const sql = `
             SELECT 
-                mst_brg_kode as kode, 
-                mst_barcode as barcode,
-                b.brg_nama as namaBahan
+                s.mst_brg_kode AS kode, 
+                s.mst_barcode AS barcode,
+                b.brg_nama AS namaBahan
             FROM tmasterstok_mmt s
             JOIN tbarang_mmt b ON s.mst_brg_kode = b.brg_kode
-            WHERE mst_noreferensi = ?
-            ORDER BY mst_barcode ASC
+            WHERE s.mst_noreferensi = ?
+              AND UPPER(b.brg_satuan) = 'ROLL'
+            ORDER BY s.mst_barcode ASC
         `;
         const [rows] = await pool.query(sql, [nomor]);
         return rows;
@@ -415,6 +416,7 @@ exports.getBarcodesByNomor = async (nomor) => {
         throw error;
     }
 };
+
 
 // ============================================================
 // LOOKUP UNTUK INVOICE (Menampilkan Header Penerimaan)
