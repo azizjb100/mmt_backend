@@ -213,32 +213,40 @@ exports.getPengajuanForLookup = async (startDate, endDate) => {
     try {
         // --- 1. AMBIL MASTER (HEADER) ---
         const sqlMaster = `
-                    SELECT 
-            t1.pp_nomor AS Nomor,
-            DATE_FORMAT(t1.pp_tanggal, '%Y-%m-%d') AS Tanggal,
-            t1.pp_jenis AS Jenis,
-            t1.pp_priority AS Priority,
-            t1.pp_to_user AS Ditujukan_Ke,
-            t1.pp_keterangan AS Keterangan,
+            SELECT 
+                t1.pp_nomor AS Nomor,
+                DATE_FORMAT(t1.pp_tanggal, '%Y-%m-%d') AS Tanggal,
+                t1.pp_jenis AS Jenis,
+                t1.pp_priority AS Priority,
+                t1.pp_to_user AS Ditujukan_Ke,
+                t1.pp_keterangan AS Keterangan,
 
-            'Y' AS StatusAccSpv, 
+                'Y' AS StatusAccSpv, 
+                t1.pp_acc_req AS Status_Acc,
+                t2.user_nama AS Pembuat,
 
-            t1.pp_acc_req AS Status_Acc,
-            t2.user_nama AS Pembuat
-        FROM tpengajuan_permintaan_hdr t1
-        LEFT JOIN tuser t2 ON t1.user_create = t2.user_kode
-        WHERE t1.pp_acc_req = 'Y'
-        ORDER BY t1.pp_tanggal DESC, t1.pp_nomor DESC;
+                -- ✅ STATUS SUDAH / BELUM DIPROSES
+                CASE
+                    WHEN EXISTS (
+                        SELECT 1 
+                        FROM tmintabahan_mmt_hdr mb
+                        WHERE mb.mb_pp_nomor = t1.pp_nomor
+                    ) THEN 'CLOSE'
+                    ELSE 'OPEN'
+                END AS Status_Proses
 
+            FROM tpengajuan_permintaan_hdr t1
+            LEFT JOIN tuser t2 ON t1.user_create = t2.user_kode
+            WHERE t1.pp_acc_req = 'Y'
+            ORDER BY t1.pp_tanggal DESC, t1.pp_nomor DESC;
         `;
 
-        const [masterResults] = await pool.query(sqlMaster, [startDate, endDate]);
+        const [masterResults] = await pool.query(sqlMaster);
 
-        // Jika tidak ada hasil header, segera kembalikan array kosong
         const masterNomors = masterResults.map(row => row.Nomor);
         if (masterNomors.length === 0) return [];
 
-        // --- 2. AMBIL DETAIL (Menggunakan IN (?)) ---
+        // --- 2. AMBIL DETAIL ---
         const sqlDetail = `
             SELECT 
                 ppd_pp_nomor AS Nomor, 
@@ -264,28 +272,26 @@ exports.getPengajuanForLookup = async (startDate, endDate) => {
 
         const [detailResults] = await pool.query(sqlDetail, [masterNomors]);
 
-        // --- 3. GABUNGKAN HEADER DAN DETAIL MENGGUNAKAN MAP ---
+        // --- 3. GABUNGKAN HEADER + DETAIL ---
         const dataMap = new Map();
 
-        // Inisialisasi map dengan data header
         masterResults.forEach(item => {
             dataMap.set(item.Nomor, { ...item, Detail: [] });
         });
 
-        // Masukkan detail ke dalam array Detail di header yang sesuai
         detailResults.forEach(detail => {
             if (dataMap.has(detail.Nomor)) {
                 dataMap.get(detail.Nomor).Detail.push(detail);
             }
         });
 
-        // Kembalikan dalam bentuk Array
         return Array.from(dataMap.values());
 
     } catch (error) {
         throwDbError('Gagal mengambil data Lookup Pengajuan Permintaan', error);
     }
 };
+
 
 // ===================================
 // GET BY NOMOR (Untuk ditarik ke Form Minta Bahan)

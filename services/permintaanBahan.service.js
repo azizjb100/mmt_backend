@@ -349,33 +349,36 @@ exports.savePermintaanBahan = async (data, nomorToEdit, userLogin) => {
         if (nomorToEdit) {
 
             const sqlUpdate = `
-                UPDATE tmintabahan_mmt_hdr SET
-                    mb_gdg_kode      = ?,
-                    mb_tanggal       = ?,
-                    mb_to_user       = ?,
-                    mb_to_cab        = ?,
-                    mb_priority      = ?,
-                    mb_keterangan    = ?,
-                    mb_acc_req       = ?,
-                    mb_acc_req_user  = ?,
-                    date_modified    = ?,
-                    user_modified    = ?
-                WHERE mb_nomor = ?
-            `;
+    UPDATE tmintabahan_mmt_hdr SET
+        mb_gdg_kode      = ?,
+        mb_tanggal       = ?,
+        mb_to_user       = ?,
+        mb_to_cab        = ?,
+        mb_priority      = ?,
+        mb_keterangan    = ?,
+        mb_acc_req       = ?,
+        mb_acc_req_user  = ?,
+        mb_pp_nomor      = ?,     
+        date_modified    = ?,
+        user_modified    = ?
+    WHERE mb_nomor = ?
+`;
 
-            await connection.query(sqlUpdate, [
-                data.GudangKode,
-                data.Tanggal,
-                data.Kepada,
-                data.Cabang,
-                data.Priority,
-                data.Keterangan,
-                accSpv,
-                accSpvUser,
-                serverTime,
-                userLogin,
-                currentNomor
-            ]);
+await connection.query(sqlUpdate, [
+    data.GudangKode,
+    data.Tanggal,
+    data.Kepada,
+    data.Cabang,
+    data.Priority,
+    data.Keterangan,
+    accSpv,
+    accSpvUser,
+    data.NoPengajuan || null,   
+    serverTime,
+    userLogin,
+    currentNomor
+]);
+
 
             await connection.query(
                 'DELETE FROM tmintabahan_mmt_dtl WHERE mbd_mb_nomor = ?',
@@ -385,29 +388,32 @@ exports.savePermintaanBahan = async (data, nomorToEdit, userLogin) => {
         } else {
 
             const sqlInsert = `
-                INSERT INTO tmintabahan_mmt_hdr 
-                (
-                    mb_nomor, mb_tanggal, mb_gdg_kode, mb_to_user, 
-                    mb_to_cab, mb_priority, mb_keterangan, 
-                    date_create, user_create,
-                    mb_acc_req, mb_acc_req_user
-                ) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `;
+    INSERT INTO tmintabahan_mmt_hdr 
+    (
+        mb_nomor, mb_tanggal, mb_gdg_kode, mb_to_user, 
+        mb_to_cab, mb_priority, mb_keterangan, 
+        mb_pp_nomor,            
+        date_create, user_create,
+        mb_acc_req, mb_acc_req_user
+    ) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`;
 
-            await connection.query(sqlInsert, [
-                currentNomor,
-                data.Tanggal,
-                data.GudangKode,
-                data.Kepada,
-                data.Cabang,
-                data.Priority,
-                data.Keterangan,
-                serverTime,
-                userLogin,
-                accSpv,
-                accSpvUser
-            ]);
+await connection.query(sqlInsert, [
+    currentNomor,
+    data.Tanggal,
+    data.GudangKode,
+    data.Kepada,
+    data.Cabang,
+    data.Priority,
+    data.Keterangan,
+    data.NoPengajuan || null,   
+    serverTime,
+    userLogin,
+    accSpv,
+    accSpvUser
+]);
+
         }
 
         // =====================================
