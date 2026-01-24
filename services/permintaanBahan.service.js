@@ -13,124 +13,75 @@ const throwDbError = (message, error) => {
 // ===================================
 // READ ALL (getPermintaanBahanData)
 // ===================================
-exports.getPermintaanBahanData = async (startDate, endDate) => {
+exports.getInvoicePembelianData = async (startDate, endDate) => {
     try {
-        // --- 1. Sub-query Agregasi (Menghitung item yang di-ACC dan total baris) ---
-        const sqlAggregates = `
-            SELECT
-                mbd_mb_nomor,
-                SUM(CASE WHEN mbd_acc = 'Y' THEN mbd_qty ELSE 0 END) AS Total_Diminta,
-                SUM(CASE WHEN mbd_acc = 'Y' THEN mbd_qty_po ELSE 0 END) AS Total_DiPO,
-                SUM(CASE WHEN mbd_acc = 'Y' THEN mbd_qty_terima ELSE 0 END) AS Total_Diterima,
-                COUNT(CASE WHEN mbd_acc = 'Y' THEN 1 END) AS Jml_Item_Acc,
-                COUNT(*) AS Total_Baris_Detail
-            FROM tmintabahan_mmt_dtl
-            GROUP BY mbd_mb_nomor
-        `;
-
+        // --- 1. Query Master (Header) ---
         const sqlMaster = `
             SELECT
-                t1.mb_nomor AS Nomor,
-                t1.mb_gdg_kode AS Gudang,
-                t3.gdg_nama AS Nama,
-                DATE_FORMAT(t1.mb_tanggal, '%d-%M-%Y') AS Tanggal,
-                t1.mb_keterangan AS Keterangan,
-                
-                -- STATUS ACC HEADER --
-                CASE 
-                    WHEN t1.mb_acc = 'Y' THEN 'Acc Manager'
-                    WHEN t1.mb_acc_req = 'Y' THEN 'Acc SPV'
-                    ELSE 'PENDING'
-                END AS Status_Acc,
-                
-                -- DATA AGREGASI
-                IFNULL(t2.Total_Diminta, 0) AS Total_Diminta,
-                IFNULL(t2.Total_DiPO, 0) AS Total_DiPO,
-                IFNULL(t2.Total_Diterima, 0) AS Total_Diterima,
-
-                -- LOGIKA STATUS PO (PERBAIKAN) --
-                CASE
-                    -- Jika tidak ada detail sama sekali, status OPEN
-                    WHEN t2.Total_Baris_Detail IS NULL OR t2.Total_Baris_Detail = 0 THEN 'OPEN'
-                    
-                    -- Jika Manager sudah proses tapi SEMUA item ditolak (Is_Acc = 'N' semua)
-                    -- Maka status CLOSED karena tidak ada yang bisa dibuatkan PO
-                    WHEN t1.mb_acc = 'Y' AND IFNULL(t2.Jml_Item_Acc, 0) = 0 THEN 'CLOSED'
-                    
-                    -- Jika ada item di-ACC dan sudah terpenuhi oleh PO
-                    WHEN t2.Jml_Item_Acc > 0 AND t2.Total_DiPO >= t2.Total_Diminta THEN 'CLOSED'
-                    
-                    -- Jika sudah ada PO yang dibuat (sebagian)
-                    WHEN t2.Total_DiPO > 0 THEN 'ONPROSES'
-                    
-                    -- Selain itu OPEN
-                    ELSE 'OPEN'
-                END AS Status_PO,
-
-                -- LOGIKA STATUS DITERIMA (PERBAIKAN) --
-                CASE
-                    WHEN t2.Total_Baris_Detail IS NULL OR t2.Total_Baris_Detail = 0 THEN 'OPEN'
-                    WHEN t1.mb_acc = 'Y' AND IFNULL(t2.Jml_Item_Acc, 0) = 0 THEN 'CLOSED'
-                    WHEN t2.Jml_Item_Acc > 0 AND t2.Total_Diterima >= t2.Total_Diminta THEN 'CLOSED'
-                    WHEN t2.Total_Diterima > 0 THEN 'ONPROSES'
-                    ELSE 'OPEN'
-                END AS Status_Diterima
-
-            FROM tmintabahan_mmt_hdr t1
-            LEFT JOIN (${sqlAggregates}) t2 ON t2.mbd_mb_nomor = t1.mb_nomor
-            LEFT JOIN tgudang t3 ON t3.gdg_kode = t1.mb_gdg_kode
-            LEFT JOIN tuser tu ON t1.user_create = tu.user_kode 
-            WHERE t1.mb_tanggal BETWEEN ? AND ?
-            ORDER BY t1.mb_tanggal DESC;
+                h.invp_nomor AS Nomor,
+                DATE_FORMAT(h.invp_tanggal,'%d-%m-%Y') AS Tanggal,
+                s.sup_nama AS Supplier,
+                h.invp_status AS Status,
+                IFNULL(SUM(d.invpd_jumlah * d.invpd_harga), 0) AS Total
+            FROM tinvp_hdr h
+            LEFT JOIN tsupplier s ON s.sup_kode = h.invp_sup_kode
+            LEFT JOIN tinvp_dtl d ON d.invpd_inv_nomor = h.invp_nomor
+            WHERE h.invp_tanggal BETWEEN ? AND ?
+            GROUP BY h.invp_nomor, h.invp_tanggal, s.sup_nama, h.invp_status
+            ORDER BY h.invp_tanggal DESC
         `;
 
         const [masterResults] = await pool.query(sqlMaster, [startDate, endDate]);
-        const masterNomors = masterResults.map(row => row.Nomor);
+        
+        // Jika tidak ada data, langsung kembalikan array kosong
+        if (masterResults.length === 0) return [];
 
-        if (masterNomors.length === 0) return [];
+        // Ambil semua nomor invoice untuk filter detail
+        const masterNomors = masterResults.map(row => row.Nomor);
 
         // --- 2. Query Detail ---
         const sqlDetail = `
             SELECT
-                mbd_mb_nomor AS Nomor, 
-                mbd_spk_nomor AS Nomor_SPK, 
-                TRIM(spk_nama) AS spk_nama,
-                brg_kode AS Kode, 
-                mbd_acc AS Is_Acc, 
-                mbd_qty_terima AS Jumlah_terima, 
-                TRIM(brg_nama) AS Nama_Bahan, 
-                mbd_qty AS Jumlah,
-                mbd_brg_satuan AS Satuan, 
-                brg_panjang AS Panjang, 
-                brg_lebar AS Lebar
-            FROM tmintabahan_mmt_dtl
-            LEFT JOIN tbarang_mmt ON mbd_brg_kode = brg_kode
-            LEFT JOIN (
-                SELECT spk_nomor, spk_nama FROM tspk 
-                UNION ALL 
-                SELECT mspk_nomor, mspk_nama FROM tmemospk
-            ) x ON x.spk_nomor = mbd_spk_nomor
-            WHERE mbd_mb_nomor IN (?)
-            ORDER BY mbd_mb_nomor, mbd_nourut;
+                invpd_inv_nomor AS Nomor,
+                invpd_nourut AS NoUrut,
+                invpd_brg_kode AS Kode,
+                invpd_brg_nama AS Nama,
+                invpd_satuan AS Satuan,
+                invpd_jumlah AS Jumlah,
+                invpd_harga AS Harga,
+                (invpd_jumlah * invpd_harga) AS SubTotal
+            FROM tinvp_dtl
+            WHERE invpd_inv_nomor IN (?)
+            ORDER BY invpd_inv_nomor, invpd_nourut
         `;
 
         const [detailResults] = await pool.query(sqlDetail, [masterNomors]);
 
-        // --- 3. Mapping Data ---
+        // --- 3. Mapping Data (Menggabungkan Master dan Detail) ---
         const dataMap = new Map();
-        masterResults.forEach(item => dataMap.set(item.Nomor, { ...item, Detail: [] }));
+        
+        // Inisialisasi Map dengan data Header
+        masterResults.forEach(item => {
+            dataMap.set(item.Nomor, { 
+                ...item, 
+                Detail: [] 
+            });
+        });
 
+        // Masukkan Detail ke dalam Header yang sesuai
         detailResults.forEach(detail => {
             if (dataMap.has(detail.Nomor)) {
-                dataMap.get(detail.Nomor).Detail.push(detail);
+                // Hapus properti 'Nomor' dari objek detail agar tidak double di dalam array
+                const { Nomor, ...detailContent } = detail;
+                dataMap.get(Nomor).Detail.push(detailContent);
             }
         });
 
+        // Kembalikan hasil sebagai array
         return Array.from(dataMap.values());
 
     } catch (error) {
-        console.error("Database Error:", error);
-        throw new Error('Gagal mengambil data Permintaan Bahan');
+        throwDbError('Gagal mengambil data Invoice Pembelian', error);
     }
 };
 
@@ -201,18 +152,37 @@ exports.getPermintaanBahanByNomor = async (nomor) => {
 exports.getPermintaanBahanForLookup = async (startDate, endDate, status = 'OPEN') => {
     try {
         const sqlMaster = `
-            SELECT
-                mb_nomor AS Nomor,
-                DATE_FORMAT(mb_tanggal, '%Y-%m-%d') AS Tanggal,
-                mb_gdg_kode AS KodeGudang,
-                gdg_nama AS NamaGudang,
-                mb_keterangan AS Keterangan,
-                mb_acc AS ACC
-            FROM tmintabahan_mmt_hdr
-            LEFT JOIN tgudang ON gdg_kode = mb_gdg_kode
-            WHERE mb_close_po = 0
-            ORDER BY mb_tanggal DESC, mb_nomor DESC;
-        `;
+SELECT
+    h.mb_nomor AS Nomor,
+    DATE_FORMAT(h.mb_tanggal, '%Y-%m-%d') AS Tanggal,
+    h.mb_gdg_kode AS KodeGudang,
+    g.gdg_nama AS NamaGudang,
+    h.mb_keterangan AS Keterangan,
+    h.mb_acc AS ACC,
+
+    CASE
+        WHEN IFNULL(a.Jml_Item_Acc,0) = 0 THEN 'OPEN'
+        WHEN IFNULL(a.Total_DiPO,0) = 0 THEN 'OPEN'
+        WHEN a.Total_DiPO >= a.Total_Diminta THEN 'CLOSE'
+        ELSE 'PROGRESS'
+    END AS Status_Proses
+
+FROM tmintabahan_mmt_hdr h
+LEFT JOIN tgudang g ON g.gdg_kode = h.mb_gdg_kode
+
+LEFT JOIN (
+    SELECT
+        mbd_mb_nomor,
+        SUM(CASE WHEN mbd_acc='Y' THEN mbd_qty ELSE 0 END) AS Total_Diminta,
+        SUM(CASE WHEN mbd_acc='Y' THEN IFNULL(mbd_qty_po,0) ELSE 0 END) AS Total_DiPO,
+        COUNT(CASE WHEN mbd_acc='Y' THEN 1 END) AS Jml_Item_Acc
+    FROM tmintabahan_mmt_dtl
+    GROUP BY mbd_mb_nomor
+) a ON a.mbd_mb_nomor = h.mb_nomor
+
+ORDER BY h.mb_tanggal DESC, h.mb_nomor DESC
+`;
+
 
         const filterStatus = (status === 'OPEN' || status === 'PENDING') ? 'N' : 'Y';
         const [masterResults] = await pool.query(sqlMaster, [startDate, endDate, filterStatus]);

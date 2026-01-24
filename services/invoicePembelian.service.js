@@ -138,7 +138,7 @@ exports.saveInvoicePembelian = async (data, nomorToEdit, userLogin) => {
 
         const currentNomor = nomorToEdit
             ? nomorToEdit
-            : await exports.generateMaxKode(data.inv_perush_kode || 'PRSH', data.inv_tanggal);
+            : await exports.generateMaxKode(data.inv_perush_kode || 'KP', data.inv_tanggal);
 
         const serverTime = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
 

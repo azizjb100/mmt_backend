@@ -178,6 +178,8 @@ exports.getBarangWithStok = async (keyword, gdg_kode, tanggal) => {
 
 // backend/src/services/koreksiStokMmt.service.js
 
+// backend/src/services/koreksiStokMmt.service.js
+
 exports.saveKoreksiStokMMT = async (payload, user) => {
   const connection = await pool.getConnection();
   try {
@@ -186,12 +188,12 @@ exports.saveKoreksiStokMMT = async (payload, user) => {
     const { header, details } = payload;
     let nomor = header.Nomor;
 
-    // 1. Jika data baru (Nomor masih 'AUTO'), generate nomor baru
+    // 1. Generate nomor jika AUTO
     if (nomor === 'AUTO' || !nomor) {
       nomor = await this.generateMaxKode(header.Tanggal);
     }
 
-    // 2. Simpan atau Update Header (tkor_hdr_mmt)
+    // 2. Simpan atau Update Header
     const sqlHeader = `
       INSERT INTO tkor_hdr_mmt (
         korh_nomor, korh_tanggal, korh_gdg_kode, korh_type, 
@@ -208,34 +210,43 @@ exports.saveKoreksiStokMMT = async (payload, user) => {
         user_modified = ?
     `;
     
-    // Hitung total nilai untuk disimpan di header
     const totalNilai = details.reduce((acc, curr) => acc + (curr.Nilai || 0), 0);
-
     await connection.query(sqlHeader, [
       nomor, header.Tanggal, header.GudangKode, header.TypeKor, 
       header.Keterangan, totalNilai, user, user
     ]);
 
-    // 3. Hapus Detail lama (karena ini sistem replace detail sesuai logic Delphi)
+    // 3. Hapus Detail lama
     await connection.query("DELETE FROM tkor_dtl_mmt WHERE kord_korh_nomor = ?", [nomor]);
 
-    // 4. Simpan Detail baru (tkor_dtl_mmt)
+    // 4. Simpan Detail baru (PERBAIKAN DI SINI)
     if (details.length > 0) {
-      // Pastikan SKU ada isinya sebelum diinsert
       const validDetails = details.filter(d => d.SKU);
       
-      const detailValues = validDetails.map((d, i) => [
-        nomor, 
-        d.SKU, 
-        d.Satuan, 
-        d.Expired || '0000-00-00', 
-        d.Qty,      // Selisih
-        d.Harga, 
-        d.Nilai, 
-        d.Fisik, 
-        d.System,   // Stok Sistem
-        i + 1       // No Urut
-      ]);
+      // Ambil tanggal hari ini untuk fallback jika expired kosong
+      const today = format(new Date(), 'yyyy-MM-dd');
+
+      const detailValues = validDetails.map((d, i) => {
+        // Logika penanganan tanggal expired:
+        // Jika d.Expired ada isinya, gunakan itu. 
+        // Jika kosong/null, gunakan tanggal hari ini (today).
+        const expiredDate = (d.Expired && d.Expired !== '' && d.Expired !== '0000-00-00') 
+                            ? format(new Date(d.Expired), 'yyyy-MM-dd') 
+                            : today;
+
+        return [
+          nomor, 
+          d.SKU, 
+          d.Satuan, 
+          expiredDate, // Sudah pasti berisi yyyy-MM-dd, bukan 0000-00-00
+          d.Qty,
+          d.Harga, 
+          d.Nilai, 
+          d.Fisik, 
+          d.System,
+          i + 1
+        ];
+      });
 
       const sqlDetail = `
         INSERT INTO tkor_dtl_mmt (
