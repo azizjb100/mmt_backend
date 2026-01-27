@@ -14,14 +14,21 @@ const throwDbError = (message, error) => {
 // ========================================================
 exports.getKoreksiStokData = async (startDate, endDate) => {
   try {
-    // TAHAP 1: Ambil Master (Gunakan query yang sudah terbukti berhasil ini)
+    // TAHAP 1: Ambil Master
     const sqlMaster = `
-      SELECT a.korh_nomor AS Nomor, DATE_FORMAT(a.korh_tanggal, '%d-%M-%Y') AS Tanggal, 
-             b.gdg_nama AS Gudang, a.korh_type AS Tipe, c.nama AS Nama, a.korh_notes AS Keterangan
+      SELECT 
+        a.korh_nomor AS Nomor, 
+        DATE_FORMAT(a.korh_tanggal, '%d-%M-%Y') AS Tanggal, 
+        b.gdg_nama AS Gudang, 
+        a.korh_type AS Tipe, 
+        c.nama AS Nama, 
+        a.korh_notes AS Keterangan
       FROM tkor_hdr_mmt a
       LEFT JOIN tgudang b ON b.gdg_kode = a.korh_gdg_kode
       LEFT JOIN tkor_type c ON c.kode = a.korh_type
-      WHERE a.korh_tanggal BETWEEN ? AND ? AND IFNULL(a.korh_typekor, 0) = 0 AND b.gdg_kode LIKE '%WH-%'
+      WHERE a.korh_tanggal BETWEEN ? AND ? 
+        AND IFNULL(a.korh_typekor, 0) = 0 
+        AND b.gdg_kode LIKE '%WH-%'
       GROUP BY a.korh_nomor, a.korh_tanggal, a.korh_notes, b.gdg_nama, a.korh_type, c.nama
       ORDER BY a.korh_tanggal DESC`;
 
@@ -33,23 +40,48 @@ exports.getKoreksiStokData = async (startDate, endDate) => {
     const [masterRows] = await pool.query(sqlMaster, params);
     if (masterRows.length === 0) return [];
 
-    // TAHAP 2: Ambil Detail berdasarkan Nomor yang didapat
     const nomorList = masterRows.map(m => m.Nomor);
-    const [detailRows] = await pool.query(
-      `SELECT kord_korh_nomor AS Nomor, kord_brg_kode AS Kode, brg_nama AS Nama, 
-              kord_stok AS Stock, kord_fisik AS Fisik, kord_qty AS Koreksi
-       FROM tkor_dtl_mmt
-       JOIN tbarang_mmt ON kord_brg_kode = brg_kode
-       WHERE kord_korh_nomor IN (?)`, [nomorList]
-    );
 
-    // TAHAP 3: Gabungkan (Mapping)
-    return masterRows.map(m => ({
-      ...m,
-      Detail: detailRows.filter(d => d.Nomor === m.Nomor)
-    }));
+    // TAHAP 2: Ambil Detail + Subquery untuk List_Barcode (SAMA DENGAN PENERIMAAN)
+    const sqlDetail = `
+      SELECT 
+        d.kord_korh_nomor AS Nomor, 
+        d.kord_brg_kode AS Kode, 
+        b.brg_nama AS Nama_Bahan, 
+        d.kord_stok AS Stock, 
+        d.kord_panjang AS Panjang, 
+        d.kord_lebar AS Lebar,
+        d.kord_fisik AS Fisik, 
+        d.kord_qty AS Koreksi,
+        d.kord_satuan AS Satuan,
+        -- Mengambil barcode unik dari tabel stok berdasarkan nomor referensi koreksi
+        (SELECT GROUP_CONCAT(mst_barcode ORDER BY mst_barcode ASC) 
+         FROM tmasterstok_mmt 
+         WHERE mst_noreferensi = d.kord_korh_nomor 
+         AND mst_brg_kode = d.kord_brg_kode) AS List_Barcode
+      FROM tkor_dtl_mmt d
+      JOIN tbarang_mmt b ON d.kord_brg_kode = b.brg_kode
+      WHERE d.kord_korh_nomor IN (?)
+      ORDER BY d.kord_korh_nomor, d.kord_nourut`;
+
+    const [detailRows] = await pool.query(sqlDetail, [nomorList]);
+
+    // TAHAP 3: Gabungkan (Mapping menggunakan Map agar lebih cepat)
+    const dataMap = new Map();
+    masterRows.forEach(item => {
+      dataMap.set(item.Nomor, { ...item, Detail: [] });
+    });
+
+    detailRows.forEach(detail => {
+      if (dataMap.has(detail.Nomor)) {
+        dataMap.get(detail.Nomor).Detail.push(detail);
+      }
+    });
+
+    return Array.from(dataMap.values());
 
   } catch (error) {
+    console.error("Gagal mengambil data koreksi stok:", error);
     throw error;
   }
 };
@@ -178,8 +210,6 @@ exports.getBarangWithStok = async (keyword, gdg_kode, tanggal) => {
 
 // backend/src/services/koreksiStokMmt.service.js
 
-// backend/src/services/koreksiStokMmt.service.js
-
 exports.saveKoreksiStokMMT = async (payload, user) => {
   const connection = await pool.getConnection();
   try {
@@ -210,26 +240,23 @@ exports.saveKoreksiStokMMT = async (payload, user) => {
         user_modified = ?
     `;
     
-    const totalNilai = details.reduce((acc, curr) => acc + (curr.Nilai || 0), 0);
+    // Pastikan totalNilai adalah angka
+    const totalNilai = details.reduce((acc, curr) => acc + (Number(curr.Nilai) || 0), 0);
+    
     await connection.query(sqlHeader, [
       nomor, header.Tanggal, header.GudangKode, header.TypeKor, 
-      header.Keterangan, totalNilai, user, user
+      header.Keterangan || '', totalNilai, user, user
     ]);
 
     // 3. Hapus Detail lama
     await connection.query("DELETE FROM tkor_dtl_mmt WHERE kord_korh_nomor = ?", [nomor]);
 
-    // 4. Simpan Detail baru (PERBAIKAN DI SINI)
+    // 4. Simpan Detail baru
     if (details.length > 0) {
       const validDetails = details.filter(d => d.SKU);
-      
-      // Ambil tanggal hari ini untuk fallback jika expired kosong
       const today = format(new Date(), 'yyyy-MM-dd');
 
       const detailValues = validDetails.map((d, i) => {
-        // Logika penanganan tanggal expired:
-        // Jika d.Expired ada isinya, gunakan itu. 
-        // Jika kosong/null, gunakan tanggal hari ini (today).
         const expiredDate = (d.Expired && d.Expired !== '' && d.Expired !== '0000-00-00') 
                             ? format(new Date(d.Expired), 'yyyy-MM-dd') 
                             : today;
@@ -237,21 +264,24 @@ exports.saveKoreksiStokMMT = async (payload, user) => {
         return [
           nomor, 
           d.SKU, 
-          d.Satuan, 
-          expiredDate, // Sudah pasti berisi yyyy-MM-dd, bukan 0000-00-00
-          d.Qty,
-          d.Harga, 
-          d.Nilai, 
-          d.Fisik, 
-          d.System,
-          i + 1
+          d.Satuan || '', 
+          expiredDate,
+          Number(d.Qty) || 0,       // KORD_QTY
+          Number(d.Panjang) || 0,   // KORD_PANJANG (Solusi Error Truncated)
+          Number(d.Lebar) || 0,     // KORD_LEBAR
+          Number(d.Harga) || 0,     // KORD_HARGA
+          Number(d.Nilai) || 0,     // KORD_NILAI
+          Number(d.Fisik) || 0,     // KORD_FISIK
+          Number(d.System) || 0,    // KORD_STOK
+          i + 1                     // KORD_NOURUT
         ];
       });
 
       const sqlDetail = `
         INSERT INTO tkor_dtl_mmt (
           kord_korh_nomor, kord_brg_kode, kord_satuan, kord_expired, 
-          kord_qty, kord_harga, kord_nilai, kord_fisik, kord_stok, kord_nourut
+          kord_qty, kord_panjang, kord_lebar, kord_harga, kord_nilai, 
+          kord_fisik, kord_stok, kord_nourut
         )
         VALUES ?
       `;
@@ -262,6 +292,7 @@ exports.saveKoreksiStokMMT = async (payload, user) => {
     return { success: true, nomor: nomor };
   } catch (error) {
     await connection.rollback();
+    console.error("Error in saveKoreksiStokMMT:", error.message);
     throw error;
   } finally {
     connection.release();
