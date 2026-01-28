@@ -20,12 +20,11 @@ exports.getKoreksiStokData = async (startDate, endDate) => {
         a.korh_nomor AS Nomor, 
         DATE_FORMAT(a.korh_tanggal, '%d-%M-%Y') AS Tanggal, 
         b.gdg_nama AS Gudang, 
-        a.korh_type AS Tipe, 
-        c.nama AS Nama, 
+        c.nama AS Tipe_Nama, 
         a.korh_notes AS Keterangan
       FROM tkor_hdr_mmt a
       LEFT JOIN tgudang b ON b.gdg_kode = a.korh_gdg_kode
-      LEFT JOIN tkor_type c ON c.kode = a.korh_type
+      LEFT JOIN tkor_type_mmt c ON c.kode = a.korh_type
       WHERE a.korh_tanggal BETWEEN ? AND ? 
         AND IFNULL(a.korh_typekor, 0) = 0 
         AND b.gdg_kode LIKE '%WH-%' OR b.gdg_kode = 'GPM'
