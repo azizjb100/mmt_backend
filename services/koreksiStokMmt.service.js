@@ -28,7 +28,7 @@ exports.getKoreksiStokData = async (startDate, endDate) => {
       LEFT JOIN tkor_type c ON c.kode = a.korh_type
       WHERE a.korh_tanggal BETWEEN ? AND ? 
         AND IFNULL(a.korh_typekor, 0) = 0 
-        AND b.gdg_kode LIKE '%WH-%'
+        AND b.gdg_kode LIKE '%WH-%' OR b.gdg_kode = 'GPM'
       GROUP BY a.korh_nomor, a.korh_tanggal, a.korh_notes, b.gdg_nama, a.korh_type, c.nama
       ORDER BY a.korh_tanggal DESC`;
 

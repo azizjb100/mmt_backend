@@ -1,0 +1,155 @@
+// backend/src/services/permintaanProduksi.service.js
+
+const pool = require('../config/db.config');
+const { format } = require('date-fns');
+
+const throwDbError = (message, error) => { throw new Error(message + ': ' + error.message); };
+
+// ===================================
+// 1. READ (Browse & Detail)
+// ===================================
+
+exports.getPermintaanProduksiData = async (startDate, endDate) => {
+    try {
+        const sqlMaster = `
+            SELECT
+                mnt_nomor AS Nomor, 
+                mnt_gdg_kode AS Gudang, 
+                DATE_FORMAT(mnt_tanggal, '%d-%M-%Y') AS Tanggal, 
+                mnt_keterangan AS Keterangan,
+                mnt_lokasiproduksi AS Lokasi,
+                mnt_status AS Status
+            FROM tpermintaan_prod_hdr
+            WHERE mnt_tanggal BETWEEN ? AND ?
+            ORDER BY mnt_tanggal DESC;
+        `;
+
+        const [masterResults] = await pool.query(sqlMaster, [startDate, endDate]);
+        const masterNomors = masterResults.map(row => row.Nomor);
+        if (masterNomors.length === 0) return [];
+
+        const sqlDetail = `
+            SELECT
+                mntd_mnt_nomor AS Nomor, 
+                mntd_brg_kode AS Kode, 
+                mntd_spk_nomor AS Nomor_SPK,
+                mntd_qty AS Jumlah, 
+                mntd_brg_satuan AS Satuan,
+                mntd_keterangan AS Keterangan,
+                mntd_nourut AS NoUrut
+            FROM tpermintaan_prod_dtl
+            WHERE mntd_mnt_nomor IN (?)
+            ORDER BY mntd_mnt_nomor, mntd_nourut;
+        `;
+
+        const [detailResults] = await pool.query(sqlDetail, [masterNomors]);
+
+        const dataMap = new Map();
+        masterResults.forEach(item => dataMap.set(item.Nomor, { ...item, Detail: [] }));
+        detailResults.forEach(detail => {
+            if (dataMap.has(detail.Nomor)) {
+                dataMap.get(detail.Nomor).Detail.push(detail);
+            }
+        });
+
+        return Array.from(dataMap.values());
+    } catch (error) {
+        throwDbError('Gagal mengambil data Permintaan Produksi', error);
+    }
+};
+
+// ===================================
+// 2. GENERATE NOMOR (getmaxkode)
+// ===================================
+
+exports.getNewNomor = async () => {
+    const NOMERATOR = 'MNT';
+    try {
+        const currentYYMM = format(new Date(), 'yyMMdd'); 
+        const searchPattern = `${NOMERATOR}-${currentYYMM}-%`;
+
+        const sql = `SELECT MAX(mnt_nomor) AS MaxNomor FROM tpermintaan_prod_hdr WHERE mnt_nomor LIKE ?;`;
+        const [results] = await pool.query(sql, [searchPattern]);
+
+        const maxNomor = results[0].MaxNomor;
+        let newNumber = '0001';
+
+        if (maxNomor) {
+            const lastNumberString = maxNomor.split('-').pop();
+            const lastNumber = parseInt(lastNumberString, 10);
+            newNumber = (lastNumber + 1).toString().padStart(4, '0');
+        }
+
+        return `${NOMERATOR}-${currentYYMM}-${newNumber}`;
+    } catch (error) {
+        throwDbError('Gagal mendapatkan nomor dokumen baru', error);
+    }
+};
+
+// ===================================
+// 3. SAVE / UPDATE (cxButton1Click)
+// ===================================
+
+exports.savePermintaanProduksi = async (data, isUpdate = false) => {
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+        let { Nomor, Tanggal, Departemen, Keterangan, Details, User } = data;
+
+        if (!isUpdate && (!Nomor || Nomor === 'AUTO')) {
+            Nomor = await exports.getNewNomor();
+        }
+
+        if (isUpdate) {
+            await connection.query(
+                `UPDATE tpermintaan_prod_hdr SET mnt_tanggal=?, mnt_keterangan=?, mnt_lokasiproduksi=?, user_modified=?, date_modified=NOW() WHERE mnt_nomor=?`,
+                [Tanggal, Keterangan, Departemen, User, Nomor]
+            );
+            await connection.query('DELETE FROM tpermintaan_prod_dtl WHERE mntd_mnt_nomor = ?', [Nomor]);
+        } else {
+            await connection.query(
+                `INSERT INTO tpermintaan_prod_hdr (mnt_nomor, mnt_tanggal, mnt_gdg_kode, mnt_keterangan, mnt_lokasiproduksi, user_create, date_create) VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+                [Nomor, Tanggal, 'WH-01', Keterangan, Departemen, User]
+            );
+        }
+
+        const detailValues = Details.map((d, index) => [
+            Nomor, d.spk || '', d.sku, d.satuan, d.qtyMinta, d.keterangan || '', index + 1
+        ]);
+
+        if (detailValues.length > 0) {
+            await connection.query(
+                `INSERT INTO tpermintaan_prod_dtl (mntd_mnt_nomor, mntd_spk_nomor, mntd_brg_kode, mntd_brg_satuan, mntd_qty, mntd_keterangan, mntd_nourut) VALUES ?`,
+                [detailValues]
+            );
+        }
+
+        await connection.commit();
+        return { success: true, nomor: Nomor };
+    } catch (error) {
+        await connection.rollback();
+        throw error;
+    } finally {
+        connection.release();
+    }
+};
+
+// ===================================
+// 4. DELETE
+// ===================================
+
+exports.deletePermintaanProduksi = async (nomor) => {
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+        await connection.query('DELETE FROM tpermintaan_prod_dtl WHERE mntd_mnt_nomor = ?', [nomor]);
+        const [result] = await connection.query('DELETE FROM tpermintaan_prod_hdr WHERE mnt_nomor = ?', [nomor]);
+        await connection.commit();
+        return result.affectedRows > 0;
+    } catch (error) {
+        await connection.rollback();
+        throwDbError('Gagal menghapus data', error);
+    } finally {
+        connection.release();
+    }
+};

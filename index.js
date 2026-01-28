@@ -32,6 +32,8 @@ const lapLmkpMmtRoutes = require("./routes/lapLmkpMmt.routes");
 const invoicePembelianRoutes = require("./routes/invoicePembelian.routes");
 const customerRoutes = require("./routes/customer.routes");
 const pengajuanPermintaanRoutes = require("./routes/pengajuanPermintaan.routes");
+const permintaanProduksiBahanRoutes = require("./routes/permintaanProduksiBahan.routes");
+
 
 
 
@@ -121,6 +123,9 @@ app.use("/api/mmt/lookup-pabrik", lookupPabrikRoutes);
 app.use("/api/mmt/invoice", invoicePembelianRoutes);
 app.use("/api/mmt/customer", customerRoutes);
 app.use("/api/mmt/pengajuan-permintaan", pengajuanPermintaanRoutes);
+app.use("/api/mmt/permintaan-produksi-bahan", permintaanProduksiBahanRoutes);
+
+
 
 
 
