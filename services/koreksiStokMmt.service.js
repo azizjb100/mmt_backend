@@ -148,6 +148,7 @@ exports.getStokGudangAll = async (gdg_kode, tanggal) => {
             brg_kode AS Kode,
             brg_nama AS Nama,
             brg_satuan AS Satuan,
+            brg_panjang AS Panjang,
             brg_lebar AS Lebar,
             gdg_nama AS Gudang,
             SUM(mst_stok_in - mst_stok_out) AS Stok,
@@ -159,7 +160,7 @@ exports.getStokGudangAll = async (gdg_kode, tanggal) => {
           AND mst_tanggal <= ?
           AND gdg_kode LIKE '%WH-%'
           AND brg_satuan = 'ROLL' -- Tambahkan baris ini untuk filter satuan
-        GROUP BY mst_gdg_kode, brg_kode, brg_lebar, gdg_nama, brg_nama, brg_satuan
+        GROUP BY mst_gdg_kode, brg_kode,  brg_lebar, gdg_nama, brg_nama, brg_satuan
         ORDER BY brg_kode ASC;
     `;
     try {
