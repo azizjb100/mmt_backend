@@ -149,27 +149,31 @@ exports.saveBatchBarcode = async (items, user) => {
 
 exports.getHistory = async () => {
     // Ambil Header (Dikelompokkan per No Referensi)
-    const [headers] = await pool.query(
+   const [headers] = await pool.query(
         `SELECT 
-            mst_noreferensi, 
-            mst_tanggal, 
-            COUNT(mst_barcode) as total_qty,
-            mst_gdg_kode
-         FROM tmasterstok_mmt 
-         WHERE mst_gdg_kode = 'WH-16'
-         GROUP BY mst_noreferensi, mst_tanggal, mst_gdg_kode
-         ORDER BY mst_tanggal DESC, mst_noreferensi DESC 
-         LIMIT 50`
+            a.mst_noreferensi, 
+            a.mst_tanggal, 
+            COUNT(a.mst_barcode) as total_qty,
+            a.mst_gdg_kode
+         FROM tmasterstok_mmt a
+         WHERE a.mst_gdg_kode = 'WH-16'
+         GROUP BY a.mst_noreferensi, a.mst_tanggal, a.mst_gdg_kode
+         ORDER BY a.mst_tanggal DESC LIMIT 50`
     );
 
-    // Ambil Detail (Semua barcode terkait)
     const [details] = await pool.query(
-        `SELECT mst_noreferensi, mst_barcode, mst_brg_kode, mst_panjang, mst_lebar 
-         FROM tmasterstok_mmt 
-         WHERE mst_gdg_kode = 'WH-16'`
+        `SELECT 
+            a.mst_noreferensi, 
+            a.mst_barcode, 
+            a.mst_brg_kode, 
+            b.brg_nama as nama_asli, -- Mengambil nama asli dari tabel barang
+            a.mst_panjang, 
+            a.mst_lebar 
+         FROM tmasterstok_mmt a
+         LEFT JOIN tbarang_mmt b ON a.mst_brg_kode = b.brg_kode
+         WHERE a.mst_gdg_kode = 'WH-16'`
     );
 
-    // Gabungkan detail ke dalam header masing-masing
     return headers.map(h => ({
         ...h,
         details: details.filter(d => d.mst_noreferensi === h.mst_noreferensi)
