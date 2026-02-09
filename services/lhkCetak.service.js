@@ -19,7 +19,7 @@ const getAllHeaders = async (startDate, endDate) => {
     // Format tanggal agar aman untuk SQL (Walaupun sudah YYYY-MM-DD, lebih aman di-parse)
     const tglMulai = format(new Date(startDate), 'yyyy-MM-dd');
     const tglSelesai = format(new Date(endDate), 'yyyy-MM-dd');
-
+ 
     const sql = `
         SELECT 
             t1.lnomor AS Nomor, 
