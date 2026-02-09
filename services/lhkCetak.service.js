@@ -60,84 +60,75 @@ const getAllHeaders = async (startDate, endDate) => {
 };
 
 
-const getDetailsByNomor = async (nomor) => {
-    const sql = `
-        SELECT ld_lnomor AS Nomor, ld_urut AS NoUrut,
-            ld_ambilbahan AS AmbilBahanPanjang,
-           -- ld_ambilbahan_lebar AS AmbilBahanLebar, -- DIASUMSIKAN ADA KOLOM INI
-            ld_qtyCetak1 AS J_Cetak1,
-            ld_qtyCetak2 AS J_Cetak2,
-            ld_qtyCetak3 AS J_Cetak3,
-            ld_qtyCetak4 AS J_Cetak4,
-            ld_qtyCetak5 AS J_Cetak5,
-            ld_total_qtycetak AS TotalCetak,
-            ld_total_metercetak AS Total_Cetak_Meter,
-            ld_bsmeter AS Sisa_Lebar_BS,
-            ld_sisameter AS Sisa_Panjang,
-            ld_sisalebar AS Sisa_Lebar,
-            ld_tile AS Tile,
-            ld_roll AS Roll,
-            ld_bahan AS Kode_bahan_Detail -- OPSIONAL: Jika bahan bisa berbeda per detail
-        FROM tlhk_mesin_dtl
-        WHERE ld_lnomor = ?
-        ORDER BY ld_urut
-    `;
+/**
+ * Mengambil data LHK Cetak berdasarkan nomor (Header & Detail)
+ * Pola struktur mengikuti getInvoicePembelianByNomor
+ */
+const getLookupByNomor = async (nomor) => {
+    try {
+        // 1. Query Header
+        const sqlHeader = `
+            SELECT 
+                t1.lnomor AS Nomor, 
+                t1.lshift AS Shift, 
+                DATE_FORMAT(t1.ltanggal, '%Y-%m-%d') AS Tanggal,
+                t1.lmesin AS Mesin, 
+                t1.lbarcode_roll,
+                t1.loperator AS Operator,
+                t1.lgdg_prod AS Gudang,
+                t1.lbahan AS Kode_bahan,
+                t1.lstatus AS Status,
+                t1.lpanjang_bs AS PanjangBS,
+                t1.llebar_bs AS LebarBS
+            FROM tlhk_mesin_hdr t1
+            WHERE t1.lnomor = ?
+        `;
+        const [headerRows] = await pool.query(sqlHeader, [nomor]);
 
-    const [rows] = await pool.query(sql, [nomor]);
-    return rows;
+        if (headerRows.length === 0) {
+            throw new Error(`LHK Cetak nomor ${nomor} tidak ditemukan`);
+        }
+
+        // 2. Query Detail (Memecah per SPK dan mengambil data dari tspk)
+        const sqlDetail = `
+            SELECT 
+                d.ld_urut AS NoUrut,
+                d.ld_spk_nomor AS ld_spk_nomor,
+                s.spk_nama AS NamaOrder,
+                s.spk_panjang AS spk_panjang,
+                s.spk_lebar AS spk_lebar,
+                s.spk_jumlah AS JumlahOrder,
+                d.ld_ambilbahan AS AmbilBahanPanjang,
+                d.ld_ambilbahan_lebar AS AmbilBahanLebar,
+                d.ld_qtyCetak1 AS J_Cetak1,
+                d.ld_qtyCetak2 AS J_Cetak2,
+                d.ld_qtyCetak3 AS J_Cetak3,
+                d.ld_qtyCetak4 AS J_Cetak4,
+                d.ld_qtyCetak5 AS J_Cetak5,
+                d.ld_qtyCetak6 AS J_Cetak6,
+                d.ld_qtyCetak7 AS J_Cetak7,
+                d.ld_total_qtycetak AS TotalCetak,
+                d.ld_sisameter AS Sisa_Panjang,
+                d.ld_sisalebar AS Sisa_Lebar,
+                d.ld_tile AS Tile
+            FROM tlhk_mesin_dtl d
+            LEFT JOIN tspk s ON d.ld_spk_nomor = s.spk_nomor
+            WHERE d.ld_lnomor = ?
+            ORDER BY d.ld_urut ASC
+        `;
+        const [detailRows] = await pool.query(sqlDetail, [nomor]);
+
+// PERBAIKAN: Bungkus dalam objek header dan details (huruf kecil)
+return {
+    header: headerRows[0],
+    details: detailRows
 };
 
-const getLookupByNomor = async (nomor) => {
-    // 1. Ambil Detail
-    const details = await getDetailsByNomor(nomor);
-
-    if (details.length === 0) {
-        // Tidak perlu throw error di service, cukup kembalikan null atau data kosong
-        return null;
+    } catch (error) {
+        // Menggunakan pola throw yang Anda berikan
+        console.error("Error getLookupByNomor:", error);
+        throw new Error(`Gagal mengambil data LHK Cetak: ${error.message}`);
     }
-
-    // 2. Ambil Header tunggal (menggunakan query yang sudah ada)
-    const headerSql = `
-        SELECT 
-            t1.lnomor AS Nomor, 
-            t1.lshift AS Shift, 
-            t1.ltanggal AS Tanggal, 
-            t1.lmesin AS Mesin, 
-            t1.lbarcode_roll,
-            t1.lspk_nomor AS NomorSPK, 
-            t2.spk_nama AS NamaOrder,
-            t2.spk_panjang AS spk_panjang,
-            t2.spk_lebar AS spk_lebar,
-            x.qtytotalcetak AS TotalCetak,
-            t1.loperator AS Operator,
-            t1.lgdg_prod AS Gudang,
-            t1.lbahan AS Kode_bahan,
-            t1.lpanjang AS UkuranCetak,
-            t1.ljumlah_kolom AS Tile,
-            t1.lfixed AS Fixed
-        FROM tlhk_mesin_hdr t1
-        LEFT JOIN tspk t2 ON t2.spk_nomor = t1.lspk_nomor
-        LEFT JOIN (
-            SELECT ld_lnomor, SUM(ld_total_qtycetak) AS qtytotalcetak
-            FROM tlhk_mesin_dtl 
-            WHERE ld_lnomor = ?
-            GROUP BY ld_lnomor
-        ) x ON x.ld_lnomor = t1.lnomor
-        WHERE t1.lnomor = ?
-    `;
-
-    const [headerRows] = await pool.query(headerSql, [nomor, nomor]);
-
-    if (headerRows.length === 0) {
-        return null;
-    }
-
-    const combinedData = {
-        header: headerRows[0],
-        details: details
-    };
-
-    return combinedData;
 };
 /**
  * Mengambil nomor urut maksimum dari bulan dan tahun saat ini
@@ -272,13 +263,13 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
             ld_lnomor, ld_urut, ld_spk_nomor, ld_ambilbahan, ld_ambilbahan_lebar,
             ld_qtyCetak1, ld_qtyCetak2, ld_qtyCetak3, ld_qtyCetak4, ld_qtyCetak5, ld_qtyCetak6, ld_qtyCetak7,
             ld_total_qtycetak, ld_total_metercetak, ld_sisameter, ld_sisalebar,
-            ld_bahan, ld_barcode, ld_tile
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ld_bahan, ld_barcode, ld_tile, ld_luas_m2
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
         finalNomor, urut, d.nomor_spk || '', d.ambilBahanPanjang || 0, d.ambilBahanLebar || 0,
         d.cetak1 || 0, d.cetak2 || 0, d.cetak3 || 0, d.cetak4 || 0, d.cetak5 || 0, d.cetak6 || 0, d.cetak7 || 0,
         totalCetak, d.cetakmeter || 0, d.sisabahan || 0, d.sisabahanlebar || 0,
-        usedKodeBahan, usedBarcode, d.tile || 1
+        usedKodeBahan, usedBarcode, d.tile || 1, d.luasm2 || 0
         // d.orientasi dihapus dari sini
     ]);
             // Track nilai sisa terakhir untuk mutasi stok
@@ -353,7 +344,6 @@ const deleteLhk = async (nomor) => {
 
 module.exports = {
     getAllHeaders,
-    getDetailsByNomor,
     getLookupByNomor,
     generateNewNomor,
     deleteLhk,
