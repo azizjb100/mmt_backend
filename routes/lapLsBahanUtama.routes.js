@@ -7,5 +7,6 @@ const controller = require('../controllers/lapLsBahanUtama.controller');
 router.get('/', controller.getReport);
 
 router.get('/total-roll', controller.getTotalRoll);
+router.get('/list-gudang', controller.getGudangList);
 
 module.exports = router;
