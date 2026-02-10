@@ -16,7 +16,6 @@ const NOMERATOR = 'MMT-LHK-M';
  * @returns {Promise<Array<Object>>}
  */
 const getAllHeaders = async (startDate, endDate) => {
-    // Format tanggal agar aman untuk SQL (Walaupun sudah YYYY-MM-DD, lebih aman di-parse)
     const tglMulai = format(new Date(startDate), 'yyyy-MM-dd');
     const tglSelesai = format(new Date(endDate), 'yyyy-MM-dd');
  
@@ -66,7 +65,6 @@ const getAllHeaders = async (startDate, endDate) => {
  */
 const getLookupByNomor = async (nomor) => {
     try {
-        // 1. Query Header
         const sqlHeader = `
             SELECT 
                 t1.lnomor AS Nomor, 
@@ -110,7 +108,9 @@ const getLookupByNomor = async (nomor) => {
                 d.ld_total_qtycetak AS TotalCetak,
                 d.ld_sisameter AS Sisa_Panjang,
                 d.ld_sisalebar AS Sisa_Lebar,
-                d.ld_tile AS Tile
+                d.ld_tile AS Tile, 
+                d.ld_luas_m2 AS Luas_m2,
+                d.ld_padding AS Padding
             FROM tlhk_mesin_dtl d
             LEFT JOIN tspk s ON d.ld_spk_nomor = s.spk_nomor
             WHERE d.ld_lnomor = ?
@@ -167,6 +167,29 @@ const generateNewNomor = async (date) => {
  * @param {Array} detailsData - Data detail produksi
  * @param {String} existingNomor - Nomor jika mode edit
  */
+
+
+const getNextSuffix = async (conn, originalBarcode) => {
+    const sql = `
+        SELECT mst_barcode 
+        FROM tmasterstok_mmt 
+        WHERE mst_barcode LIKE ? 
+        ORDER BY mst_barcode DESC LIMIT 1
+    `;
+    const [rows] = await conn.query(sql, [`${originalBarcode}-%`]);
+
+    if (rows.length === 0) {
+        return `${originalBarcode}-A`;
+    }
+
+    const lastBarcode = rows[0].mst_barcode;
+    const lastPart = lastBarcode.split('-').pop(); 
+    const nextCharCode = lastPart.charCodeAt(0) + 1;
+    const nextSuffix = String.fromCharCode(nextCharCode);
+
+    return `${originalBarcode}-${nextSuffix}`;
+};
+
 const saveLhk = async (headerData, detailsData, existingNomor) => {
     const conn = await pool.getConnection();
     let isEditMode = !!existingNomor;
@@ -263,14 +286,13 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
             ld_lnomor, ld_urut, ld_spk_nomor, ld_ambilbahan, ld_ambilbahan_lebar,
             ld_qtyCetak1, ld_qtyCetak2, ld_qtyCetak3, ld_qtyCetak4, ld_qtyCetak5, ld_qtyCetak6, ld_qtyCetak7,
             ld_total_qtycetak, ld_total_metercetak, ld_sisameter, ld_sisalebar,
-            ld_bahan, ld_barcode, ld_tile, ld_luas_m2
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ld_bahan, ld_barcode, ld_tile, ld_luas_m2, ld_padding
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
         finalNomor, urut, d.nomor_spk || '', d.ambilBahanPanjang || 0, d.ambilBahanLebar || 0,
         d.cetak1 || 0, d.cetak2 || 0, d.cetak3 || 0, d.cetak4 || 0, d.cetak5 || 0, d.cetak6 || 0, d.cetak7 || 0,
         totalCetak, d.cetakmeter || 0, d.sisabahan || 0, d.sisabahanlebar || 0,
-        usedKodeBahan, usedBarcode, d.tile || 1, d.luasm2 || 0
-        // d.orientasi dihapus dari sini
+        usedKodeBahan, usedBarcode, d.tile || 1, d.luasm2 || 0, d.padding || 0,
     ]);
             // Track nilai sisa terakhir untuk mutasi stok
             if (Number(d.ambilBahanPanjang) > maxAmbilPanjang) maxAmbilPanjang = Number(d.ambilBahanPanjang);
@@ -342,11 +364,14 @@ const deleteLhk = async (nomor) => {
     }
 };
 
+/**
+ * Fungsi untuk menentukan suffix alfabet berikutnya (-A, -B, dst)
+ */
+
 module.exports = {
     getAllHeaders,
     getLookupByNomor,
     generateNewNomor,
     deleteLhk,
-    generateNewNomor,
     saveLhk
 };
