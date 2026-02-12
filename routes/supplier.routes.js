@@ -4,14 +4,12 @@ const express = require('express');
 const router = express.Router();
 const supplierController = require('../controllers/supplier.controller');
 
-// URL dasar: /api/suppliers
 
-// Endpoint 1: Mencari/Memuat Daftar Supplier untuk Modal
-// GET /api/suppliers?q=keyword
-router.get('/', supplierController.searchSuppliers);
-
-// Endpoint 2: Mengambil Detail Supplier tunggal
-// GET /api/suppliers/:kode
+router.get('/', supplierController.getSuppliers);
 router.get('/:kode', supplierController.getSupplierByKode);
+router.post('/', supplierController.saveSupplier); // Untuk Tambah Baru
+router.put('/', supplierController.saveSupplier);  // Untuk Update
+router.delete('/:kode', supplierController.deleteSupplier);
+
 
 module.exports = router;

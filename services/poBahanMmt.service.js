@@ -27,7 +27,7 @@ const toRoman = (num) => {
 /**
  * Helper: Get Next PO Number (00001/PK/XI/2025)
  */
-const getNextPoNumber = async (date, prefix = 'PK', connection) => {
+const getNextPoNumber = async (date, prefix = 'KP', connection) => {
   const d = new Date(date);
   const year = d.getFullYear();
   const romanMonths = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];

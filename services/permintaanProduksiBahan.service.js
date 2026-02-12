@@ -109,7 +109,7 @@ exports.savePermintaanProduksi = async (data, isUpdate = false) => {
         } else {
             await connection.query(
                 `INSERT INTO tpermintaan_prod_hdr (mnt_nomor, mnt_tanggal, mnt_gdg_kode, mnt_keterangan, mnt_lokasiproduksi, user_create, date_create) VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-                [Nomor, Tanggal, 'WH-01', Keterangan, Departemen, User]
+                [Nomor, Tanggal, 'WH-16', Keterangan, Departemen, User]
             );
         }
 
@@ -151,5 +151,27 @@ exports.deletePermintaanProduksi = async (nomor) => {
         throwDbError('Gagal menghapus data', error);
     } finally {
         connection.release();
+    }
+};
+
+exports.lookupPermintaanProduksi = async (search = '') => {
+    try {
+        const sql = `
+            SELECT 
+                h.mnt_nomor AS Nomor, 
+                DATE_FORMAT(h.mnt_tanggal, '%d-%m-%Y') AS Tanggal, 
+                h.mnt_lokasiproduksi AS Lokasi,
+                h.mnt_keterangan AS Keterangan,
+                h.mnt_status AS Status
+            FROM tpermintaan_prod_hdr h
+            WHERE (h.mnt_nomor LIKE ? OR h.mnt_keterangan LIKE ?)
+            ORDER BY h.mnt_tanggal DESC
+            LIMIT 50;
+        `;
+        const pattern = `%${search}%`;
+        const [results] = await pool.query(sql, [pattern, pattern]);
+        return results;
+    } catch (error) {
+        throwDbError('Gagal mengambil lookup daftar permintaan', error);
     }
 };

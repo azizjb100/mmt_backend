@@ -31,29 +31,34 @@ exports.deletePermintaanProduksi = async (req, res) => {
     }
 };
 
+
+
 exports.getStokByBarcode = async (req, res) => {
     try {
-        const { barcode } = req.params;
-        if (!barcode) {
-            return res.status(400).json({ message: "Barcode tidak boleh kosong." });
+        const { barcode } = req.params; // Mengambil dari :barcode
+        const { gudang } = req.query;  // Mengambil dari ?gudang=WH-16
+
+        // Validasi jika gudang tidak dikirim
+        if (!gudang) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "Gudang asal harus ditentukan." 
+            });
         }
 
-        const data = await permintaanProduksiService.getStokByBarcode(barcode);
+        // Panggil service dengan 2 parameter
+        const data = await permintaanProduksiService.getStokByBarcode(barcode, gudang);
 
         if (!data) {
-            return res.status(404).json({ message: "Data barcode tidak ditemukan di Master Stok." });
+            return res.status(404).json({ 
+                success: false, 
+                message: "Barang tidak ditemukan di gudang tersebut." 
+            });
         }
 
-        return res.status(200).json({
-            message: 'Data barcode ditemukan.',
-            data: data
-        });
-
+        res.json({ success: true, data });
     } catch (error) {
-        return res.status(500).json({
-            message: "Gagal mengambil data barcode.",
-            error: error.message
-        });
+        res.status(500).json({ success: false, message: error.message });
     }
 };
 

@@ -194,8 +194,6 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
     const conn = await pool.getConnection();
     let isEditMode = !!existingNomor;
     let finalNomor = existingNomor;
-    
-    // Status dari frontend: 'DRAFT' atau 'POSTED'
     const currentStatus = headerData.lstatus || 'DRAFT';
 
     if (!headerData || !Array.isArray(detailsData) || detailsData.length === 0) {
@@ -210,41 +208,35 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
         const dateToUse = headerData.ltanggal ? new Date(headerData.ltanggal) : now;
         const formattedDate = format(dateToUse, 'yyyy-MM-dd');
         const formattedNow = format(now, 'yyyy-MM-dd HH:mm:ss');
-
         const user = headerData.luser_create || headerData.luser_modified || 'SYSTEM';
 
-        // 1. GABUNG NOMOR SPK UNTUK HEADER
         const uniqueSpks = [...new Set(detailsData.map(d => d.nomor_spk).filter(s => s))];
         const combinedSpkNomor = uniqueSpks.join(', ');
 
-        // 2. GENERATE NOMOR JIKA BARU
         if (!isEditMode) {
-            finalNomor = await generateNewNomor(dateToUse); // Pastikan fungsi ini tersedia
+            finalNomor = await generateNewNomor(dateToUse);
         }
 
-        // 3. HITUNG TOTAL PANJANG TERPAKAI DARI SEMUA DETAIL
         const totalPanjangTerpakai = detailsData.reduce((sum, d) => sum + Number(d.cetakmeter || 0), 0);
 
-        // 4. HEADER (INSERT/UPDATE)
         if (isEditMode) {
             await conn.query(`
                 UPDATE tlhk_mesin_hdr SET
                     ltanggal = ?, lgdg_prod = ?, lspk_nomor = ?, lmesin = ?,
                     lshift = ?, loperator = ?, lbahan = ?, lbarcode_roll = ?,
-                    lpanjang_terpakai = ?, ljumlah_kolom = ?, lfixed = ?,
+                    lpanjang_terpakai = ?, ljumlah_kolom = ?, lfixed = 'Y',
                     ldate_modified = ?, luser_modified = ?, lstatus = ?,
                     lpanjang_bs = ?, llebar_bs = ?
                 WHERE lnomor = ?
             `, [
                 formattedDate, headerData.lgdg_prod, combinedSpkNomor, headerData.lmesin,
                 headerData.lshift, headerData.loperator, headerData.lbahan, headerData.lbarcode_roll,
-                totalPanjangTerpakai, headerData.ljumlah_kolom, headerData.lfixed,
+                totalPanjangTerpakai, headerData.ljumlah_kolom, 
                 formattedNow, user, currentStatus, 
                 headerData.lpanjang_bs || 0, headerData.llebar_bs || 0,
                 finalNomor
             ]);
 
-            // Bersihkan data lama jika edit
             await conn.query(`DELETE FROM tlhk_mesin_dtl WHERE ld_lnomor = ?`, [finalNomor]);
             await conn.query(`DELETE FROM tmasterstok_mmt WHERE mst_noreferensi = ?`, [finalNomor]);
         } else {
@@ -253,48 +245,43 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
                     lnomor, lspk_nomor, ltanggal, lmesin, lgdg_prod,
                     lshift, loperator, ldate_create, luser_create,
                     lbahan, lbarcode_roll, lpanjang_terpakai,
-                    ljumlah_kolom, lfixed, lstatus, lpanjang_bs, llebar_bs
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ljumlah_kolom, lstatus, lpanjang_bs, llebar_bs, lpanjang_afal, llebar_afal, lfixed
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Y')
             `, [
                 finalNomor, combinedSpkNomor, formattedDate, headerData.lmesin, headerData.lgdg_prod,
                 headerData.lshift, headerData.loperator, formattedNow, user,
                 headerData.lbahan, headerData.lbarcode_roll, totalPanjangTerpakai,
-                headerData.ljumlah_kolom, headerData.lfixed, currentStatus,
-                headerData.lpanjang_bs || 0, headerData.llebar_bs || 0
+                headerData.ljumlah_kolom,  currentStatus,
+                headerData.lpanjang_bs || 0, headerData.llebar_bs || 0, headerData.lpanjang_afal || 0, headerData.llebar_afal || 0
             ]);
         }
 
-        // 5. DETAIL (SUPPORT C1 - C7)
         let maxAmbilPanjang = 0;
         let finalSisaMeter = 0;
         let finalSisaLebar = 0;
         const usedBarcode = headerData.lbarcode_roll;
         const usedKodeBahan = headerData.lbahan;
 
-       for (let i = 0; i < detailsData.length; i++) {
-    const d = detailsData[i];
-    const urut = i + 1;
-    
-    const totalCetak = 
-        (Number(d.cetak1) || 0) + (Number(d.cetak2) || 0) + (Number(d.cetak3) || 0) +
-        (Number(d.cetak4) || 0) + (Number(d.cetak5) || 0) + (Number(d.cetak6) || 0) +
-        (Number(d.cetak7) || 0);
+        for (let i = 0; i < detailsData.length; i++) {
+            const d = detailsData[i];
+            const urut = i + 1;
+            const totalCetak = (Number(d.cetak1) || 0) + (Number(d.cetak2) || 0) + (Number(d.cetak3) || 0) +
+                               (Number(d.cetak4) || 0) + (Number(d.cetak5) || 0) + (Number(d.cetak6) || 0) + (Number(d.cetak7) || 0);
 
-    // HAPUS ld_orientasi dari query dan values
-    await conn.query(`
-        INSERT INTO tlhk_mesin_dtl (
-            ld_lnomor, ld_urut, ld_spk_nomor, ld_ambilbahan, ld_ambilbahan_lebar,
-            ld_qtyCetak1, ld_qtyCetak2, ld_qtyCetak3, ld_qtyCetak4, ld_qtyCetak5, ld_qtyCetak6, ld_qtyCetak7,
-            ld_total_qtycetak, ld_total_metercetak, ld_sisameter, ld_sisalebar,
-            ld_bahan, ld_barcode, ld_tile, ld_luas_m2, ld_padding
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-        finalNomor, urut, d.nomor_spk || '', d.ambilBahanPanjang || 0, d.ambilBahanLebar || 0,
-        d.cetak1 || 0, d.cetak2 || 0, d.cetak3 || 0, d.cetak4 || 0, d.cetak5 || 0, d.cetak6 || 0, d.cetak7 || 0,
-        totalCetak, d.cetakmeter || 0, d.sisabahan || 0, d.sisabahanlebar || 0,
-        usedKodeBahan, usedBarcode, d.tile || 1, d.luasm2 || 0, d.padding || 0,
-    ]);
-            // Track nilai sisa terakhir untuk mutasi stok
+            await conn.query(`
+                INSERT INTO tlhk_mesin_dtl (
+                    ld_lnomor, ld_urut, ld_spk_nomor, ld_ambilbahan, ld_ambilbahan_lebar,
+                    ld_qtyCetak1, ld_qtyCetak2, ld_qtyCetak3, ld_qtyCetak4, ld_qtyCetak5, ld_qtyCetak6, ld_qtyCetak7,
+                    ld_total_qtycetak, ld_total_metercetak, ld_sisameter, ld_sisalebar,
+                    ld_bahan, ld_barcode, ld_tile, ld_luas_m2, ld_padding
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `, [
+                finalNomor, urut, d.nomor_spk || '', d.ambilBahanPanjang || 0, d.ambilBahanLebar || 0,
+                d.cetak1 || 0, d.cetak2 || 0, d.cetak3 || 0, d.cetak4 || 0, d.cetak5 || 0, d.cetak6 || 0, d.cetak7 || 0,
+                totalCetak, d.cetakmeter || 0, d.sisabahan || 0, d.sisabahanlebar || 0,
+                usedKodeBahan, usedBarcode, d.tile || 1, d.luasm2 || 0, d.padding || 0
+            ]);
+
             if (Number(d.ambilBahanPanjang) > maxAmbilPanjang) maxAmbilPanjang = Number(d.ambilBahanPanjang);
             finalSisaMeter = Number(d.sisabahan || 0);
             finalSisaLebar = Number(d.sisabahanlebar || 0);
@@ -305,7 +292,7 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
             if (usedBarcode && maxAmbilPanjang > 0) {
                 const initialLebar = detailsData[0].ambilBahanLebar || 0;
 
-                // MUTASI KELUAR (BARANG LAMA HABIS)
+                // MUTASI KELUAR (STOK LAMA HABIS)
                 await conn.query(`
                     INSERT INTO tmasterstok_mmt (
                         mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
@@ -314,8 +301,7 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
                     ) VALUES (?, ?, 0, 1, ?, ?, ?, ?, 0, ?, ?)
                 `, [usedKodeBahan, headerData.lgdg_prod, maxAmbilPanjang, initialLebar, combinedSpkNomor, finalNomor, formattedDate, usedBarcode]);
 
-                // MUTASI MASUK (SISA JADI STOK BARU)
-                // Hanya jika panjang sisa > 0
+                // MUTASI MASUK (SISA UTAMA)
                 if (finalSisaMeter > 0) {
                     await conn.query(`
                         INSERT INTO tmasterstok_mmt (
@@ -325,6 +311,23 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
                         ) VALUES (?, ?, 1, 0, ?, ?, ?, ?, 0, ?, ?)
                     `, [usedKodeBahan, headerData.lgdg_prod, finalSisaMeter, finalSisaLebar, combinedSpkNomor, finalNomor, formattedDate, usedBarcode]);
                 }
+
+                // MUTASI MASUK (AFAL SISTEM) - CREATE BARCODE BARU OTOMATIS
+                const afalP = headerData.lpanjang_afal || 0; 
+        const afalL = headerData.llebar_afal || 0;
+
+        if (afalP > 0 && afalL > 0) {
+            const newAfalBarcode = await getNextSuffix(conn, usedBarcode);
+            await conn.query(`
+                INSERT INTO tmasterstok_mmt (
+                    mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
+                    mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi,
+                    mst_hargabeli, mst_tanggal, mst_barcode
+                ) VALUES (?, ?, 1, 0, ?, ?, ?, ?, 0, ?, ?)
+            `, [usedKodeBahan, headerData.lgdg_prod, afalP, afalL, "STOK AFAL", finalNomor, formattedDate, newAfalBarcode]);
+            
+            console.log(`Barcode Afal Berhasil: ${newAfalBarcode}`);
+        }
             }
         }
 

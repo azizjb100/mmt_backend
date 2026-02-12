@@ -10,9 +10,9 @@ const throwDbError = (message, error) => { throw new Error(message + ': ' + erro
 // 1. READ ALL (btnRefreshClick)
 // ===================================
 
-// Tambahkan di permintaanProduksi.service.js
 
-exports.getStokByBarcode = async (barcode) => {
+
+exports.getStokByBarcode = async (barcode, gudangKode) => {
     try {
         const sql = `
             SELECT 
@@ -23,14 +23,22 @@ exports.getStokByBarcode = async (barcode) => {
                 s.mst_panjang AS Panjang, 
                 s.mst_lebar AS Lebar,
                 s.mst_spk_nomor AS Nomor_SPK,
-                (s.mst_stok_in - s.mst_stok_out) AS Stok
+                -- Menghitung total saldo stok dari semua baris di gudang tersebut
+                SUM(s.mst_stok_in - s.mst_stok_out) AS Stok
             FROM tmasterstok_mmt s
             LEFT JOIN tbarang_mmt b ON s.mst_brg_kode = b.brg_kode
-            WHERE s.mst_barcode = ?  -- Perbaikan di sini: Gunakan nama kolom asli
-            LIMIT 1;
+            WHERE s.mst_barcode = ? 
+              AND s.mst_gdg_kode = ?
+            GROUP BY 
+                s.mst_barcode, s.mst_brg_kode, b.brg_nama, 
+                b.brg_satuan, s.mst_panjang, s.mst_lebar, s.mst_spk_nomor
+            -- Filter hasil akhir: hanya tampilkan jika total stok > 0
+            HAVING Stok > 0;
         `;
 
-        const [results] = await pool.query(sql, [barcode]);
+        const [results] = await pool.query(sql, [barcode, gudangKode]);
+        
+        // Jika saldo akhir 0 atau negatif, results akan kosong []
         return results[0] || null;
     } catch (error) {
         throwDbError('Gagal mencari data barcode', error);
@@ -148,9 +156,8 @@ exports.getNewNomor = async () => {
 
         const maxNomor = results[0].MaxNomor;
 
-        let newNumber = '0001'; // Nilai default: 0001 (jika belum ada nomor)
+        let newNumber = '0001';
 
-        // 4. Logika Inkrementasi Nomor Urut
         if (maxNomor) {
             // Ambil nomor urut terakhir dari string (misalnya '0045')
             const lastNumberString = maxNomor.substring(maxNomor.lastIndexOf('.') + 1);
@@ -161,8 +168,6 @@ exports.getNewNomor = async () => {
             // Format kembali menjadi string 4 digit dengan leading zero
             newNumber = (lastNumber + 1).toString().padStart(4, '0');
         }
-
-        // 5. Gabungkan dan kembalikan nomor dokumen lengkap
         return `${NOMERATOR}.${currentYYMM}.${newNumber}`;
 
     } catch (error) {
