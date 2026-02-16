@@ -7,7 +7,6 @@ const { format } = require('date-fns');
  * (Logika dari loaddata)
  */
 const getReport = async (startDate, endDate, gdgKode) => {
-
   const kodeGudang = gdgKode || 'WH-16';
 
   const tglMulai = format(new Date(startDate), 'yyyy-MM-dd');
@@ -15,96 +14,114 @@ const getReport = async (startDate, endDate, gdgKode) => {
 
   const ssql = `
     SELECT 
-      brg_kode AS kode, 
-      brg_nama AS Nama, 
-      jb_nama, 
-      IF(brg_status='F', 'Fast Moving', IF(brg_status='S', 'Slow Moving', IF(brg_status='N', 'Non Flexy', ''))) AS status,
-      IFNULL(brg_panjang, 0) * 1 AS Panjang,
-      IFNULL(brg_lebar, 0) * 1 AS Lebar,
-      IFNULL(brg_panjang, 0) * (IFNULL(brg_lebar, 0) - 0.1) AS m2,
+      a.brg_kode AS kode, 
+      a.brg_nama AS Nama, 
+      jb.jb_nama, 
+      CASE 
+          WHEN a.brg_status = 'F' THEN 'Fast Moving'
+          WHEN a.brg_status = 'S' THEN 'Slow Moving'
+          WHEN a.brg_status = 'N' THEN 'Non Flexy'
+          ELSE ''
+      END AS status_barang,
 
-      IF(a.brg_status='F','Fast Moving',
-         IF(a.brg_status='S','Slow Moving',
-         IF(a.brg_status='N','Non Flexy',''))) AS status,
-
-      IFNULL(a.brg_panjang,0) AS panjang,
-      IFNULL(a.brg_lebar,0) AS lebar,
-
-      (IFNULL(a.brg_panjang,0) * (IFNULL(a.brg_lebar,0) - 0.1)) AS m2_per_roll,
+      /* --- SPESIFIKASI DIAMBIL DARI MASTER BARANG (tbarang_mmt) --- */
+      IFNULL(a.brg_panjang, 0) AS Panjang,
+      IFNULL(a.brg_lebar, 0) AS Lebar,
+      (IFNULL(a.brg_panjang, 0) * (IFNULL(a.brg_lebar, 0) - 0.1)) AS m2,
 
       /* ================= STOK AWAL ================= */
-      IFNULL(b.stok_awal,0) AS stok_awal_q,
-      IFNULL(b.stok_awal,0) *
-      (IFNULL(a.brg_panjang,0) * (IFNULL(a.brg_lebar,0) - 0.1)) AS stok_awal_m,
+      IFNULL(b.stok_awal_q, 0) AS stok_awal_q,
+      IFNULL(b.stok_awal_m, 0) AS stok_awal_m,
+      /* Valuasi: Total M2 Riil * Harga Rata-rata per M2 */
+      IFNULL(b.stok_awal_m, 0) * IFNULL(c.harga_m2_avg, 0) AS stok_awal_nominal,
 
-      /* ================= MASUK ================= */
-      IFNULL(c.total_masuk,0) AS terima_q,
-      IFNULL(c.total_masuk,0) *
-      (IFNULL(a.brg_panjang,0) * (IFNULL(a.brg_lebar,0) - 0.1)) AS terima_m,
+      /* ================= MUTASI MASUK (TERIMA) ================= */
+      IFNULL(c.terima_q, 0) AS terima_q,
+      IFNULL(c.terima_m, 0) AS terima_m,
+      IFNULL(c.nilai_masuk_total, 0) AS terima_nominal,
 
-      /* ================= KELUAR ================= */
-      IFNULL(c.total_keluar,0) AS keluar_q,
-      IFNULL(c.total_keluar,0) *
-      (IFNULL(a.brg_panjang,0) * (IFNULL(a.brg_lebar,0) - 0.1)) AS keluar_m,
+      /* ================= MUTASI KELUAR ================= */
+      IFNULL(c.keluar_q, 0) AS keluar_q,
+      IFNULL(c.keluar_m, 0) AS keluar_m,
+      IFNULL(c.keluar_m, 0) * IFNULL(c.harga_m2_avg, 0) AS keluar_nominal,
 
       /* ================= STOK AKHIR ================= */
-      IFNULL(d.stok_akhir,0) AS stok_akhir_q,
-      IFNULL(d.stok_akhir,0) *
-      (IFNULL(a.brg_panjang,0) * (IFNULL(a.brg_lebar,0) - 0.1)) AS stok_akhir_m
+      IFNULL(d.stok_akhir_q, 0) AS stok_akhir_q,
+      IFNULL(d.stok_akhir_m, 0) AS stok_akhir_m,
+      IFNULL(d.stok_akhir_m, 0) * IFNULL(c.harga_m2_avg, 0) AS stok_akhir_nominal
 
     FROM tbarang_mmt a
 
-    /* ===== STOK AWAL ===== */
+    /* Subquery b: Stok Awal (Kalkulasi M2 pakai mst_panjang/lebar) */
     LEFT JOIN (
-      SELECT mst_brg_kode, 
-             SUM(mst_stok_in - mst_stok_out) AS stok_awal
+      SELECT 
+        mst_brg_kode, 
+        SUM(mst_stok_in - mst_stok_out) AS stok_awal_q,
+        SUM((mst_stok_in - mst_stok_out) * (IFNULL(mst_panjang, 0) * (IFNULL(mst_lebar, 0) - 0.1))) AS stok_awal_m
       FROM tmasterstok_mmt
-      WHERE mst_tanggal < ?
-        AND mst_gdg_kode = ?
+      WHERE mst_tanggal < ? AND mst_gdg_kode = ?
       GROUP BY mst_brg_kode
     ) b ON b.mst_brg_kode = a.brg_kode
 
-    /* ===== MUTASI PERIODE ===== */
+    /* Subquery c: Mutasi & Harga (Kalkulasi pakai mst_panjang/lebar) */
     LEFT JOIN (
       SELECT 
         mst_brg_kode,
-        SUM(mst_stok_in)  AS total_masuk,
-        SUM(mst_stok_out) AS total_keluar
+        SUM(mst_stok_in) AS terima_q,
+        SUM(mst_stok_out) AS keluar_q,
+        SUM(mst_stok_in * (IFNULL(mst_panjang, 0) * (IFNULL(mst_lebar, 0) - 0.1))) AS terima_m,
+        SUM(mst_stok_out * (IFNULL(mst_panjang, 0) * (IFNULL(mst_lebar, 0) - 0.1))) AS keluar_m,
+        
+        /* Nominal: Cek Satuan (m2 vs Roll) */
+        SUM(
+          CASE 
+            WHEN LOWER(mst_satuan_harga) = 'm2' 
+              THEN (mst_stok_in * (IFNULL(mst_panjang, 0) * (IFNULL(mst_lebar, 0) - 0.1))) * mst_hargabeli
+            ELSE 
+              mst_stok_in * mst_hargabeli
+          END
+        ) AS nilai_masuk_total,
+
+        /* Harga Rata-rata per M2 untuk valuasi saldo */
+        AVG(
+          CASE 
+            WHEN LOWER(mst_satuan_harga) = 'm2' 
+              THEN mst_hargabeli
+            ELSE 
+              mst_hargabeli / NULLIF((IFNULL(mst_panjang, 0) * (IFNULL(mst_lebar, 0) - 0.1)), 0)
+          END
+        ) AS harga_m2_avg
+
       FROM tmasterstok_mmt
-      WHERE mst_tanggal BETWEEN ? AND ?
-        AND mst_gdg_kode = ?
+      WHERE mst_tanggal BETWEEN ? AND ? AND mst_gdg_kode = ?
       GROUP BY mst_brg_kode
     ) c ON c.mst_brg_kode = a.brg_kode
 
-    /* ===== STOK AKHIR ===== */
+    /* Subquery d: Stok Akhir (Kalkulasi M2 pakai mst_panjang/lebar) */
     LEFT JOIN (
-      SELECT mst_brg_kode, 
-             SUM(mst_stok_in - mst_stok_out) AS stok_akhir
+      SELECT 
+        mst_brg_kode, 
+        SUM(mst_stok_in - mst_stok_out) AS stok_akhir_q,
+        SUM((mst_stok_in - mst_stok_out) * (IFNULL(mst_panjang, 0) * (IFNULL(mst_lebar, 0) - 0.1))) AS stok_akhir_m
       FROM tmasterstok_mmt
-      WHERE mst_tanggal <= ?
-        AND mst_gdg_kode = ?
+      WHERE mst_tanggal <= ? AND mst_gdg_kode = ?
       GROUP BY mst_brg_kode
     ) d ON d.mst_brg_kode = a.brg_kode
 
-    LEFT JOIN tjenisbarang jb 
-      ON jb.jb_kode = a.brg_jenis
-
-    WHERE 
-      a.brg_ktg_kode IN ('BU')
-
+    LEFT JOIN tjenisbarang jb ON jb.jb_kode = a.brg_jenis
+    WHERE a.brg_ktg_kode IN ('BU')
     ORDER BY a.brg_nama ASC
   `;
 
   const params = [
-    tglMulai, kodeGudang,             
-    tglMulai, tglSelesai, kodeGudang, 
-    tglSelesai, kodeGudang            
+    tglMulai, kodeGudang,
+    tglMulai, tglSelesai, kodeGudang,
+    tglSelesai, kodeGudang
   ];
 
   const [rows] = await pool.query(ssql, params);
   return rows;
 };
-
 
 
 

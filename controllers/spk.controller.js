@@ -1,48 +1,46 @@
 // backend/src/controllers/spk.controller.js
-
 const spkService = require('../services/spk.service');
 
-/**
- * @description Mengambil data SPK untuk lookup (modal bantuan).
- * Sesuai dengan ufrmmintabahan_mmt.clSPKPropertiesButtonClick.
- * Endpoint: GET /api/spk/lookup?keyword=...
- */
 exports.getSpkLookup = async (req, res) => {
-    // Mengambil keyword pencarian dari query parameter (misal: /lookup?keyword=ABC)
     const keyword = req.query.keyword || ''; 
     try {
         const data = await spkService.getSpkLookupData(keyword);
         
-        // Mengembalikan status 200 OK dengan data SPK
-        res.status(200).json(data);
+        // Standarisasi: Pastikan data yang dikirim adalah array
+        res.status(200).json({
+            success: true,
+            data: data
+        });
     } catch (error) {
-        // Menangani error dari service dan mengirimkan status 500 (Internal Server Error)
         console.error("Error in getSpkLookup:", error.message);
         res.status(500).json({ 
+            success: false,
             message: 'Gagal memuat data lookup SPK', 
             detail: error.message 
         });
     }
 };
 
-/**
- * @description Mengambil detail SPK berdasarkan nomornya.
- * Endpoint: GET /api/spk/:nomor
- */
 exports.getSpkDetail = async (req, res) => {
-    // Mengambil nomor SPK dari URL parameter (misal: /api/spk/SPK-2025-001)
     const nomor = req.params.nomor; 
     try {
+        if (!nomor) {
+            return res.status(400).json({ message: 'Nomor SPK harus diisi' });
+        }
+
         const data = await spkService.getSpkDetailByNomor(nomor);
         
-        // Mengembalikan status 200 OK dengan detail SPK
-        res.status(200).json(data);
+        res.status(200).json({
+            success: true,
+            data: data
+        });
     } catch (error) {
-        // Jika SPK tidak ditemukan atau error lainnya
         console.error(`Error in getSpkDetail for ${nomor}:`, error.message);
-        res.status(404).json({ 
-            message: `Detail SPK ${nomor} tidak ditemukan.`,
-            detail: error.message 
+        // Gunakan 404 jika error message mengandung kata "tidak ditemukan"
+        const statusCode = error.message.includes('tidak ditemukan') ? 404 : 500;
+        res.status(statusCode).json({ 
+            success: false,
+            message: error.message || 'Gagal mengambil detail SPK',
         });
     }
 };

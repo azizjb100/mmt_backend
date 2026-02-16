@@ -6,11 +6,6 @@ const { format } = require('date-fns');
 // Helper untuk throw error (diasumsikan sudah didefinisikan)
 const throwDbError = (message, error) => { throw new Error(message + ': ' + error.message); };
 
-// ===================================
-// 1. READ ALL (btnRefreshClick)
-// ===================================
-
-
 
 exports.getStokByBarcode = async (barcode, gudangKode) => {
     try {

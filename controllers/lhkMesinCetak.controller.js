@@ -1,4 +1,4 @@
-const lhkCetakService = require('../services/lhkCetak.service');
+const lhkCetakService = require('../services/lhkMesinCetak.service');
 const { subDays } = require('date-fns'); // Untuk tanggal default
 
 exports.getAllHeaders = async (req, res) => {

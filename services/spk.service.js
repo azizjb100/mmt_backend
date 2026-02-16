@@ -4,8 +4,8 @@ const pool = require('../config/db.config');
 const throwDbError = (message, error) => { throw new Error(message + ': ' + error.message); };
 
 /**
- * Helper untuk membangun query gabungan TSPK dan TMEMOSPK
- * Menggunakan UNION agar data dari kedua tabel muncul dalam satu daftar.
+ * Helper untuk membangun query gabungan TSPK dan TMEMOSPK dengan Akumulasi Produksi.
+ * Kolom Sudah_Cetak mengambil data dari realisasi LHK yang sudah ada di detail mesin.
  */
 const getBaseSpkQuery = (whereClause = "v.divisi = '5'") => {
     return `
@@ -18,12 +18,20 @@ const getBaseSpkQuery = (whereClause = "v.divisi = '5'") => {
             t.spk_ukuran AS Ukuran, 
             t.spk_kain AS Bahan, 
             t.spk_gramasi AS Gramasi,
-            t.spk_panjang AS Panjang, 
-            t.spk_lebar AS Lebar, 
-            t.spk_jumlah_jadi AS Jumlah_jadi,
+            IFNULL(t.spk_panjang, 0) AS Panjang, 
+            IFNULL(t.spk_lebar, 0) AS Lebar,
+            -- Akumulasi Produksi dari LHK Mesin
+            CAST(IFNULL(prod.total_pernah_cetak, 0) AS UNSIGNED) AS Sudah_Cetak,
+            -- Sisa yang belum diproduksi
+            CAST(GREATEST(0, v.Jumlah - IFNULL(prod.total_pernah_cetak, 0)) AS UNSIGNED) AS Kurang_Cetak,
             'REGULER' as Tipe_SPK
         FROM v_help_spk v
         INNER JOIN tspk t ON t.spk_nomor = v.Spk
+        LEFT JOIN (
+            SELECT ld_spk_nomor, SUM(ld_total_qtycetak) as total_pernah_cetak
+            FROM tlhk_mesin_dtl
+            GROUP BY ld_spk_nomor
+        ) prod ON prod.ld_spk_nomor = v.Spk
         WHERE ${whereClause}
 
         UNION ALL
@@ -35,24 +43,28 @@ const getBaseSpkQuery = (whereClause = "v.divisi = '5'") => {
             m.mspk_tanggal AS Tanggal, 
             m.mspk_jumlah AS Jumlah,
             m.mspk_ukuran AS Ukuran, 
-            '' AS Bahan,            /* Solusi: Gunakan string kosong karena kolom tidak ada */
+            '' AS Bahan,
             m.mspk_gramasi AS Gramasi,
-            m.mspk_panjang AS Panjang, 
-            m.mspk_lebar AS Lebar, 
-            m.mspk_jumlah AS Jumlah_jadi,
+            IFNULL(m.mspk_panjang, 0) AS Panjang, 
+            IFNULL(m.mspk_lebar, 0) AS Lebar,
+            CAST(IFNULL(prod_m.total_pernah_cetak, 0) AS UNSIGNED) AS Sudah_Cetak,
+            CAST(GREATEST(0, m.mspk_jumlah - IFNULL(prod_m.total_pernah_cetak, 0)) AS UNSIGNED) AS Kurang_Cetak,
             'MEMO' as Tipe_SPK
         FROM tmemospk m
+        LEFT JOIN (
+            SELECT ld_spk_nomor, SUM(ld_total_qtycetak) as total_pernah_cetak
+            FROM tlhk_mesin_dtl
+            GROUP BY ld_spk_nomor
+        ) prod_m ON prod_m.ld_spk_nomor = m.mspk_nomor
         WHERE m.mspk_divisi = '5'
     `;
 };
 
 // ===================================
-// 1. READ SPK LOOKUP DATA
+// 1. READ SPK LOOKUP DATA (Untuk Modal Bantuan)
 // ===================================
-
 exports.getSpkLookupData = async (keyword) => {
     try {
-        // Kita bungkus UNION di dalam subquery agar filter WHERE keyword dan ORDER BY bekerja global
         let sql = `
             SELECT * FROM (
                 ${getBaseSpkQuery()}
@@ -60,7 +72,6 @@ exports.getSpkLookupData = async (keyword) => {
         `; 
 
         const params = [];
-        
         if (keyword) {
             sql += ` WHERE (SPK LIKE ? OR Nama LIKE ?)`;
             const searchKeyword = `%${keyword}%`;
@@ -73,23 +84,22 @@ exports.getSpkLookupData = async (keyword) => {
         return rows; 
 
     } catch (error) {
-        throwDbError('Gagal mengambil data SPK (Reguler/Memo) untuk lookup', error);
+        throwDbError('Gagal mengambil data SPK untuk lookup', error);
     }
 };
 
 // ===================================
 // 2. READ SPK DETAIL BY NOMOR
 // ===================================
-
 exports.getSpkDetailByNomor = async (nomor) => {
     try {
-        // Mencari di hasil gabungan berdasarkan nomor spesifik
         const sql = `
             SELECT * FROM (
-                ${getBaseSpkQuery()}
+                ${getBaseSpkQuery("1=1")} 
             ) AS combined_spk
             WHERE SPK = ?
         `;
+        // Note: Gunakan "1=1" agar filter divisi di helper tidak membatasi pencarian detail jika nomor sudah spesifik
         
         const [rows] = await pool.query(sql, [nomor]);
         

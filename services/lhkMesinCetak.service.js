@@ -208,7 +208,8 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
         const dateToUse = headerData.ltanggal ? new Date(headerData.ltanggal) : now;
         const formattedDate = format(dateToUse, 'yyyy-MM-dd');
         const formattedNow = format(now, 'yyyy-MM-dd HH:mm:ss');
-        const user = headerData.luser_create || headerData.luser_modified || 'SYSTEM';
+        const userCreate = headerData.luser_create || 'SYSTEM';
+        const userModified = headerData.luser_modified || userCreate;
 
         const uniqueSpks = [...new Set(detailsData.map(d => d.nomor_spk).filter(s => s))];
         const combinedSpkNomor = uniqueSpks.join(', ');
@@ -225,14 +226,14 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
                     ltanggal = ?, lgdg_prod = ?, lspk_nomor = ?, lmesin = ?,
                     lshift = ?, loperator = ?, lbahan = ?, lbarcode_roll = ?,
                     lpanjang_terpakai = ?, ljumlah_kolom = ?, lfixed = 'Y',
-                    ldate_modified = ?, luser_modified = ?, lstatus = ?,
+                    ldate_modified = ?, luser_modified = ?, lstatus = ?, -- Gunakan userModified
                     lpanjang_bs = ?, llebar_bs = ?
                 WHERE lnomor = ?
             `, [
                 formattedDate, headerData.lgdg_prod, combinedSpkNomor, headerData.lmesin,
                 headerData.lshift, headerData.loperator, headerData.lbahan, headerData.lbarcode_roll,
                 totalPanjangTerpakai, headerData.ljumlah_kolom, 
-                formattedNow, user, currentStatus, 
+                formattedNow, userModified, currentStatus,
                 headerData.lpanjang_bs || 0, headerData.llebar_bs || 0,
                 finalNomor
             ]);
@@ -243,16 +244,17 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
             await conn.query(`
                 INSERT INTO tlhk_mesin_hdr (
                     lnomor, lspk_nomor, ltanggal, lmesin, lgdg_prod,
-                    lshift, loperator, ldate_create, luser_create,
+                    lshift, loperator, ldate_create, luser_create, -- luser_create diisi userCreate
                     lbahan, lbarcode_roll, lpanjang_terpakai,
                     ljumlah_kolom, lstatus, lpanjang_bs, llebar_bs, lpanjang_afal, llebar_afal, lfixed
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Y')
             `, [
                 finalNomor, combinedSpkNomor, formattedDate, headerData.lmesin, headerData.lgdg_prod,
-                headerData.lshift, headerData.loperator, formattedNow, user,
+                headerData.lshift, headerData.loperator, formattedNow, userCreate, // <-- Perubahan di sini
                 headerData.lbahan, headerData.lbarcode_roll, totalPanjangTerpakai,
                 headerData.ljumlah_kolom,  currentStatus,
-                headerData.lpanjang_bs || 0, headerData.llebar_bs || 0, headerData.lpanjang_afal || 0, headerData.llebar_afal || 0
+                headerData.lpanjang_bs || 0, headerData.llebar_bs || 0, 
+                headerData.lpanjang_afal || 0, headerData.llebar_afal || 0
             ]);
         }
 
