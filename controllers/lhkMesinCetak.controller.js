@@ -2,16 +2,22 @@ const lhkCetakService = require('../services/lhkMesinCetak.service');
 const { subDays } = require('date-fns'); // Untuk tanggal default
 
 exports.getAllHeaders = async (req, res) => {
-  try {
-    // Beri tanggal default (30 hari terakhir) jika tidak ada
-    const endDate = req.query.endDate || new Date();
-    const startDate = req.query.startDate || subDays(endDate, 30);
-
-    const data = await lhkCetakService.getAllHeaders(startDate, endDate);
-    res.json(data);
-  } catch (error) {
-    res.status(500).json({ message: 'Gagal mengambil data LHK', error: error.message });
-  }
+    try {
+        // AMBIL 'search' dari req.query di sini
+        const { startDate, endDate, search } = req.query; 
+        
+        // Kirim 'search' ke service. Jika frontend tidak mengirim, nilainya undefined.
+        // Kita beri default string kosong '' agar service tidak error.
+        const data = await lhkCetakService.getAllHeaders(startDate, endDate, search || '');
+        
+        res.json(data);
+    } catch (error) {
+        // Jika 'search' tidak diambil di atas, maka error "search is not defined" muncul di sini
+        res.status(500).json({ 
+            message: "Gagal mengambil data master LHK", 
+            error: error.message 
+        });
+    }
 };
 
 exports.getDetails = async (req, res) => {

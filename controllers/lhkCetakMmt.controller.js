@@ -14,11 +14,18 @@ const getAllHeaders = async (req, res) => {
 
 const getDetails = async (req, res) => {
     try {
-        const { nomor } = req.query;
-        if (!nomor) return res.status(400).json({ message: "Nomor LHK diperlukan" });
+        // PERBAIKAN: Gunakan req.params, bukan req.query
+        const { nomor } = req.params; 
+        
+        if (!nomor) {
+            return res.status(400).json({ message: "Nomor LHK diperlukan" });
+        }
         
         const data = await lhkCetakService.getDetailsByNomor(nomor);
-        res.json(data);
+        res.json({
+            success: true,
+            data: data
+        });
     } catch (error) {
         res.status(500).json({ message: "Gagal mengambil detail LHK", error: error.message });
     }

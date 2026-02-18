@@ -7,7 +7,7 @@ const lhkCetakController = require('../controllers/lhkCetakMmt.controller');
 router.get('/', lhkCetakController.getAllHeaders);
 
 // GET /api/mmt/lhk-cetak/details?nomor=...
-router.get('/details', lhkCetakController.getDetails);
+router.get('/detail/:nomor', lhkCetakController.getDetails);
 
 // POST /api/mmt/lhk-cetak (Simpan Baru)
 router.post('/', lhkCetakController.saveLhk);

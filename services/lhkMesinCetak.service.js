@@ -11,15 +11,19 @@ const NOMERATOR = 'MMT-LHK-M';
 
 /**
  * Mengambil daftar master LHK Cetak
- * @param {string} startDate - Tanggal mulai (YYYY-MM-DD)
+* @param {string} startDate - Tanggal mulai (YYYY-MM-DD)
  * @param {string} endDate - Tanggal selesai (YYYY-MM-DD)
- * @returns {Promise<Array<Object>>}
+ * @param {string} search - Kata kunci pencarian (Nama SPK / Nomor)
  */
-const getAllHeaders = async (startDate, endDate) => {
+
+const getAllHeaders = async (startDate, endDate, search = '') => {
     const tglMulai = format(new Date(startDate), 'yyyy-MM-dd');
     const tglSelesai = format(new Date(endDate), 'yyyy-MM-dd');
- 
-    const sql = `
+    
+    // Siapkan array parameter untuk query
+    const params = [tglMulai, tglSelesai];
+
+    let sql = `
         SELECT 
             t1.lnomor AS Nomor, 
             t1.lshift AS Shift, 
@@ -51,10 +55,18 @@ const getAllHeaders = async (startDate, endDate) => {
             GROUP BY ld_lnomor
         ) x ON x.ld_lnomor = t1.lnomor
         WHERE t1.ltanggal BETWEEN ? AND ?
-        ORDER BY t1.ltanggal DESC, t1.lnomor DESC
     `;
 
-    const [rows] = await pool.query(sql, [tglMulai, tglSelesai]);
+    // Jika ada input search, tambahkan filter ke SQL
+    if (search) {
+        sql += ` AND (t2.spk_nama LIKE ? OR t1.lnomor LIKE ? OR t1.lspk_nomor LIKE ?) `;
+        const searchPattern = `%${search}%`;
+        params.push(searchPattern, searchPattern, searchPattern);
+    }
+
+    sql += ` ORDER BY t1.ltanggal DESC, t1.lnomor DESC`;
+
+    const [rows] = await pool.query(sql, params);
     return rows;
 };
 
@@ -90,31 +102,28 @@ const getLookupByNomor = async (nomor) => {
         // 2. Query Detail (Memecah per SPK dan mengambil data dari tspk)
         const sqlDetail = `
             SELECT 
-                d.ld_urut AS NoUrut,
-                d.ld_spk_nomor AS ld_spk_nomor,
-                s.spk_nama AS NamaOrder,
-                s.spk_panjang AS spk_panjang,
-                s.spk_lebar AS spk_lebar,
-                s.spk_jumlah AS JumlahOrder,
-                d.ld_ambilbahan AS AmbilBahanPanjang,
-                d.ld_ambilbahan_lebar AS AmbilBahanLebar,
-                d.ld_qtyCetak1 AS J_Cetak1,
-                d.ld_qtyCetak2 AS J_Cetak2,
-                d.ld_qtyCetak3 AS J_Cetak3,
-                d.ld_qtyCetak4 AS J_Cetak4,
-                d.ld_qtyCetak5 AS J_Cetak5,
-                d.ld_qtyCetak6 AS J_Cetak6,
-                d.ld_qtyCetak7 AS J_Cetak7,
-                d.ld_total_qtycetak AS TotalCetak,
-                d.ld_sisameter AS Sisa_Panjang,
-                d.ld_sisalebar AS Sisa_Lebar,
-                d.ld_tile AS Tile, 
-                d.ld_luas_m2 AS Luas_m2,
-                d.ld_padding AS Padding
+                d.ld_lnomor AS lhkmesin,
+                d.ld_spk_nomor AS spk_nomor,
+                s.spk_nama AS nama_spk,
+                t1.lshift AS shift,
+                t1.loperator AS operator,
+                t1.lmesin AS mesin,
+                s.spk_jumlah AS jumlah,
+                -- Ambil akumulasi Sdh Cetak dari database (logika Delphi)
+                IFNULL(akumulasi.total_cetak, 0) AS sudahcetak,
+                d.ld_total_qtycetak AS totalcetak,
+                s.spk_panjang,
+                s.spk_lebar
             FROM tlhk_mesin_dtl d
-            LEFT JOIN tspk s ON d.ld_spk_nomor = s.spk_nomor
+            INNER JOIN tlhk_mesin_hdr t1 ON t1.lnomor = d.ld_lnomor
+            LEFT JOIN tspk s ON s.spk_nomor = d.ld_spk_nomor
+            -- Subquery untuk mendapatkan total yang sudah dicetak sebelumnya di LHK lain
+            LEFT JOIN (
+                SELECT ld_spk_nomor, SUM(ld_total_qtycetak) as total_cetak 
+                FROM tlhk_mesin_dtl 
+                GROUP BY ld_spk_nomor
+            ) akumulasi ON akumulasi.ld_spk_nomor = d.ld_spk_nomor
             WHERE d.ld_lnomor = ?
-            ORDER BY d.ld_urut ASC
         `;
         const [detailRows] = await pool.query(sqlDetail, [nomor]);
 
