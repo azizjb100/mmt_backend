@@ -99,7 +99,7 @@ const getLookupByNomor = async (nomor) => {
             throw new Error(`LHK Cetak nomor ${nomor} tidak ditemukan`);
         }
 
-        // 2. Query Detail (Memecah per SPK dan mengambil data dari tspk)
+        // --- PERBAIKAN: Tambahkan J_Cetak1 s/d J_Cetak7 ---
         const sqlDetail = `
             SELECT 
                 d.ld_lnomor AS lhkmesin,
@@ -109,36 +109,44 @@ const getLookupByNomor = async (nomor) => {
                 t1.loperator AS operator,
                 t1.lmesin AS mesin,
                 s.spk_jumlah AS jumlah,
-                -- Ambil akumulasi Sdh Cetak dari database (logika Delphi)
                 IFNULL(akumulasi.total_cetak, 0) AS sudahcetak,
                 d.ld_total_qtycetak AS totalcetak,
                 s.spk_panjang,
-                s.spk_lebar
+                s.spk_lebar,
+                d.ld_padding AS Padding,
+                d.ld_tile AS Tile,
+                -- Field Cetak 1 - 7
+                d.ld_qtyCetak1 AS J_Cetak1,
+                d.ld_qtyCetak2 AS J_Cetak2,
+                d.ld_qtyCetak3 AS J_Cetak3,
+                d.ld_qtyCetak4 AS J_Cetak4,
+                d.ld_qtyCetak5 AS J_Cetak5,
+                d.ld_qtyCetak6 AS J_Cetak6,
+                d.ld_qtyCetak7 AS J_Cetak7
             FROM tlhk_mesin_dtl d
             INNER JOIN tlhk_mesin_hdr t1 ON t1.lnomor = d.ld_lnomor
             LEFT JOIN tspk s ON s.spk_nomor = d.ld_spk_nomor
-            -- Subquery untuk mendapatkan total yang sudah dicetak sebelumnya di LHK lain
             LEFT JOIN (
                 SELECT ld_spk_nomor, SUM(ld_total_qtycetak) as total_cetak 
                 FROM tlhk_mesin_dtl 
                 GROUP BY ld_spk_nomor
             ) akumulasi ON akumulasi.ld_spk_nomor = d.ld_spk_nomor
             WHERE d.ld_lnomor = ?
+            ORDER BY d.ld_urut ASC
         `;
         const [detailRows] = await pool.query(sqlDetail, [nomor]);
 
-// PERBAIKAN: Bungkus dalam objek header dan details (huruf kecil)
-return {
-    header: headerRows[0],
-    details: detailRows
-};
+        return {
+            header: headerRows[0],
+            details: detailRows
+        };
 
     } catch (error) {
-        // Menggunakan pola throw yang Anda berikan
         console.error("Error getLookupByNomor:", error);
         throw new Error(`Gagal mengambil data LHK Cetak: ${error.message}`);
     }
 };
+
 /**
  * Mengambil nomor urut maksimum dari bulan dan tahun saat ini
  * @param {Date} date - Tanggal untuk menentukan YYMM
