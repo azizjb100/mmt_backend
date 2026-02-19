@@ -111,6 +111,7 @@ const getLookupByNomor = async (nomor) => {
                 s.spk_jumlah AS jumlah,
                 IFNULL(akumulasi.total_cetak, 0) AS sudahcetak,
                 d.ld_total_qtycetak AS totalcetak,
+                d.ld_luas_m2 AS m2_cetak,
                 s.spk_panjang,
                 s.spk_lebar,
                 d.ld_padding AS Padding,
@@ -144,6 +145,80 @@ const getLookupByNomor = async (nomor) => {
     } catch (error) {
         console.error("Error getLookupByNomor:", error);
         throw new Error(`Gagal mengambil data LHK Cetak: ${error.message}`);
+    }
+};
+
+/**
+ * Mengambil data dari MULTIPLE Nomor LHK Mesin (Multiple Choice)
+ * @param {Array|string} nomor - Bisa berupa string tunggal atau Array nomor ['LHK01', 'LHK02']
+ */
+const getLookupByMultipleNomor = async (nomor) => {
+    try {
+        // Pastikan input adalah array
+        const daftarNomor = Array.isArray(nomor) ? nomor : [nomor];
+        
+        if (daftarNomor.length === 0) return null;
+
+        // Query Header (Mengambil data dasar dari LHK Mesin pertama sebagai acuan)
+        // Kita gunakan operator IN (?,?,?)
+        const sqlHeader = `
+            SELECT 
+                t1.lmesin AS Mesin, 
+                t1.lbarcode_roll,
+                t1.loperator AS Operator,
+                t1.lgdg_prod AS Gudang,
+                t1.lbahan AS Kode_bahan,
+                t3.brg_nama AS nama_Bahan,
+                t1.lpanjang_terpakai,
+                t1.ljumlah_kolom AS Tile
+            FROM tlhk_mesin_hdr t1
+            LEFT JOIN tbarang_mmt t3 ON t3.brg_kode = t1.lbahan
+            WHERE t1.lnomor IN (?)
+            LIMIT 1
+        `;
+        
+        const [headerRows] = await pool.query(sqlHeader, [daftarNomor]);
+
+        // Query Detail (Menggabungkan semua detail dari semua LHK Mesin yang dipilih)
+        // backend/services/lhkCetak.service.js
+
+const sqlDetail = `
+    SELECT 
+        d.ld_lnomor AS referensi_lhk,
+        h.lmesin AS mesin,          -- Tambahkan ini
+        h.loperator AS operator,    -- Tambahkan ini
+        h.lshift AS shift,
+        d.ld_spk_nomor AS spk_nomor,
+
+        s.spk_nama AS nama_spk,
+        s.spk_jumlah AS jumlah_order,
+        d.ld_qtyCetak1, d.ld_qtyCetak2, d.ld_qtyCetak3, 
+        d.ld_qtyCetak4, d.ld_qtyCetak5, d.ld_qtyCetak6, d.ld_qtyCetak7,
+        d.ld_total_qtycetak AS totalcetak,
+        d.ld_total_metercetak AS cetakmeter,
+        d.ld_tile AS tile,
+        d.ld_luas_m2
+    FROM tlhk_mesin_dtl d
+    INNER JOIN tlhk_mesin_hdr h ON h.lnomor = d.ld_lnomor -- Join ke Header
+    LEFT JOIN tspk s ON s.spk_nomor = d.ld_spk_nomor
+    WHERE d.ld_lnomor IN (?)
+    ORDER BY d.ld_lnomor ASC, d.ld_urut ASC
+`;
+        
+        const [detailRows] = await pool.query(sqlDetail, [daftarNomor]);
+
+        return {
+            header: headerRows.length > 0 ? headerRows[0] : {},
+            details: detailRows,
+            summary: {
+                total_meter_gabungan: detailRows.reduce((sum, item) => sum + Number(item.cetakmeter || 0), 0),
+                jumlah_lhk_terpilih: daftarNomor.length
+            }
+        };
+
+    } catch (error) {
+        console.error("Error getLookupByMultipleNomor:", error);
+        throw new Error(`Gagal mengambil data multiple LHK: ${error.message}`);
     }
 };
 
@@ -309,16 +384,35 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
         // 6. MUTASI STOK (HANYA JIKA POSTED)
         if (currentStatus === 'POSTED') {
             if (usedBarcode && maxAmbilPanjang > 0) {
-                const initialLebar = detailsData[0].ambilBahanLebar || 0;
+                // --- PERUBAHAN DISINI: Ambil info harga dan lebar awal dari barcode asal ---
+                const [oldStock] = await conn.query(`
+                    SELECT mst_hargabeli, mst_satuan_harga, mst_lebar 
+                    FROM tmasterstok_mmt 
+                    WHERE mst_barcode = ? 
+                    LIMIT 1
+                `, [usedBarcode]);
+
+                const hargaBeliLama = oldStock.length > 0 ? oldStock[0].mst_hargabeli : 0;
+                const satuanHargaLama = oldStock.length > 0 ? oldStock[0].mst_satuan_harga : null;
+                const lebarAwal = oldStock.length > 0 ? oldStock[0].mst_lebar : 0;
+
+                // Tentukan lebar yang akan digunakan untuk sisa
+                // Jika finalSisaLebar dari frontend <= 0, gunakan lebarAwal
+                const finalLebarInput = (finalSisaLebar > 0) ? finalSisaLebar : lebarAwal;
+
+                const initialLebar = detailsData[0].ambilBahanLebar || lebarAwal;
 
                 // MUTASI KELUAR (STOK LAMA HABIS)
                 await conn.query(`
                     INSERT INTO tmasterstok_mmt (
                         mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
                         mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi,
-                        mst_hargabeli, mst_tanggal, mst_barcode
-                    ) VALUES (?, ?, 0, 1, ?, ?, ?, ?, 0, ?, ?)
-                `, [usedKodeBahan, headerData.lgdg_prod, maxAmbilPanjang, initialLebar, combinedSpkNomor, finalNomor, formattedDate, usedBarcode]);
+                        mst_hargabeli, mst_satuan_harga, mst_tanggal, mst_barcode
+                    ) VALUES (?, ?, 0, 1, ?, ?, ?, ?, ?, ?, ?, ?)
+                `, [
+                    usedKodeBahan, headerData.lgdg_prod, maxAmbilPanjang, initialLebar, 
+                    combinedSpkNomor, finalNomor, hargaBeliLama, satuanHargaLama, formattedDate, usedBarcode
+                ]);
 
                 // MUTASI MASUK (SISA UTAMA)
                 if (finalSisaMeter > 0) {
@@ -326,30 +420,33 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
                         INSERT INTO tmasterstok_mmt (
                             mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
                             mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi,
-                            mst_hargabeli, mst_tanggal, mst_barcode
-                        ) VALUES (?, ?, 1, 0, ?, ?, ?, ?, 0, ?, ?)
-                    `, [usedKodeBahan, headerData.lgdg_prod, finalSisaMeter, finalSisaLebar, combinedSpkNomor, finalNomor, formattedDate, usedBarcode]);
+                            mst_hargabeli, mst_satuan_harga, mst_tanggal, mst_barcode
+                        ) VALUES (?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+                    `, [
+                        usedKodeBahan, headerData.lgdg_prod, finalSisaMeter, finalLebarInput, 
+                        combinedSpkNomor, finalNomor, hargaBeliLama, satuanHargaLama, formattedDate, usedBarcode
+                    ]);
                 }
 
-                // MUTASI MASUK (AFAL SISTEM) - CREATE BARCODE BARU OTOMATIS
+                // MUTASI MASUK (AFAL SISTEM)
                 const afalP = headerData.lpanjang_afal || 0; 
-        const afalL = headerData.llebar_afal || 0;
+                const afalL = headerData.llebar_afal || 0;
 
-        if (afalP > 0 && afalL > 0) {
-            const newAfalBarcode = await getNextSuffix(conn, usedBarcode);
-            await conn.query(`
-                INSERT INTO tmasterstok_mmt (
-                    mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
-                    mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi,
-                    mst_hargabeli, mst_tanggal, mst_barcode
-                ) VALUES (?, ?, 1, 0, ?, ?, ?, ?, 0, ?, ?)
-            `, [usedKodeBahan, headerData.lgdg_prod, afalP, afalL, "STOK AFAL", finalNomor, formattedDate, newAfalBarcode]);
-            
-            console.log(`Barcode Afal Berhasil: ${newAfalBarcode}`);
-        }
+                if (afalP > 0 && afalL > 0) {
+                    const newAfalBarcode = await getNextSuffix(conn, usedBarcode);
+                    await conn.query(`
+                        INSERT INTO tmasterstok_mmt (
+                            mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
+                            mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi,
+                            mst_hargabeli, mst_satuan_harga, mst_tanggal, mst_barcode
+                        ) VALUES (?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+                    `, [
+                        usedKodeBahan, headerData.lgdg_prod, afalP, afalL, 
+                        "STOK AFAL", finalNomor, hargaBeliLama, satuanHargaLama, formattedDate, newAfalBarcode
+                    ]);
+                }
             }
         }
-
         await conn.commit();
         return { success: true, nomor: finalNomor, status: currentStatus };
 
@@ -394,6 +491,7 @@ module.exports = {
     getAllHeaders,
     getLookupByNomor,
     generateNewNomor,
+    getLookupByMultipleNomor,
     deleteLhk,
     saveLhk
 };

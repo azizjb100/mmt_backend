@@ -99,6 +99,11 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
     try {
         await conn.beginTransaction();
 
+        // --- LOGIKA GABUNG OPERATOR UNIK ---
+        // Mengambil semua nama operator dari detail, filter yang kosong, lalu ambil yang unik
+        const uniqueOperators = [...new Set(detailsData.map(d => (d.Operator || d.operator || '').trim()).filter(name => name !== ''))];
+        const combinedOperators = uniqueOperators.join(', ');
+
         const rawDate = headerData.lch_tanggal; 
         const dateToUse = (rawDate && !isNaN(new Date(rawDate).getTime())) 
             ? new Date(rawDate) 
@@ -109,21 +114,26 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
         }
 
         const formattedDate = format(dateToUse, 'yyyy-MM-dd');
+        // Ambil user dari payload luser_modified yang dikirim frontend
+        const currentUser = headerData.luser_modified || 'SYSTEM';
 
         if (isEditMode) {
             await conn.query(`
                 UPDATE tlhk_cetakmmt_hdr SET
                     lch_tanggal = ?, lch_gdg_prod = ?, lch_shift = ?, 
-                    lch_operator = ?, lch_user_edit = ?
+                    lch_operator = ?, lch_user_edit = ?, lch_date_edit = NOW()
                 WHERE lch_nomor = ?
-            `, [formattedDate, headerData.lch_gdg_prod, headerData.lch_shift, headerData.lch_operator, headerData.lch_user, finalNomor]);
+            `, [formattedDate, headerData.lch_gdg_prod, headerData.lch_shift, combinedOperators, currentUser, finalNomor]);
             
             await conn.query(`DELETE FROM tlhk_cetakmmt_dtl WHERE lcd_lch_nomor = ?`, [finalNomor]);
         } else {
             await conn.query(`
-                INSERT INTO tlhk_cetakmmt_hdr (lch_nomor, lch_tanggal, lch_gdg_prod, lch_shift, lch_operator)
-                VALUES (?, ?, ?, ?, ?)
-            `, [finalNomor, formattedDate, headerData.lch_gdg_prod, headerData.lch_shift, headerData.lch_operator]);
+                INSERT INTO tlhk_cetakmmt_hdr (
+                    lch_nomor, lch_tanggal, lch_gdg_prod, lch_shift, 
+                    lch_operator, lch_user_create, lch_date_create
+                )
+                VALUES (?, ?, ?, ?, ?, ?, NOW())
+            `, [finalNomor, formattedDate, headerData.lch_gdg_prod, headerData.lch_shift, combinedOperators, currentUser]);
         }
 
         for (let i = 0; i < detailsData.length; i++) {

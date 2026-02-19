@@ -1,22 +1,29 @@
-// src/controllers/reportController.js
-
 const reportService = require('../services/lapMonCetak.service');
 
 async function lapMonCetak(req, res) {
-    const { startDate, endDate } = req.query;
 
-    if (!startDate || !endDate) {
-        return res.status(400).json({ message: 'Missing startDate or endDate query parameters.' });
-    }
+  const { startDate, endDate } = req.query;
 
-    try {
-        const reportData = await reportService.lapMonCetak(startDate, endDate);
-        res.json(reportData);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
+  if (!startDate || !endDate) {
+    return res.status(400).json({
+      message: 'Parameter startDate dan endDate wajib diisi'
+    });
+  }
+
+  try {
+    const data = await reportService.lapMonCetak(
+      startDate,
+      endDate
+    );
+
+    res.json(data);
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message: 'Terjadi kesalahan server'
+    });
+  }
 }
 
-module.exports = {
-    lapMonCetak
-};
+module.exports = { lapMonCetak };
