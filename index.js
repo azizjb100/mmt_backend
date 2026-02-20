@@ -5,9 +5,8 @@ const fs = require("fs");
 const path = require("path");
 require("dotenv").config();
 
-// Impor file route
 const authRoutes = require("./routes/auth.routes");
-const lhkCetakRoutes = require("./routes/lhkCetak.routes");
+const lhkMesinCetakRoutes = require("./routes/lhkMesinCetak.routes");
 const lhkFinishingRoutes = require("./routes/lhkFinishing.routes");
 const stbjMmtRoutes = require("./routes/stbjMmt.routes");
 const lapLsBahanUtamaRoutes = require("./routes/lapLsBahanUtama.routes");
@@ -35,6 +34,7 @@ const pengajuanPermintaanRoutes = require("./routes/pengajuanPermintaan.routes")
 const permintaanProduksiBahanRoutes = require("./routes/permintaanProduksiBahan.routes");
 const planningProduksiRoutes = require("./routes/planningProduksi.routes");
 const lhkTekstilMmtRoutes = require("./routes/lhkTekstilMmt.routes");
+const lhkCetakMmtRoutes = require("./routes/lhkCetakMmt.routes");
 
 // Konfigurasi
 
@@ -80,17 +80,15 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/images", express.static(imageFolderPath));
 app.disable("etag");
 
-// Pastikan folder yang diperlukan sudah ada
 requiredDirs.forEach((dir) => {
     if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
-        console.log("📁 Created directory:", dir);
+        console.log(" Created directory:", dir);
     }
 });
 
-// Gunakan route
 app.use("/api/auth", authRoutes);
-app.use("/api/mmt/lhk-cetak", lhkCetakRoutes);
+app.use("/api/mmt/lhk-cetak", lhkMesinCetakRoutes);
 app.use("/api/mmt/lhk-finishing", lhkFinishingRoutes);
 app.use("/api/mmt/laporan-stbj", stbjMmtRoutes);
 app.use("/api/mmt/laporan-ls-bahan-utama", lapLsBahanUtamaRoutes);
@@ -118,6 +116,7 @@ app.use("/api/mmt/pengajuan-permintaan", pengajuanPermintaanRoutes);
 app.use("/api/mmt/permintaan-produksi-bahan", permintaanProduksiBahanRoutes);
 app.use("/api/mmt/planning-produksi", planningProduksiRoutes);
 app.use("/api/mmt/lhk-tekstil-mmt", lhkTekstilMmtRoutes);
+app.use("/api/mmt/lhk-cetak-mmt", lhkCetakMmtRoutes);
 
 const port = process.env.PORT || 8003;
 

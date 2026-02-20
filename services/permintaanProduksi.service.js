@@ -6,11 +6,6 @@ const { format } = require('date-fns');
 // Helper untuk throw error (diasumsikan sudah didefinisikan)
 const throwDbError = (message, error) => { throw new Error(message + ': ' + error.message); };
 
-// ===================================
-// 1. READ ALL (btnRefreshClick)
-// ===================================
-
-
 
 exports.getStokByBarcode = async (barcode, gudangKode) => {
     try {
@@ -68,24 +63,37 @@ exports.getPermintaanProduksiData = async (startDate, endDate) => {
         if (masterNomors.length === 0) return [];
 
         // Query SQL Detail (Item Permintaan)
-        const sqlDetail = `
-            SELECT
-                mntd_mnt_nomor AS Nomor, 
-                mntd_brg_kode AS Kode, 
-                mntd_barcode AS Barcode, -- Ambil barcode yang tersimpan
-                TRIM(brg_nama) AS Nama_Bahan,
-                -- Ambil panjang lebar dari tabel detail (jika disimpan) 
-                -- atau join ulang ke tmasterstok jika diperlukan
-                mntd_qty AS Jumlah, 
-                mntd_brg_satuan AS Satuan,
-                mntd_operator AS Operator, 
-                mntd_spk_nomor AS Nomor_SPK,
-                mntd_keterangan AS Keterangan
-            FROM tminta_mmt_dtl
-            LEFT JOIN tbarang_mmt ON mntd_brg_kode = brg_kode
-            WHERE mntd_mnt_nomor IN (?)
-            ORDER BY mntd_mnt_nomor, mntd_nourut;
-        `;
+
+const sqlDetail = `
+    SELECT
+        d.mntd_mnt_nomor AS Nomor, 
+        d.mntd_brg_kode AS Kode, 
+        d.mntd_barcode AS Barcode,
+        TRIM(b.brg_nama) AS Nama_Bahan,
+        d.mntd_qty AS Jumlah, 
+        d.mntd_brg_satuan AS Satuan,
+        d.mntd_operator AS Operator, 
+        d.mntd_spk_nomor AS Nomor_SPK,
+        d.mntd_keterangan AS Keterangan,
+        MAX(s.mst_panjang) AS Panjang, 
+        MAX(s.mst_lebar) AS Lebar
+    FROM tminta_mmt_dtl d
+    LEFT JOIN tbarang_mmt b ON d.mntd_brg_kode = b.brg_kode
+    LEFT JOIN tmasterstok_mmt s ON d.mntd_barcode = s.mst_barcode 
+    WHERE d.mntd_mnt_nomor IN (?)
+    GROUP BY 
+        d.mntd_mnt_nomor, 
+        d.mntd_nourut, 
+        d.mntd_brg_kode, 
+        d.mntd_barcode, 
+        b.brg_nama, 
+        d.mntd_qty, 
+        d.mntd_brg_satuan, 
+        d.mntd_operator, 
+        d.mntd_spk_nomor, 
+        d.mntd_keterangan
+    ORDER BY d.mntd_mnt_nomor, d.mntd_nourut;
+`;
 
         const [detailResults] = await pool.query(sqlDetail, [masterNomors]);
 

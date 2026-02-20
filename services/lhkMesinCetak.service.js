@@ -11,15 +11,19 @@ const NOMERATOR = 'MMT-LHK-M';
 
 /**
  * Mengambil daftar master LHK Cetak
- * @param {string} startDate - Tanggal mulai (YYYY-MM-DD)
+* @param {string} startDate - Tanggal mulai (YYYY-MM-DD)
  * @param {string} endDate - Tanggal selesai (YYYY-MM-DD)
- * @returns {Promise<Array<Object>>}
+ * @param {string} search - Kata kunci pencarian (Nama SPK / Nomor)
  */
-const getAllHeaders = async (startDate, endDate) => {
+
+const getAllHeaders = async (startDate, endDate, search = '') => {
     const tglMulai = format(new Date(startDate), 'yyyy-MM-dd');
     const tglSelesai = format(new Date(endDate), 'yyyy-MM-dd');
- 
-    const sql = `
+    
+    // Siapkan array parameter untuk query
+    const params = [tglMulai, tglSelesai];
+
+    let sql = `
         SELECT 
             t1.lnomor AS Nomor, 
             t1.lshift AS Shift, 
@@ -51,10 +55,18 @@ const getAllHeaders = async (startDate, endDate) => {
             GROUP BY ld_lnomor
         ) x ON x.ld_lnomor = t1.lnomor
         WHERE t1.ltanggal BETWEEN ? AND ?
-        ORDER BY t1.ltanggal DESC, t1.lnomor DESC
     `;
 
-    const [rows] = await pool.query(sql, [tglMulai, tglSelesai]);
+    // Jika ada input search, tambahkan filter ke SQL
+    if (search) {
+        sql += ` AND (t2.spk_nama LIKE ? OR t1.lnomor LIKE ? OR t1.lspk_nomor LIKE ?) `;
+        const searchPattern = `%${search}%`;
+        params.push(searchPattern, searchPattern, searchPattern);
+    }
+
+    sql += ` ORDER BY t1.ltanggal DESC, t1.lnomor DESC`;
+
+    const [rows] = await pool.query(sql, params);
     return rows;
 };
 
@@ -87,49 +99,129 @@ const getLookupByNomor = async (nomor) => {
             throw new Error(`LHK Cetak nomor ${nomor} tidak ditemukan`);
         }
 
-        // 2. Query Detail (Memecah per SPK dan mengambil data dari tspk)
+        // --- PERBAIKAN: Tambahkan J_Cetak1 s/d J_Cetak7 ---
         const sqlDetail = `
             SELECT 
-                d.ld_urut AS NoUrut,
-                d.ld_spk_nomor AS ld_spk_nomor,
-                s.spk_nama AS NamaOrder,
-                s.spk_panjang AS spk_panjang,
-                s.spk_lebar AS spk_lebar,
-                s.spk_jumlah AS JumlahOrder,
-                d.ld_ambilbahan AS AmbilBahanPanjang,
-                d.ld_ambilbahan_lebar AS AmbilBahanLebar,
+                d.ld_lnomor AS lhkmesin,
+                d.ld_spk_nomor AS spk_nomor,
+                s.spk_nama AS nama_spk,
+                t1.lshift AS shift,
+                t1.loperator AS operator,
+                t1.lmesin AS mesin,
+                s.spk_jumlah AS jumlah,
+                IFNULL(akumulasi.total_cetak, 0) AS sudahcetak,
+                d.ld_total_qtycetak AS totalcetak,
+                d.ld_luas_m2 AS m2_cetak,
+                s.spk_panjang,
+                s.spk_lebar,
+                d.ld_padding AS Padding,
+                d.ld_tile AS Tile,
+                -- Field Cetak 1 - 7
                 d.ld_qtyCetak1 AS J_Cetak1,
                 d.ld_qtyCetak2 AS J_Cetak2,
                 d.ld_qtyCetak3 AS J_Cetak3,
                 d.ld_qtyCetak4 AS J_Cetak4,
                 d.ld_qtyCetak5 AS J_Cetak5,
                 d.ld_qtyCetak6 AS J_Cetak6,
-                d.ld_qtyCetak7 AS J_Cetak7,
-                d.ld_total_qtycetak AS TotalCetak,
-                d.ld_sisameter AS Sisa_Panjang,
-                d.ld_sisalebar AS Sisa_Lebar,
-                d.ld_tile AS Tile, 
-                d.ld_luas_m2 AS Luas_m2,
-                d.ld_padding AS Padding
+                d.ld_qtyCetak7 AS J_Cetak7
             FROM tlhk_mesin_dtl d
-            LEFT JOIN tspk s ON d.ld_spk_nomor = s.spk_nomor
+            INNER JOIN tlhk_mesin_hdr t1 ON t1.lnomor = d.ld_lnomor
+            LEFT JOIN tspk s ON s.spk_nomor = d.ld_spk_nomor
+            LEFT JOIN (
+                SELECT ld_spk_nomor, SUM(ld_total_qtycetak) as total_cetak 
+                FROM tlhk_mesin_dtl 
+                GROUP BY ld_spk_nomor
+            ) akumulasi ON akumulasi.ld_spk_nomor = d.ld_spk_nomor
             WHERE d.ld_lnomor = ?
             ORDER BY d.ld_urut ASC
         `;
         const [detailRows] = await pool.query(sqlDetail, [nomor]);
 
-// PERBAIKAN: Bungkus dalam objek header dan details (huruf kecil)
-return {
-    header: headerRows[0],
-    details: detailRows
-};
+        return {
+            header: headerRows[0],
+            details: detailRows
+        };
 
     } catch (error) {
-        // Menggunakan pola throw yang Anda berikan
         console.error("Error getLookupByNomor:", error);
         throw new Error(`Gagal mengambil data LHK Cetak: ${error.message}`);
     }
 };
+
+/**
+ * Mengambil data dari MULTIPLE Nomor LHK Mesin (Multiple Choice)
+ * @param {Array|string} nomor - Bisa berupa string tunggal atau Array nomor ['LHK01', 'LHK02']
+ */
+const getLookupByMultipleNomor = async (nomor) => {
+    try {
+        // Pastikan input adalah array
+        const daftarNomor = Array.isArray(nomor) ? nomor : [nomor];
+        
+        if (daftarNomor.length === 0) return null;
+
+        // Query Header (Mengambil data dasar dari LHK Mesin pertama sebagai acuan)
+        // Kita gunakan operator IN (?,?,?)
+        const sqlHeader = `
+            SELECT 
+                t1.lmesin AS Mesin, 
+                t1.lbarcode_roll,
+                t1.loperator AS Operator,
+                t1.lgdg_prod AS Gudang,
+                t1.lbahan AS Kode_bahan,
+                t3.brg_nama AS nama_Bahan,
+                t1.lpanjang_terpakai,
+                t1.ljumlah_kolom AS Tile
+            FROM tlhk_mesin_hdr t1
+            LEFT JOIN tbarang_mmt t3 ON t3.brg_kode = t1.lbahan
+            WHERE t1.lnomor IN (?)
+            LIMIT 1
+        `;
+        
+        const [headerRows] = await pool.query(sqlHeader, [daftarNomor]);
+
+        // Query Detail (Menggabungkan semua detail dari semua LHK Mesin yang dipilih)
+        // backend/services/lhkCetak.service.js
+
+const sqlDetail = `
+    SELECT 
+        d.ld_lnomor AS referensi_lhk,
+        h.lmesin AS mesin,          -- Tambahkan ini
+        h.loperator AS operator,    -- Tambahkan ini
+        h.lshift AS shift,
+        d.ld_spk_nomor AS spk_nomor,
+
+        s.spk_nama AS nama_spk,
+        s.spk_jumlah AS jumlah_order,
+        d.ld_qtyCetak1, d.ld_qtyCetak2, d.ld_qtyCetak3, 
+        d.ld_qtyCetak4, d.ld_qtyCetak5, d.ld_qtyCetak6, d.ld_qtyCetak7,
+        d.ld_total_qtycetak AS totalcetak,
+        d.ld_total_metercetak AS cetakmeter,
+        d.ld_tile AS tile,
+        d.ld_luas_m2
+    FROM tlhk_mesin_dtl d
+    INNER JOIN tlhk_mesin_hdr h ON h.lnomor = d.ld_lnomor -- Join ke Header
+    LEFT JOIN tspk s ON s.spk_nomor = d.ld_spk_nomor
+    WHERE d.ld_lnomor IN (?)
+    ORDER BY d.ld_lnomor ASC, d.ld_urut ASC
+`;
+        
+        const [detailRows] = await pool.query(sqlDetail, [daftarNomor]);
+
+        return {
+            header: headerRows.length > 0 ? headerRows[0] : {},
+            details: detailRows,
+            summary: {
+                total_meter_gabungan: detailRows.reduce((sum, item) => sum + Number(item.cetakmeter || 0), 0),
+                jumlah_lhk_terpilih: daftarNomor.length
+            }
+        };
+
+    } catch (error) {
+        console.error("Error getLookupByMultipleNomor:", error);
+        throw new Error(`Gagal mengambil data multiple LHK: ${error.message}`);
+    }
+};
+
 /**
  * Mengambil nomor urut maksimum dari bulan dan tahun saat ini
  * @param {Date} date - Tanggal untuk menentukan YYMM
@@ -208,7 +300,8 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
         const dateToUse = headerData.ltanggal ? new Date(headerData.ltanggal) : now;
         const formattedDate = format(dateToUse, 'yyyy-MM-dd');
         const formattedNow = format(now, 'yyyy-MM-dd HH:mm:ss');
-        const user = headerData.luser_create || headerData.luser_modified || 'SYSTEM';
+        const userCreate = headerData.luser_create || 'SYSTEM';
+        const userModified = headerData.luser_modified || userCreate;
 
         const uniqueSpks = [...new Set(detailsData.map(d => d.nomor_spk).filter(s => s))];
         const combinedSpkNomor = uniqueSpks.join(', ');
@@ -225,14 +318,14 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
                     ltanggal = ?, lgdg_prod = ?, lspk_nomor = ?, lmesin = ?,
                     lshift = ?, loperator = ?, lbahan = ?, lbarcode_roll = ?,
                     lpanjang_terpakai = ?, ljumlah_kolom = ?, lfixed = 'Y',
-                    ldate_modified = ?, luser_modified = ?, lstatus = ?,
+                    ldate_modified = ?, luser_modified = ?, lstatus = ?, -- Gunakan userModified
                     lpanjang_bs = ?, llebar_bs = ?
                 WHERE lnomor = ?
             `, [
                 formattedDate, headerData.lgdg_prod, combinedSpkNomor, headerData.lmesin,
                 headerData.lshift, headerData.loperator, headerData.lbahan, headerData.lbarcode_roll,
                 totalPanjangTerpakai, headerData.ljumlah_kolom, 
-                formattedNow, user, currentStatus, 
+                formattedNow, userModified, currentStatus,
                 headerData.lpanjang_bs || 0, headerData.llebar_bs || 0,
                 finalNomor
             ]);
@@ -243,16 +336,17 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
             await conn.query(`
                 INSERT INTO tlhk_mesin_hdr (
                     lnomor, lspk_nomor, ltanggal, lmesin, lgdg_prod,
-                    lshift, loperator, ldate_create, luser_create,
+                    lshift, loperator, ldate_create, luser_create, -- luser_create diisi userCreate
                     lbahan, lbarcode_roll, lpanjang_terpakai,
                     ljumlah_kolom, lstatus, lpanjang_bs, llebar_bs, lpanjang_afal, llebar_afal, lfixed
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Y')
             `, [
                 finalNomor, combinedSpkNomor, formattedDate, headerData.lmesin, headerData.lgdg_prod,
-                headerData.lshift, headerData.loperator, formattedNow, user,
+                headerData.lshift, headerData.loperator, formattedNow, userCreate, // <-- Perubahan di sini
                 headerData.lbahan, headerData.lbarcode_roll, totalPanjangTerpakai,
                 headerData.ljumlah_kolom,  currentStatus,
-                headerData.lpanjang_bs || 0, headerData.llebar_bs || 0, headerData.lpanjang_afal || 0, headerData.llebar_afal || 0
+                headerData.lpanjang_bs || 0, headerData.llebar_bs || 0, 
+                headerData.lpanjang_afal || 0, headerData.llebar_afal || 0
             ]);
         }
 
@@ -290,16 +384,35 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
         // 6. MUTASI STOK (HANYA JIKA POSTED)
         if (currentStatus === 'POSTED') {
             if (usedBarcode && maxAmbilPanjang > 0) {
-                const initialLebar = detailsData[0].ambilBahanLebar || 0;
+                // --- PERUBAHAN DISINI: Ambil info harga dan lebar awal dari barcode asal ---
+                const [oldStock] = await conn.query(`
+                    SELECT mst_hargabeli, mst_satuan_harga, mst_lebar 
+                    FROM tmasterstok_mmt 
+                    WHERE mst_barcode = ? 
+                    LIMIT 1
+                `, [usedBarcode]);
+
+                const hargaBeliLama = oldStock.length > 0 ? oldStock[0].mst_hargabeli : 0;
+                const satuanHargaLama = oldStock.length > 0 ? oldStock[0].mst_satuan_harga : null;
+                const lebarAwal = oldStock.length > 0 ? oldStock[0].mst_lebar : 0;
+
+                // Tentukan lebar yang akan digunakan untuk sisa
+                // Jika finalSisaLebar dari frontend <= 0, gunakan lebarAwal
+                const finalLebarInput = (finalSisaLebar > 0) ? finalSisaLebar : lebarAwal;
+
+                const initialLebar = detailsData[0].ambilBahanLebar || lebarAwal;
 
                 // MUTASI KELUAR (STOK LAMA HABIS)
                 await conn.query(`
                     INSERT INTO tmasterstok_mmt (
                         mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
                         mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi,
-                        mst_hargabeli, mst_tanggal, mst_barcode
-                    ) VALUES (?, ?, 0, 1, ?, ?, ?, ?, 0, ?, ?)
-                `, [usedKodeBahan, headerData.lgdg_prod, maxAmbilPanjang, initialLebar, combinedSpkNomor, finalNomor, formattedDate, usedBarcode]);
+                        mst_hargabeli, mst_satuan_harga, mst_tanggal, mst_barcode
+                    ) VALUES (?, ?, 0, 1, ?, ?, ?, ?, ?, ?, ?, ?)
+                `, [
+                    usedKodeBahan, headerData.lgdg_prod, maxAmbilPanjang, initialLebar, 
+                    combinedSpkNomor, finalNomor, hargaBeliLama, satuanHargaLama, formattedDate, usedBarcode
+                ]);
 
                 // MUTASI MASUK (SISA UTAMA)
                 if (finalSisaMeter > 0) {
@@ -307,30 +420,33 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
                         INSERT INTO tmasterstok_mmt (
                             mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
                             mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi,
-                            mst_hargabeli, mst_tanggal, mst_barcode
-                        ) VALUES (?, ?, 1, 0, ?, ?, ?, ?, 0, ?, ?)
-                    `, [usedKodeBahan, headerData.lgdg_prod, finalSisaMeter, finalSisaLebar, combinedSpkNomor, finalNomor, formattedDate, usedBarcode]);
+                            mst_hargabeli, mst_satuan_harga, mst_tanggal, mst_barcode
+                        ) VALUES (?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+                    `, [
+                        usedKodeBahan, headerData.lgdg_prod, finalSisaMeter, finalLebarInput, 
+                        combinedSpkNomor, finalNomor, hargaBeliLama, satuanHargaLama, formattedDate, usedBarcode
+                    ]);
                 }
 
-                // MUTASI MASUK (AFAL SISTEM) - CREATE BARCODE BARU OTOMATIS
+                // MUTASI MASUK (AFAL SISTEM)
                 const afalP = headerData.lpanjang_afal || 0; 
-        const afalL = headerData.llebar_afal || 0;
+                const afalL = headerData.llebar_afal || 0;
 
-        if (afalP > 0 && afalL > 0) {
-            const newAfalBarcode = await getNextSuffix(conn, usedBarcode);
-            await conn.query(`
-                INSERT INTO tmasterstok_mmt (
-                    mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
-                    mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi,
-                    mst_hargabeli, mst_tanggal, mst_barcode
-                ) VALUES (?, ?, 1, 0, ?, ?, ?, ?, 0, ?, ?)
-            `, [usedKodeBahan, headerData.lgdg_prod, afalP, afalL, "STOK AFAL", finalNomor, formattedDate, newAfalBarcode]);
-            
-            console.log(`Barcode Afal Berhasil: ${newAfalBarcode}`);
-        }
+                if (afalP > 0 && afalL > 0) {
+                    const newAfalBarcode = await getNextSuffix(conn, usedBarcode);
+                    await conn.query(`
+                        INSERT INTO tmasterstok_mmt (
+                            mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
+                            mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi,
+                            mst_hargabeli, mst_satuan_harga, mst_tanggal, mst_barcode
+                        ) VALUES (?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+                    `, [
+                        usedKodeBahan, headerData.lgdg_prod, afalP, afalL, 
+                        "STOK AFAL", finalNomor, hargaBeliLama, satuanHargaLama, formattedDate, newAfalBarcode
+                    ]);
+                }
             }
         }
-
         await conn.commit();
         return { success: true, nomor: finalNomor, status: currentStatus };
 
@@ -375,6 +491,7 @@ module.exports = {
     getAllHeaders,
     getLookupByNomor,
     generateNewNomor,
+    getLookupByMultipleNomor,
     deleteLhk,
     saveLhk
 };

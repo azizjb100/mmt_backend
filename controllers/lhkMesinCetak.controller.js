@@ -1,17 +1,23 @@
-const lhkCetakService = require('../services/lhkCetak.service');
+const lhkCetakService = require('../services/lhkMesinCetak.service');
 const { subDays } = require('date-fns'); // Untuk tanggal default
 
 exports.getAllHeaders = async (req, res) => {
-  try {
-    // Beri tanggal default (30 hari terakhir) jika tidak ada
-    const endDate = req.query.endDate || new Date();
-    const startDate = req.query.startDate || subDays(endDate, 30);
-
-    const data = await lhkCetakService.getAllHeaders(startDate, endDate);
-    res.json(data);
-  } catch (error) {
-    res.status(500).json({ message: 'Gagal mengambil data LHK', error: error.message });
-  }
+    try {
+        // AMBIL 'search' dari req.query di sini
+        const { startDate, endDate, search } = req.query; 
+        
+        // Kirim 'search' ke service. Jika frontend tidak mengirim, nilainya undefined.
+        // Kita beri default string kosong '' agar service tidak error.
+        const data = await lhkCetakService.getAllHeaders(startDate, endDate, search || '');
+        
+        res.json(data);
+    } catch (error) {
+        // Jika 'search' tidak diambil di atas, maka error "search is not defined" muncul di sini
+        res.status(500).json({ 
+            message: "Gagal mengambil data master LHK", 
+            error: error.message 
+        });
+    }
 };
 
 exports.getDetails = async (req, res) => {
@@ -27,22 +33,37 @@ exports.getDetails = async (req, res) => {
   }
 };
 
-exports.getLookup = async (req, res) => {
-  const { nomor } = req.params;
+// backend/controllers/lhkMesinCetak.controller.js
 
-  try {
-    const combinedData = await lhkCetakService.getLookupByNomor(nomor);
+exports.getDetailForLookup = async (req, res) => {
+    try {
+        // Kita ambil dari query agar bisa menerima multiple: ?nomor=LHK001,LHK002
+        let { nomor } = req.query; 
 
-    if (!combinedData) {
-      return res.status(404).json({ message: `LHK Mesin ${nomor} tidak ditemukan.` });
+        if (!nomor) {
+            // Cek juga params jika user hanya kirim satu nomor via URL
+            nomor = req.params.nomor;
+        }
+
+        if (!nomor) {
+            return res.status(400).json({
+                success: false,
+                message: "Nomor LHK tidak boleh kosong"
+            });
+        }
+
+        // Jika nomor datang sebagai string "LHK01,LHK02", ubah jadi array
+        const daftarNomor = typeof nomor === 'string' ? nomor.split(',') : nomor;
+
+        // Panggil service yang baru (getLookupByMultipleNomor)
+        const data = await lhkCetakService.getLookupByMultipleNomor(daftarNomor);
+        
+        res.json({ success: true, data });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
     }
-
-    res.json(combinedData);
-  } catch (error) {
-    console.error('API Error in getLookup:', error);
-    res.status(500).json({ message: 'Gagal mengambil data LHK Mesin Lookup.', error: error.message });
-  }
 };
+
 
 exports.deleteHeader = async (req, res) => {
   try {
