@@ -9,7 +9,8 @@ const lapMonCetak = async (startDate, endDate) => {
   const ssql = `
     SELECT 
         spk.spk_perush_kode AS PERUSH,
-        DATE_FORMAT(zz.Tanggal, '%Y-%m-%d') AS TANGGAL_LHK,
+        -- Jika Tanggal LHK NULL maka tampilkan '-', di frontend nanti dicek jika '-' beri warna merah
+        IFNULL(DATE_FORMAT(zz.Tanggal, '%Y-%m-%d'), '-') AS TANGGAL_LHK,
         DATE_FORMAT(spk.spk_tanggal, '%Y-%m-%d') AS TGL_SPK,
         DATE_FORMAT(spk.spk_dateline, '%Y-%m-%d') AS DEADLINE,
         spk.spk_nama AS NAMA_ORDER,
@@ -42,35 +43,30 @@ const lapMonCetak = async (startDate, endDate) => {
         IFNULL(zz.cetak_meter, 0) AS JUMLAH_METER
 
     FROM tspk spk
-    INNER JOIN (
+    -- Menggunakan LEFT JOIN agar SPK yang belum ada LHK-nya tetap muncul
+    LEFT JOIN (
         SELECT 
             X.Nomor_SPK,
             X.Tanggal,
             X.Jml_Cetak,
             X.mt01, X.mt02, X.mt03, X.mt04, X.mt05,
 
-            (X.Jml_Cetak * y.spk_panjang * 
-                IF(SUBSTR(y.spk_nomor,4,2)='MX',1,y.spk_lebar)
+            (X.Jml_Cetak * y.spk_panjang * IF(SUBSTR(y.spk_nomor,4,2)='MX',1,y.spk_lebar)
             ) AS cetak_meter,
 
-            (X.mt01 * y.spk_panjang * 
-                IF(SUBSTR(y.spk_nomor,4,2)='MX',1,y.spk_lebar)
+            (X.mt01 * y.spk_panjang * IF(SUBSTR(y.spk_nomor,4,2)='MX',1,y.spk_lebar)
             ) AS jmt01,
 
-            (X.mt02 * y.spk_panjang * 
-                IF(SUBSTR(y.spk_nomor,4,2)='MX',1,y.spk_lebar)
+            (X.mt02 * y.spk_panjang * IF(SUBSTR(y.spk_nomor,4,2)='MX',1,y.spk_lebar)
             ) AS jmt02,
 
-            (X.mt03 * y.spk_panjang * 
-                IF(SUBSTR(y.spk_nomor,4,2)='MX',1,y.spk_lebar)
+            (X.mt03 * y.spk_panjang * IF(SUBSTR(y.spk_nomor,4,2)='MX',1,y.spk_lebar)
             ) AS jmt03,
 
-            (X.mt04 * y.spk_panjang * 
-                IF(SUBSTR(y.spk_nomor,4,2)='MX',1,y.spk_lebar)
+            (X.mt04 * y.spk_panjang * IF(SUBSTR(y.spk_nomor,4,2)='MX',1,y.spk_lebar)
             ) AS jmt04,
 
-            (X.mt05 * y.spk_panjang * 
-                IF(SUBSTR(y.spk_nomor,4,2)='MX',1,y.spk_lebar)
+            (X.mt05 * y.spk_panjang * IF(SUBSTR(y.spk_nomor,4,2)='MX',1,y.spk_lebar)
             ) AS jmt05,
 
             IFNULL(h.cetak_luarx, 0) AS cetak_luarx
@@ -88,13 +84,13 @@ const lapMonCetak = async (startDate, endDate) => {
             FROM tlhk_cetakmmt_dtl a
             INNER JOIN tlhk_cetakmmt_hdr b 
                 ON b.lch_nomor = a.lcd_lch_nomor
-            WHERE b.lch_tanggal BETWEEN ? AND ?
+            -- Filter tanggal LHK di sini dihapus agar tidak membatasi SPK
             GROUP BY a.lcd_spk_nomor
         ) X
         INNER JOIN tspk y ON y.spk_nomor = X.Nomor_SPK
         LEFT JOIN (
             SELECT poe_spk_nomor, 
-                   SUM(IFNULL(poe_jumlah,0)) AS cetak_luarx
+                    SUM(IFNULL(poe_jumlah,0)) AS cetak_luarx
             FROM tpoexternal_hdr
             WHERE poe_cab='P05'
             GROUP BY poe_spk_nomor
@@ -104,8 +100,10 @@ const lapMonCetak = async (startDate, endDate) => {
     WHERE spk.spk_aktif='Y'
       AND spk.spk_divisi=5
       AND SUBSTR(spk.spk_nomor,4,2)='MT'
+      -- FILTER SEKARANG BERDASARKAN TANGGAL SPK
+      AND spk.spk_tanggal BETWEEN ? AND ?
 
-    ORDER BY zz.Tanggal ASC;
+    ORDER BY spk.spk_tanggal ASC, spk.spk_nomor ASC;
   `;
 
   const params = [tglMulai, tglSelesai];

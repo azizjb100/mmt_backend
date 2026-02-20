@@ -3,9 +3,9 @@ const lhkCetakService = require('../services/lhkCetakMmt.service');
 
 const getAllHeaders = async (req, res) => {
     try {
-        const { startDate, endDate } = req.query;
+        const { startDate, endDate, mesin } = req.query;
         // Jika filter tanggal tidak dikirim, service akan menangani default-nya
-        const data = await lhkCetakService.getAllHeaders(startDate, endDate);
+        const data = await lhkCetakService.getAllHeaders(startDate, endDate, mesin);
         res.json(data);
     } catch (error) {
         res.status(500).json({ message: "Gagal mengambil data master LHK", error: error.message });
@@ -14,14 +14,19 @@ const getAllHeaders = async (req, res) => {
 
 const getDetails = async (req, res) => {
     try {
-        // PERBAIKAN: Gunakan req.params, bukan req.query
+        // req.params untuk mendapatkan :nomor dari URL
         const { nomor } = req.params; 
         
+        // req.query untuk mendapatkan ?mesin=... dari URL
+        const { mesin } = req.query; 
+
         if (!nomor) {
             return res.status(400).json({ message: "Nomor LHK diperlukan" });
         }
         
-        const data = await lhkCetakService.getDetailsByNomor(nomor);
+        // Teruskan 'mesin' sebagai argumen kedua ke fungsi service
+        const data = await lhkCetakService.getDetailsByNomor(nomor, mesin);
+        
         res.json({
             success: true,
             data: data
@@ -60,9 +65,82 @@ const deleteLhk = async (req, res) => {
     }
 };
 
+const getRekapLhk = async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+        const data = await lhkCetakService.getRekapLhk(startDate, endDate);
+        res.json({
+            success: true,
+            data: data
+        });
+    } catch (error) {
+        res.status(500).json({ message: "Gagal mengambil rekap LHK", error: error.message });
+    }
+};
+
+
+
+const getRekapCrossTab = async (req, res) => {
+    try {
+        const { month, year } = req.query;
+
+        if (!month || !year) {
+            return res.status(400).json({ message: "Bulan dan Tahun diperlukan" });
+        }
+
+        // Memanggil service rekap harian yang menyertakan data per mesin
+        const data = await lhkCetakService.getRekapLhkByMonth(month, year);
+        
+        res.json({
+            success: true,
+            data: data
+        });
+    } catch (error) {
+        res.status(500).json({ message: "Gagal mengambil data cross-tab", error: error.message });
+    }
+};
+
+const getDetailRekapMesin = async (req, res) => {
+    try {
+        const { startDate, endDate, mesin } = req.query;
+        const data = await lhkCetakService.getDetailRekapMesin(startDate, endDate, mesin);
+        res.json({ success: true, data });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+const exportLhk = async (req, res) => {
+    try {
+        const { startDate, endDate, mesin } = req.query;
+        
+        // Memanggil fungsi service yang melakukan JOIN Header & Detail
+        const data = await lhkCetakService.getAllDataForExport(startDate, endDate, mesin);
+        
+        res.status(200).json({
+            success: true,
+            message: "Data export berhasil ditarik",
+            data: data
+        });
+    } catch (error) {
+        console.error("Error pada exportLhk Controller:", error);
+        res.status(500).json({
+            success: false,
+            message: "Gagal menarik data untuk export",
+            error: error.message
+        });
+    }
+};
+
 module.exports = {
     getAllHeaders,
     getDetails,
     saveLhk,
-    deleteLhk
+    deleteLhk,
+    getRekapLhk,
+    getRekapCrossTab,
+    getDetailRekapMesin,
+    exportLhk
+
+
 };

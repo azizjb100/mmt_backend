@@ -119,3 +119,15 @@ exports.getNextNomor = async (req, res) => {
         res.status(500).json({ message: error.message });
     }
 };
+
+
+exports.deleteInvoice = async (req, res) => {
+    try {
+        const { nomor } = req.params;
+        // Panggil service yang menghapus tinvp_hdr & tjurnal_mmt secara transaksional
+        await invoicePembelianService.deleteInvoice(nomor); 
+        res.json({ message: "Invoice dan Jurnal terkait berhasil dihapus" });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};

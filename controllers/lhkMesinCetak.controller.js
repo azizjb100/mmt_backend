@@ -132,3 +132,29 @@ exports.saveLhk = async (req, res) => {
     });
   }
 };
+
+exports.getLookupByNomor = async (req, res) => {
+  try {
+    const { nomor } = req.params;
+
+    if (!nomor) {
+      return res.status(400).json({
+        success: false,
+        message: "Nomor LHK tidak boleh kosong"
+      });
+    }
+
+    const data = await lhkCetakService.getLookupByNomor(nomor);
+
+    return res.json({
+      success: true,
+      data
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};

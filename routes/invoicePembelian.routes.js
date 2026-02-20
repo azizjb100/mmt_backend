@@ -7,5 +7,6 @@ router.get('/', controller.getInvoiceList);
 router.get('/:nomor', controller.getInvoiceByNomor);
 router.post('/save', controller.saveInvoice);
 router.get('/print/:nomor', controller.printInvoice);
+router.delete('/:nomor', controller.deleteInvoice);
 
 module.exports = router;
