@@ -1,15 +1,17 @@
-// backend/src/controllers/masterBahan.controller.js
-
-const bahanService = require('../services/masterBahan.service');
+const bahanService = require("../services/masterBahan.service");
 
 // 1. READ ALL (Browse)
 exports.getMasterBahan = async (req, res) => {
-    // ... logic memanggil service ...
     try {
-        const data = await bahanService.getBahanData();
+        const zdivisi = req.query.zdivisi ?? null;
+        const keyword = req.query.q ?? "";
+        const data = await bahanService.getBahanData({ zdivisi, keyword });
         return res.status(200).json({ data });
     } catch (error) {
-        return res.status(500).json({ message: "Gagal memuat daftar bahan.", error: error.message });
+        return res.status(500).json({
+            message: "Gagal memuat daftar barang.",
+            error: error.message,
+        });
     }
 };
 
@@ -17,42 +19,135 @@ exports.getMasterBahan = async (req, res) => {
 exports.getBahanDetail = async (req, res) => {
     try {
         const { kode } = req.params;
+        if (!String(kode || "").trim()) {
+            return res
+                .status(400)
+                .json({ message: "Kode barang wajib diisi." });
+        }
         const data = await bahanService.getBahanByKode(kode);
         return res.status(200).json({ data });
     } catch (error) {
-        return res.status(500).json({ message: "Gagal memuat detail bahan.", error: error.message });
+        return res.status(404).json({
+            message: "Kode Barang tidak ditemukan.",
+            error: error.message,
+        });
     }
 };
 
-
-exports.lookupBahan = async (req, res) => {
-    try {
-        const keyword = req.query.q || ''; 
-        const data = await bahanService.getBahanLookupDataMmt(keyword);
-        return res.status(200).json({ data });
-    } catch (error) {
-        return res.status(500).json({ message: "Gagal memuat data lookup.", error: error.message });
-    }
-};
-
-// 2. GET untuk Detail (Dipanggil oleh handleMaterialSelect)
-exports.getBahanDetail = async (req, res) => {
+// GET detail khusus endpoint mmt/:kode (dipakai flow lookup/form MMT)
+exports.getBahanDetailMmt = async (req, res) => {
     try {
         const { kode } = req.params;
         const data = await bahanService.getBahanDetailByKodeMmt(kode);
         return res.status(200).json({ data });
     } catch (error) {
-        return res.status(404).json({ message: "Kode Bahan tidak ditemukan.", error: error.message });
+        return res.status(404).json({
+            message: "Kode Bahan tidak ditemukan.",
+            error: error.message,
+        });
     }
 };
 
-
 exports.lookupBahanProduksiMMt = async (req, res) => {
     try {
-        const keyword = req.query.q || ''; 
+        const keyword = req.query.q || "";
         const data = await bahanService.getLookupGdgProduksiMMT(keyword);
         return res.status(200).json({ data });
     } catch (error) {
-        return res.status(500).json({ message: "Gagal memuat data lookup.", error: error.message });
+        return res.status(500).json({
+            message: "Gagal memuat data lookup.",
+            error: error.message,
+        });
+    }
+};
+
+exports.saveMasterBahan = async (req, res) => {
+    try {
+        if (!req.user) {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
+
+        const userLogin = String(
+            req.user?.kdUser ||
+                req.user?.KDUSER ||
+                req.user?.username ||
+                req.user?.user_nama ||
+                req.user?.user ||
+                "SYSTEM",
+        );
+        const result = await bahanService.saveBahan(req.body, userLogin);
+        return res
+            .status(200)
+            .json({ message: "Simpan berhasil", kode: result.kode });
+    } catch (error) {
+        return res.status(500).json({
+            message: "Gagal simpan master barang.",
+            error: error.message,
+        });
+    }
+};
+
+exports.lookupKategori = async (req, res) => {
+    try {
+        const q = String(req.query.q || "");
+        const data = await bahanService.getLookupKategori(q);
+        return res.status(200).json({ data });
+    } catch (error) {
+        return res.status(500).json({
+            message: "Gagal memuat lookup kategori.",
+            error: error.message,
+        });
+    }
+};
+
+exports.lookupGudang = async (req, res) => {
+    try {
+        const q = String(req.query.q || "");
+        const data = await bahanService.getLookupGudang(q);
+        return res.status(200).json({ data });
+    } catch (error) {
+        return res.status(500).json({
+            message: "Gagal memuat lookup gudang.",
+            error: error.message,
+        });
+    }
+};
+
+exports.lookupSupplier = async (req, res) => {
+    try {
+        const q = String(req.query.q || "");
+        const data = await bahanService.getLookupSupplier(q);
+        return res.status(200).json({ data });
+    } catch (error) {
+        return res.status(500).json({
+            message: "Gagal memuat lookup supplier.",
+            error: error.message,
+        });
+    }
+};
+
+exports.lookupJenis = async (req, res) => {
+    try {
+        const q = String(req.query.q || "");
+        const data = await bahanService.getLookupJenis(q);
+        return res.status(200).json({ data });
+    } catch (error) {
+        return res.status(500).json({
+            message: "Gagal memuat lookup jenis.",
+            error: error.message,
+        });
+    }
+};
+
+exports.lookupDivisi = async (req, res) => {
+    try {
+        const q = String(req.query.q || "");
+        const data = await bahanService.getLookupDivisi(q);
+        return res.status(200).json({ data });
+    } catch (error) {
+        return res.status(500).json({
+            message: "Gagal memuat lookup divisi.",
+            error: error.message,
+        });
     }
 };

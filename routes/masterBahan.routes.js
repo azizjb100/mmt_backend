@@ -1,15 +1,19 @@
-// backend/src/routes/masterBahan.routes.js (atau lokasi sejenis)
-
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-// Asumsi: Anda mengimpor controller seperti ini
-const bahanController = require('../controllers/masterBahan.controller');
+const bahanController = require("../controllers/masterBahan.controller");
+const verifyToken = require("../middleware/auth.middleware");
 
-router.get('/', bahanController.getMasterBahan);
+router.get("/", bahanController.getMasterBahan);
+router.post("/save", verifyToken, bahanController.saveMasterBahan);
 
-router.get('/mmt', bahanController.lookupBahan);
-router.get('/mmt/produksi', bahanController.lookupBahanProduksiMMt);
-// Endpoint 2: Detail Tunggal (GET /api/master/bahan/:kode)
-router.get('/mmt/:kode', bahanController.getBahanDetail);
+router.get("/lookup/kategori", bahanController.lookupKategori);
+router.get("/lookup/gudang", bahanController.lookupGudang);
+router.get("/lookup/supplier", bahanController.lookupSupplier);
+router.get("/lookup/jenis", bahanController.lookupJenis);
+router.get("/lookup/divisi", bahanController.lookupDivisi);
+
+router.get("/mmt/produksi", bahanController.lookupBahanProduksiMMt);
+router.get("/mmt/:kode", bahanController.getBahanDetailMmt);
+router.get("/:kode", bahanController.getBahanDetail);
 
 module.exports = router;

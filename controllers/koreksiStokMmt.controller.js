@@ -38,24 +38,23 @@ const getKoreksiStok = async (req, res) => {
 // backend/src/controllers/koreksiStokMmt.controller.js
 
 const getStokGudangForKoreksi = async (req, res) => {
-    // 1. Ambil dari req.query untuk GET request
-    const { gudangKode, tanggal } = req.query; 
-    
+    const { gudangKode, tanggal } = req.query;
+
     try {
         // 2. Validasi apakah parameter ada
         if (!gudangKode) {
-            return res.status(400).json({ 
-                status: 'error', 
-                message: 'Gudang harus dipilih' 
+            return res.status(400).json({
+                status: 'error',
+                message: 'Gudang harus dipilih'
             });
         }
 
         // 3. Kirim ke service
         const data = await service.getStokGudangAll(gudangKode, tanggal);
-        
-        res.json({ 
-            status: 'success', 
-            data: data 
+
+        res.json({
+            status: 'success',
+            data: data
         });
     } catch (error) {
         res.status(500).json({ status: 'error', message: error.message });
@@ -76,7 +75,7 @@ const getKoreksiStokDetail = async (req, res) => {
 // DELETE
 const deleteKoreksiStok = async (req, res) => {
     const { nomor } = req.params;
-    const user = req.user?.id || 'SYSTEM'; 
+    const user = req.user?.id || 'SYSTEM';
     try {
         await service.deleteKoreksiStok(nomor, user);
         res.status(200).json({ message: "Koreksi Stok berhasil dihapus." });
