@@ -13,6 +13,7 @@ router.get("/lookup/gudang", bahanController.lookupGudang);
 router.get("/lookup/supplier", bahanController.lookupSupplier);
 router.get("/lookup/jenis", bahanController.lookupJenis);
 router.get("/lookup/divisi", bahanController.lookupDivisi);
+router.get("/mmt", bahanController.getMasterBahan);
 
 // 3. Endpoint dengan Parameter Dinamis (Paling Bawah)
 router.get("/mmt/:kode", bahanController.getBahanDetailMmt); 
