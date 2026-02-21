@@ -59,7 +59,7 @@ const loginUser = async (username, password) => {
     // LOG LAST LOGIN (ASYNC)
     // =========================
     const logSql = `
-    INSERT INTO pengaturan_lokal.tuser_lastupdate (computer, app, versi, usr, date_update)
+    INSERT INTO pengaturan.tuser_lastupdate (computer, app, versi, usr, date_update)
     VALUES (?, 'WEB_APP', ?, ?, NOW())
     ON DUPLICATE KEY UPDATE versi = ?, usr = ?, date_update = NOW()
   `;
