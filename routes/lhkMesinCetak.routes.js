@@ -9,6 +9,8 @@ const verifyToken = require('../middleware/auth.middleware');
 // 1. Ambil semua header
 router.get('/', verifyToken, controller.getAllHeaders);
 
+router.get('/lookup', verifyToken, controller.getAllHeaders);
+
 // 2. Lookup untuk modal (Gunakan fungsi yang sama atau berbeda)
 router.get('/lookup/:nomor', verifyToken, controller.getLookupByNomor);
 
@@ -18,7 +20,6 @@ router.get('/details', verifyToken, controller.getDetails);
 
 router.get('/detail-lookup', verifyToken, controller.getDetailForLookup);
 
-// 5. Simpan (POST)
 router.post('/', verifyToken, controller.saveLhk);
 
 // 6. Hapus (DELETE)
