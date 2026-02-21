@@ -3,7 +3,7 @@ const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const fs = require("fs");
 const path = require("path");
-require("dotenv").config();
+require("dotenv").config(); 
 
 const authRoutes = require("./routes/auth.routes");
 const lhkMesinCetakRoutes = require("./routes/lhkMesinCetak.routes");
@@ -36,43 +36,59 @@ const permintaanProduksiBahanRoutes = require("./routes/permintaanProduksiBahan.
 const planningProduksiRoutes = require("./routes/planningProduksi.routes");
 const lhkTekstilMmtRoutes = require("./routes/lhkTekstilMmt.routes");
 const lhkCetakMmtRoutes = require("./routes/lhkCetakMmt.routes");
+const stokOpnameRoutes = require("./routes/stokOpnameGudang.routes");
+const pelunasanPembelianRoutes = require("./routes/pelunasanPembelian.routes");
+
+
 
 // Konfigurasi
 
+
+
+
+
+
+
+
+
+
+
+
 const app = express();
 const allowedOrigins = [
-    "http://localhost:5173",
-    "http://103.94.238.252",
-    "http://103.94.238.252:88",
-    "http://192.168.1.191:5173",
-    "https://103.94.238.252",
+  "http://localhost:5173",
+  "http://103.94.238.252",
+  "http://103.94.238.252:88",
+  "http://192.168.1.191:5173",
+  "https://103.94.238.252",
+
 ];
 
 // Folder dan direktori yang dibutuhkan
 const imageFolderPath = path.join(process.cwd(), "public", "images");
 const requiredDirs = [
-    path.join(process.cwd(), "temp"),
-    path.join(process.cwd(), "public"),
-    path.join(process.cwd(), "public", "images"),
+  path.join(process.cwd(), "temp"),
+  path.join(process.cwd(), "public"),
+  path.join(process.cwd(), "public", "images"),
 ];
 
 // Middleware
 app.use(
-    cors({
-        origin: function (origin, callback) {
-            if (!origin) return callback(null, true);
-            if (allowedOrigins.includes(origin)) {
-                return callback(null, true);
-            } else {
-                console.warn("❌ CORS Blocked:", origin);
-                return callback(new Error("Not allowed by CORS"));
-            }
-        },
-        methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        allowedHeaders: ["Content-Type", "Authorization"],
-        exposedHeaders: ["Content-Disposition"],
-        credentials: true,
-    }),
+  cors({
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      } else {
+        console.warn("❌ CORS Blocked:", origin);
+        return callback(new Error("Not allowed by CORS"));
+      }
+    },
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    exposedHeaders: ["Content-Disposition"],
+    credentials: true,
+  })
 );
 
 app.use(express.json());
@@ -81,11 +97,12 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/images", express.static(imageFolderPath));
 app.disable("etag");
 
+
 requiredDirs.forEach((dir) => {
-    if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-        console.log(" Created directory:", dir);
-    }
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+    console.log(" Created directory:", dir);
+  }
 });
 
 app.use("/api/auth", authRoutes);
@@ -119,10 +136,24 @@ app.use("/api/mmt/permintaan-produksi-bahan", permintaanProduksiBahanRoutes);
 app.use("/api/mmt/planning-produksi", planningProduksiRoutes);
 app.use("/api/mmt/lhk-tekstil-mmt", lhkTekstilMmtRoutes);
 app.use("/api/mmt/lhk-cetak-mmt", lhkCetakMmtRoutes);
+app.use("/api/mmt/stok-opname", stokOpnameRoutes);
+app.use("/api/mmt/pelunasan-pembelian", pelunasanPembelianRoutes);
+
+
+
+
+
+
+
+
+
+
+
+
 
 const port = process.env.PORT || 8003;
 
 // Jalankan server
 app.listen(port, () => {
-    console.log(`⚡️[server]: Server berjalan di http://localhost:${port}`);
+  console.log(`⚡️[server]: Server berjalan di http://localhost:${port}`);
 });

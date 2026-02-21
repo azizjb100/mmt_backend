@@ -18,6 +18,7 @@ const normalizeStatus = (status) => {
 
 exports.getBahanData = async ({ zdivisi = null, keyword = "" } = {}) => {
     try {
+        // Tambahkan WHERE 1=1 agar penambahan klausa "AND" berikutnya tidak error
         let sql = `
             SELECT
                 b.brg_kode AS Kode,
@@ -28,17 +29,22 @@ exports.getBahanData = async ({ zdivisi = null, keyword = "" } = {}) => {
                 b.brg_panjang AS Panjang,
                 b.brg_lebar AS Lebar
             FROM tbarang_mmt b
+            WHERE 1=1
         `;
 
         const params = [];
 
-        const z = Number(zdivisi);
-        if (z === 1) {
-            sql += ` AND b.brg_divisi IN (1, 5)`;
-        } else if (z === 4) {
-            sql += ` AND b.brg_divisi IN (3, 4)`;
+        // Logic Filter Divisi
+        if (zdivisi !== null) {
+            const z = Number(zdivisi);
+            if (z === 1) {
+                sql += ` AND b.brg_divisi IN (1, 5)`;
+            } else if (z === 4) {
+                sql += ` AND b.brg_divisi IN (3, 4)`;
+            }
         }
 
+        // Logic Filter Keyword
         if (keyword) {
             sql += ` AND (b.brg_kode LIKE ? OR b.brg_nama LIKE ?)`;
             const q = `%${keyword}%`;
@@ -334,7 +340,7 @@ exports.getBahanDetailByKodeMmt = async (kode) => {
         const [rows] = await pool.query(sql, [kode]);
         if (rows.length === 0) throw new Error("Kode Bahan tidak ditemukan.");
 
-        return rows[0]; // Mengembalikan objek tunggal detail bahan
+        return rows[0];
     } catch (error) {
         throwDbError(`Gagal memuat detail Bahan dengan kode ${kode}`, error);
     }

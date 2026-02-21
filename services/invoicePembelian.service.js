@@ -172,6 +172,17 @@ exports.getInvoicePembelianData = async (startDate, endDate) => {
 // ===================================
 // SAVE (INSERT / UPDATE)
 // ===================================
+const postJurnal = async (connection, { tgl, bukti, keterangan, akun, debet, kredit, user }) => {
+    const sql = `
+        INSERT INTO tjurnal_mmt 
+        (jur_tanggal, jur_bukti, jur_keterangan, jur_akun_kode, jur_debet, jur_kredit, user_create) 
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    `;
+    await connection.query(sql, [tgl, bukti, keterangan, akun, debet, kredit, user]);
+};
+
+
+
 exports.saveInvoicePembelian = async (data, nomorToEdit, userLogin) => {
     const connection = await pool.getConnection();
     try {
@@ -185,98 +196,94 @@ exports.saveInvoicePembelian = async (data, nomorToEdit, userLogin) => {
 
         // ================= HEADER =================
         if (nomorToEdit) {
-
             const sqlUpdate = `
                 UPDATE tinvp_hdr SET
-                    invp_tanggal = ?,
-                    invp_tanggal_tempo = ?,
-                    invp_keterangan = ?,
-                    invp_sup_kode = ?,
-                    invp_sup_alamat = ?,
-                    invp_sts_ppn = ?,
-                    invp_ppn = ?,
-                    invp_grn_nomor = ?,
-                    date_modified = ?,
-                    user_modified = ?
+                    invp_tanggal = ?, invp_tanggal_tempo = ?, invp_keterangan = ?,
+                    invp_sup_kode = ?, invp_sup_alamat = ?, invp_sts_ppn = ?,
+                    invp_ppn = ?, invp_grn_nomor = ?, date_modified = ?, user_modified = ?
                 WHERE invp_nomor = ?
             `;
-
             await connection.query(sqlUpdate, [
-                data.inv_tanggal,
-                data.inv_tanggal_tempo,
-                data.inv_keterangan,
-                data.inv_sup_kode,
-                data.inv_sup_alamat,
-                data.isPpn ? 1 : 0,
-                data.ppnRate || 0,
-                data.inv_rekening,
-                serverTime,
-                userLogin,
-                currentNomor
+                data.inv_tanggal, data.inv_tanggal_tempo, data.inv_keterangan,
+                data.inv_sup_kode, data.inv_sup_alamat, data.isPpn ? 1 : 0,
+                data.ppnRate || 0, data.inv_rekening, serverTime, userLogin, currentNomor
             ]);
 
-            await connection.query(
-                'DELETE FROM tinvp_dtl WHERE invpd_inv_nomor = ?',
-                [currentNomor]
-            );
-
+            await connection.query('DELETE FROM tinvp_dtl WHERE invpd_inv_nomor = ?', [currentNomor]);
+            // 🔥 Hapus jurnal lama saat edit agar tidak double posting
+            await connection.query('DELETE FROM tjurnal_mmt WHERE jur_bukti = ?', [currentNomor]);
         } else {
-
             const sqlInsert = `
-    INSERT INTO tinvp_hdr
-    (
-        invp_nomor, invp_perush_kode,
-        invp_tanggal, invp_tanggal_tempo, invp_keterangan,
-        invp_sup_kode, invp_sup_alamat,
-        invp_sts_ppn, invp_ppn,
-        invp_grn_nomor, invp_status,
-        date_create, user_create
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
-`;
-
-await connection.query(sqlInsert, [
-    currentNomor,
-    data.invp_perush_kode || data.inv_perush_kode,   // 🔥 penting
-    data.inv_tanggal,
-    data.inv_tanggal_tempo,
-    data.inv_keterangan,
-    data.inv_sup_kode,
-    data.inv_sup_alamat,
-    data.isPpn ? 1 : 0,
-    data.ppnRate || 0,
-    data.inv_rekening,
-    serverTime,
-    userLogin
-]);
-
+                INSERT INTO tinvp_hdr
+                (invp_nomor, invp_perush_kode, invp_tanggal, invp_tanggal_tempo, invp_keterangan,
+                 invp_sup_kode, invp_sup_alamat, invp_sts_ppn, invp_ppn, invp_grn_nomor, 
+                 invp_status, date_create, user_create)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
+            `;
+            await connection.query(sqlInsert, [
+                currentNomor, data.inv_perush_kode || 'KP', data.inv_tanggal,
+                data.inv_tanggal_tempo, data.inv_keterangan, data.inv_sup_kode,
+                data.inv_sup_alamat, data.isPpn ? 1 : 0, data.ppnRate || 0,
+                data.inv_rekening, serverTime, userLogin
+            ]);
         }
-       // ================= DETAIL =================
-if (data.detail && data.detail.length > 0) {
 
-    const detailValues = data.detail.map((d, index) => ([
-        currentNomor,
-        data.inv_rekening,
-        d.kode_barang || null,      // invpd_brg_kode
-        d.nama_barang,              // invpd_brg_nama
-        d.satuan || null,           // invpd_satuan
-        d.invd_jumlah || 0,         // invpd_jumlah
-        d.invd_harga || 0,          // invpd_harga
-        index + 1                   // invpd_nourut
-    ]));
+        // ================= DETAIL =================
+        if (data.detail && data.detail.length > 0) {
+            const detailValues = data.detail.map((d, index) => ([
+                currentNomor, data.inv_rekening, d.kode_barang || null,
+                d.nama_barang, d.satuan || null, d.invd_jumlah || 0,
+                d.invd_harga || 0, index + 1
+            ]));
 
-    const sqlDetail = `
-        INSERT INTO tinvp_dtl
-        (
-            invpd_inv_nomor, invpd_grn_nomor, 
-            invpd_brg_kode, invpd_brg_nama, invpd_satuan, 
-            invpd_jumlah, invpd_harga, invpd_nourut
-        )
-        VALUES ?
-    `;
+            const sqlDetail = `
+                INSERT INTO tinvp_dtl
+                (invpd_inv_nomor, invpd_grn_nomor, invpd_brg_kode, invpd_brg_nama, 
+                 invpd_satuan, invpd_jumlah, invpd_harga, invpd_nourut)
+                VALUES ?
+            `;
+            await connection.query(sqlDetail, [detailValues]);
+        }
 
-    await connection.query(sqlDetail, [detailValues]);
-}
+        // ================= JURNAL OTOMATIS =================
+        const subTotal = data.detail.reduce((sum, d) => sum + (d.invd_jumlah * d.invd_harga), 0);
+        const ppnAmount = data.isPpn ? subTotal * (data.ppnRate / 100) : 0;
+        const grandTotal = subTotal + ppnAmount;
+
+        // 1. Debet: Persediaan / Biaya Pembelian
+        await postJurnal(connection, {
+            tgl: data.inv_tanggal,
+            bukti: currentNomor,
+            keterangan: `Pembelian dari Supplier ${data.inv_sup_kode}`,
+            akun: '5101', 
+            debet: subTotal,
+            kredit: 0,
+            user: userLogin
+        });
+
+        // 2. Debet: PPN Masukan (Jika ada)
+        if (ppnAmount > 0) {
+            await postJurnal(connection, {
+                tgl: data.inv_tanggal,
+                bukti: currentNomor,
+                keterangan: `PPN Masukan Invoice ${currentNomor}`,
+                akun: '1105',
+                debet: ppnAmount,
+                kredit: 0,
+                user: userLogin
+            });
+        }
+
+        // 3. Kredit: Hutang Usaha
+        await postJurnal(connection, {
+            tgl: data.inv_tanggal,
+            bukti: currentNomor,
+            keterangan: `Hutang Pembelian ${currentNomor}`,
+            akun: '2101',
+            debet: 0,
+            kredit: grandTotal,
+            user: userLogin
+        });
 
         await connection.commit();
         return { Nomor: currentNomor };
@@ -289,7 +296,6 @@ if (data.detail && data.detail.length > 0) {
         connection.release();
     }
 };
-
 // ===================================
 // PRINT
 // ===================================
