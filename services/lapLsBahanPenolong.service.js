@@ -1,20 +1,20 @@
 // backend/services/lapLsBahanPenolong.service.js
-const pool = require('../config/db.config'); // Pastikan path ini benar
-const { format } = require('date-fns');
+const pool = require("../config/db.config"); // Pastikan path ini benar
+const { format } = require("date-fns");
 
 /**
  * Mengambil Laporan List Stok Bahan Penolong
  * (Logika dari loaddata)
  */
 const getReport = async (startDate, endDate) => {
-  // Format tanggal agar aman untuk SQL (YYYY-MM-DD)
-  const tglMulai = format(new Date(startDate), 'yyyy-MM-dd');
-  const tglSelesai = format(new Date(endDate), 'yyyy-MM-dd');
+    // Format tanggal agar aman untuk SQL (YYYY-MM-DD)
+    const tglMulai = format(new Date(startDate), "yyyy-MM-dd");
+    const tglSelesai = format(new Date(endDate), "yyyy-MM-dd");
 
-  // Query ini disesuaikan dari unit .pas Anda
-  // Perbedaan utama: brg_ktg_kode IN ('BP')
-  // dan perhitungan m2 tidak dikurangi 0.1
-  const ssql = `
+    // Query ini disesuaikan dari unit .pas Anda
+    // Perbedaan utama: brg_ktg_kode IN ('BP')
+    // dan perhitungan m2 tidak dikurangi 0.1
+    const ssql = `
     SELECT 
       brg_kode AS kode, 
       brg_nama AS Nama, 
@@ -76,11 +76,16 @@ const getReport = async (startDate, endDate) => {
     
     WHERE brg_gdg_Default = 'WH-16' AND brg_ktg_kode IN ('BP')
   `;
-  
-  const [rows] = await pool.query(ssql, [tglMulai, tglMulai, tglSelesai, tglSelesai]);
-  return rows;
+
+    const [rows] = await pool.query(ssql, [
+        tglMulai,
+        tglMulai,
+        tglSelesai,
+        tglSelesai,
+    ]);
+    return rows;
 };
 
 module.exports = {
-  getReport
+    getReport,
 };
