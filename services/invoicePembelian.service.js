@@ -11,46 +11,33 @@ const throwDbError = (message, error) => {
 // ===================================
 // GENERATE NOMOR INVOICE
 // ===================================
-// ===================================
-// GENERATE NOMOR INVOICE
-// Format: INVP/KP/2601/00001
-// ===================================
 exports.generateMaxKode = async (perushKode, tanggalInput) => {
-    let tanggal;
-    if (tanggalInput instanceof Date) {
-        tanggal = tanggalInput;
-    } else if (typeof tanggalInput === 'string') {
-        tanggal = parseISO(tanggalInput);
-    } else {
-        throw new Error('Tanggal invoice tidak valid');
-    }
+    const tanggal = new Date(tanggalInput);
+    if (isNaN(tanggal.getTime())) throw new Error('Tanggal tidak valid');
 
-    if (!isValid(tanggal)) throw new Error('Format tanggal invoice tidak valid');
-
-    // 1. Ambil format YYMM (2601) dan Tahun Penuh (2026)
-    const yearMonth = format(tanggal, 'yyMM');
-    const currentYear = format(tanggal, 'yyyy');
+    const yearMonth = format(tanggal, 'yyMM'); // Hasil: 2602
     
-    // 2. Prefix: INVP/KP
-    const prefix = `INVP/${perushKode}`;
+    // Prefix yang diinginkan: INVP/KP/2602
+    const prefix = `INVP/KP/${yearMonth}`;
     
-    // 3. Cari nomor terakhir di TAHUN yang sama agar reset tiap tahun
-    // Query ini mengambil bagian terakhir dari string setelah slash terakhir
+    // Query untuk mencari nomor terakhir dengan prefix tersebut
     const sql = `
         SELECT MAX(CAST(SUBSTRING_INDEX(invp_nomor, '/', -1) AS UNSIGNED)) AS max_num
         FROM tinvp_hdr
-        WHERE invp_nomor LIKE '${prefix}/%' 
-        AND YEAR(invp_tanggal) = ?
+        WHERE invp_nomor LIKE ?
     `;
 
-    const [rows] = await pool.query(sql, [currentYear]);
+    // Kita cari yang diawali 'INVP/KP/2602/%'
+    const [rows] = await pool.query(sql, [`${prefix}/%`]);
 
-    // 4. Hitung nomor selanjutnya
     const nextNum = (rows[0].max_num || 0) + 1;
-    const padded = String(nextNum).padStart(5, '0');
+    
+    // Gunakan padStart 4 agar hasilnya 0001, 0002, dst. 
+    // Jika ingin 5 digit, ubah angka 4 menjadi 5.
+    const padded = String(nextNum).padStart(4, '0');
 
-    // 5. Gabungkan hasil: INVP/KP/2601/00001
-    return `${prefix}/${yearMonth}/${padded}`;
+    // Hasil Akhir: INVP/KP/2602/0001
+    return `${prefix}/${padded}`;
 };
 
 // ===================================
@@ -182,19 +169,23 @@ const postJurnal = async (connection, { tgl, bukti, keterangan, akun, debet, kre
 };
 
 
-
 exports.saveInvoicePembelian = async (data, nomorToEdit, userLogin) => {
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
 
+        // 1. Generate Nomor
         const currentNomor = nomorToEdit
             ? nomorToEdit
-            : await exports.generateMaxKode(data.inv_perush_kode || 'KP', data.inv_tanggal);
+            : await exports.generateMaxKode(data.invp_perush_kode || 'KP', data.inv_tanggal);
 
         const serverTime = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+        const activeUser = userLogin; 
 
-        // ================= HEADER =================
+        const isPpn = data.inv_is_ppn === 'Y';
+        const ppnRate = parseFloat(data.inv_ppn_rate || 0);
+
+        // 2. HEADER
         if (nomorToEdit) {
             const sqlUpdate = `
                 UPDATE tinvp_hdr SET
@@ -205,13 +196,9 @@ exports.saveInvoicePembelian = async (data, nomorToEdit, userLogin) => {
             `;
             await connection.query(sqlUpdate, [
                 data.inv_tanggal, data.inv_tanggal_tempo, data.inv_keterangan,
-                data.inv_sup_kode, data.inv_sup_alamat, data.isPpn ? 1 : 0,
-                data.ppnRate || 0, data.inv_rekening, serverTime, userLogin, currentNomor
+                data.inv_sup_kode, data.inv_sup_alamat, isPpn ? 1 : 0,
+                ppnRate, data.inv_rekening, serverTime, activeUser, currentNomor
             ]);
-
-            await connection.query('DELETE FROM tinvp_dtl WHERE invpd_inv_nomor = ?', [currentNomor]);
-            // 🔥 Hapus jurnal lama saat edit agar tidak double posting
-            await connection.query('DELETE FROM tjurnal_mmt WHERE jur_bukti = ?', [currentNomor]);
         } else {
             const sqlInsert = `
                 INSERT INTO tinvp_hdr
@@ -221,19 +208,26 @@ exports.saveInvoicePembelian = async (data, nomorToEdit, userLogin) => {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
             `;
             await connection.query(sqlInsert, [
-                currentNomor, data.inv_perush_kode || 'KP', data.inv_tanggal,
+                currentNomor, data.invp_perush_kode || 'KP', data.inv_tanggal,
                 data.inv_tanggal_tempo, data.inv_keterangan, data.inv_sup_kode,
-                data.inv_sup_alamat, data.isPpn ? 1 : 0, data.ppnRate || 0,
-                data.inv_rekening, serverTime, userLogin
+                data.inv_sup_alamat, isPpn ? 1 : 0, ppnRate,
+                data.inv_rekening, serverTime, activeUser
             ]);
         }
 
-        // ================= DETAIL =================
+        // 3. DETAIL (Hapus dulu jika edit)
+        await connection.query('DELETE FROM tinvp_dtl WHERE invpd_inv_nomor = ?', [currentNomor]);
+
         if (data.detail && data.detail.length > 0) {
             const detailValues = data.detail.map((d, index) => ([
-                currentNomor, data.inv_rekening, d.kode_barang || null,
-                d.nama_barang, d.satuan || null, d.invd_jumlah || 0,
-                d.invd_harga || 0, index + 1
+                currentNomor, 
+                data.inv_rekening, 
+                d.kode_barang || '',    // Menyesuaikan payload frontend
+                d.nama_barang, 
+                d.satuan || '',         // Menyesuaikan payload frontend
+                d.invd_jumlah || 0,
+                d.invd_harga || 0, 
+                index + 1
             ]));
 
             const sqlDetail = `
@@ -245,44 +239,32 @@ exports.saveInvoicePembelian = async (data, nomorToEdit, userLogin) => {
             await connection.query(sqlDetail, [detailValues]);
         }
 
-        // ================= JURNAL OTOMATIS =================
-        const subTotal = data.detail.reduce((sum, d) => sum + (d.invd_jumlah * d.invd_harga), 0);
-        const ppnAmount = data.isPpn ? subTotal * (data.ppnRate / 100) : 0;
+        // 4. JURNAL OTOMATIS (Hapus jurnal lama jika edit)
+        await connection.query('DELETE FROM tjurnal_mmt WHERE jur_bukti = ?', [currentNomor]);
+
+        const subTotal = data.detail.reduce((sum, d) => sum + (parseFloat(d.invd_jumlah) * parseFloat(d.invd_harga)), 0);
+        const ppnAmount = isPpn ? subTotal * (ppnRate / 100) : 0;
         const grandTotal = subTotal + ppnAmount;
 
-        // 1. Debet: Persediaan / Biaya Pembelian
+        // Post Jurnal dengan activeUser agar konsisten
         await postJurnal(connection, {
-            tgl: data.inv_tanggal,
-            bukti: currentNomor,
+            tgl: data.inv_tanggal, bukti: currentNomor,
             keterangan: `Pembelian dari Supplier ${data.inv_sup_kode}`,
-            akun: '5101', 
-            debet: subTotal,
-            kredit: 0,
-            user: userLogin
+            akun: '5101', debet: subTotal, kredit: 0, user: activeUser
         });
 
-        // 2. Debet: PPN Masukan (Jika ada)
         if (ppnAmount > 0) {
             await postJurnal(connection, {
-                tgl: data.inv_tanggal,
-                bukti: currentNomor,
+                tgl: data.inv_tanggal, bukti: currentNomor,
                 keterangan: `PPN Masukan Invoice ${currentNomor}`,
-                akun: '1105',
-                debet: ppnAmount,
-                kredit: 0,
-                user: userLogin
+                akun: '1105', debet: ppnAmount, kredit: 0, user: activeUser
             });
         }
 
-        // 3. Kredit: Hutang Usaha
         await postJurnal(connection, {
-            tgl: data.inv_tanggal,
-            bukti: currentNomor,
+            tgl: data.inv_tanggal, bukti: currentNomor,
             keterangan: `Hutang Pembelian ${currentNomor}`,
-            akun: '2101',
-            debet: 0,
-            kredit: grandTotal,
-            user: userLogin
+            akun: '2101', debet: 0, kredit: grandTotal, user: activeUser
         });
 
         await connection.commit();
@@ -290,7 +272,6 @@ exports.saveInvoicePembelian = async (data, nomorToEdit, userLogin) => {
 
     } catch (error) {
         await connection.rollback();
-        console.error("Error saveInvoicePembelian:", error);
         throw error;
     } finally {
         connection.release();

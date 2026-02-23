@@ -35,6 +35,7 @@ exports.generateNomorPelunasan = async (perushKode, tanggalInput) => {
 // ===================================
 // SAVE PELUNASAN
 // ===================================
+
 exports.savePelunasan = async (data, userLogin) => {
     const connection = await pool.getConnection();
     try {
@@ -42,8 +43,9 @@ exports.savePelunasan = async (data, userLogin) => {
 
         const perush = data.pelh_perush_kode || 'KP';
         const nomorPelunasan = await exports.generateNomorPelunasan(perush, data.pelh_tanggal);
+        const activeUser = userLogin || 'SYSTEM'; // Fallback aman
 
-        // 1. INSERT HEADER
+        // 1. INSERT HEADER dengan user_create
         const sqlHeader = `
             INSERT INTO tpelunasan_pembelian_hdr 
             (pelh_nomor, pelh_tanggal, pelh_sup_kode, pelh_akun_kas, pelh_keterangan, pelh_total_bayar, user_create)
@@ -56,21 +58,19 @@ exports.savePelunasan = async (data, userLogin) => {
             data.pelh_akun_kas, 
             data.pelh_keterangan, 
             data.pelh_total_bayar, 
-            userLogin
+            activeUser // Masukkan user di sini
         ]);
 
         // 2. INSERT DETAIL & UPDATE STATUS INVOICE
         if (data.detail && data.detail.length > 0) {
             for (const item of data.detail) {
-                // Simpan Detail Pelunasan
                 const sqlDetail = `
                     INSERT INTO tpelunasan_pembelian_dtl (peld_nomor, peld_inv_nomor, peld_nominal)
                     VALUES (?, ?, ?)
                 `;
                 await connection.query(sqlDetail, [nomorPelunasan, item.peld_inv_nomor, item.peld_nominal]);
 
-                // Update Status Invoice (Sangat sederhana: Langsung CLOSED)
-                // Idealnya dicek dulu apakah (Total Bayar >= Total Invoice)
+                // Update Status Invoice
                 const sqlUpdateInv = `UPDATE tinvp_hdr SET invp_status = 'CLOSED' WHERE invp_nomor = ?`;
                 await connection.query(sqlUpdateInv, [item.peld_inv_nomor]);
             }
@@ -85,11 +85,11 @@ exports.savePelunasan = async (data, userLogin) => {
             akun: '2101', 
             debet: data.pelh_total_bayar,
             kredit: 0,
-            user: userLogin,
+            user: activeUser, // Kirim user ke jurnal
             perush: perush
         });
 
-        // KREDIT: Kas atau Bank (Dinamis dari input user)
+        // KREDIT: Kas atau Bank
         await jurnalService.postJurnal(connection, {
             tgl: data.pelh_tanggal,
             bukti: nomorPelunasan,
@@ -97,7 +97,7 @@ exports.savePelunasan = async (data, userLogin) => {
             akun: data.pelh_akun_kas, 
             debet: 0,
             kredit: data.pelh_total_bayar,
-            user: userLogin,
+            user: activeUser, // Kirim user ke jurnal
             perush: perush
         });
 
@@ -106,7 +106,7 @@ exports.savePelunasan = async (data, userLogin) => {
 
     } catch (error) {
         await connection.rollback();
-        throwDbError('Gagal menyimpan pelunasan', error);
+        throw error;
     } finally {
         connection.release();
     }
@@ -132,5 +132,117 @@ exports.getOutstandingInvoices = async (supKode) => {
         return rows;
     } catch (error) {
         throwDbError('Gagal mengambil data outstanding invoice', error);
+    }
+};
+
+exports.getAllOutstandingGlobal = async () => {
+    try {
+        const sql = `
+            SELECT 
+                h.invp_nomor AS Nomor,
+                s.sup_nama AS Supplier,
+                DATE_FORMAT(h.invp_tanggal, '%d-%m-%Y') AS Tanggal,
+                DATE_FORMAT(h.invp_tanggal_tempo, '%d-%m-%Y') AS JatuhTempo,
+                DATEDIFF(h.invp_tanggal_tempo, CURDATE()) AS SisaHari,
+                IFNULL(SUM(d.invpd_jumlah * d.invpd_harga), 0) AS TotalTagihan
+            FROM tinvp_hdr h
+            LEFT JOIN tsupplier s ON s.sup_kode = h.invp_sup_kode
+            JOIN tinvp_dtl d ON h.invp_nomor = d.invpd_inv_nomor
+            WHERE h.invp_status = 'OPEN'
+            GROUP BY h.invp_nomor
+            ORDER BY h.invp_tanggal_tempo ASC
+        `;
+        const [rows] = await pool.query(sql);
+        return rows;
+    } catch (error) {
+        throwDbError('Gagal mengambil laporan hutang global', error);
+    }
+};
+
+// ===================================
+// READ ALL (LIST DATA DENGAN DETAIL)
+// ===================================
+exports.getPelunasanData = async (startDate, endDate) => {
+    try {
+        // 1. Query Header Pelunasan
+        const sqlHeader = `
+            SELECT 
+                h.pelh_nomor AS Nomor,
+                DATE_FORMAT(h.pelh_tanggal, '%d-%m-%Y') AS Tanggal,
+                s.sup_nama AS Supplier,
+                h.pelh_akun_kas AS MetodeBayar,
+                h.pelh_total_bayar AS TotalBayar,
+                h.pelh_keterangan AS Keterangan
+            FROM tpelunasan_pembelian_hdr h
+            LEFT JOIN tsupplier s ON s.sup_kode = h.pelh_sup_kode
+            WHERE h.pelh_tanggal BETWEEN ? AND ?
+            ORDER BY h.pelh_tanggal DESC, h.pelh_nomor DESC
+        `;
+        const [headers] = await pool.query(sqlHeader, [startDate, endDate]);
+
+        if (headers.length === 0) return [];
+
+        const listNomor = headers.map(h => h.Nomor);
+
+        // 2. Query Detail (Batch fetch untuk semua nomor di list)
+        const sqlDetail = `
+            SELECT 
+                peld_nomor AS Nomor,
+                peld_inv_nomor,
+                peld_nominal
+            FROM tpelunasan_pembelian_dtl
+            WHERE peld_nomor IN (?)
+        `;
+        const [details] = await pool.query(sqlDetail, [listNomor]);
+
+        // 3. Mapping Detail ke masing-masing Header
+        const dataMap = new Map();
+        headers.forEach(h => {
+            dataMap.set(h.Nomor, { ...h, Detail: [] });
+        });
+
+        details.forEach(d => {
+            if (dataMap.has(d.Nomor)) {
+                dataMap.get(d.Nomor).Detail.push({
+                    peld_inv_nomor: d.peld_inv_nomor,
+                    peld_nominal: d.peld_nominal
+                });
+            }
+        });
+
+        return Array.from(dataMap.values());
+    } catch (error) {
+        throwDbError('Gagal mengambil daftar pelunasan', error);
+    }
+};
+
+
+// ===================================
+// GET REKAP SALDO HUTANG PER SUPPLIER
+// ===================================
+exports.getSaldoHutangRekap = async () => {
+    try {
+        const sql = `
+            SELECT 
+                s.sup_kode AS KodeSupplier,
+                s.sup_nama AS NamaSupplier,
+                COUNT(h.invp_nomor) AS JumlahInvoice,
+                SUM(detail.total_tagihan) AS TotalHutang,
+                SUM(CASE WHEN h.invp_tanggal_tempo < CURDATE() THEN detail.total_tagihan ELSE 0 END) AS TelahJatuhTempo
+            FROM tsupplier s
+            JOIN tinvp_hdr h ON s.sup_kode = h.invp_sup_kode
+            JOIN (
+                SELECT invpd_inv_nomor, SUM(invpd_jumlah * invpd_harga) AS total_tagihan
+                FROM tinvp_dtl
+                GROUP BY invpd_inv_nomor
+            ) detail ON h.invp_nomor = detail.invpd_inv_nomor
+            WHERE h.invp_status = 'OPEN'
+            GROUP BY s.sup_kode, s.sup_nama
+            ORDER BY TotalHutang DESC
+        `;
+        const [rows] = await pool.query(sql);
+        return rows;
+    } catch (error) {
+        throwDbError('Gagal mengambil rekap saldo hutang', error);
     }
 };

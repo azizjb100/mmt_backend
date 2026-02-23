@@ -8,7 +8,6 @@ const throwDbError = (message, error) => {
 
 /**
  * Fungsi Universal untuk Posting Jurnal Manual/Otomatis
- * Menggunakan connection dari transaction agar konsisten
  */
 exports.postJurnal = async (connection, { tgl, bukti, keterangan, akun, debet, kredit, user, perush = 'KP' }) => {
     try {
@@ -19,6 +18,9 @@ exports.postJurnal = async (connection, { tgl, bukti, keterangan, akun, debet, k
         // Pastikan debet/kredit adalah angka dan bukan NaN
         const valDebet = parseFloat(debet) || 0;
         const valKredit = parseFloat(kredit) || 0;
+
+        // --- BARIS YANG BERMASALAH SUDAH DIHAPUS DISINI ---
+        // Variabel 'user' sudah diambil langsung dari parameter destructuring di atas
 
         // Validasi: Tidak boleh posting jika debet & kredit nol dua-duanya
         if (valDebet === 0 && valKredit === 0) {
@@ -50,10 +52,10 @@ exports.postJurnal = async (connection, { tgl, bukti, keterangan, akun, debet, k
             valDebet,       // jur_debet
             valKredit,      // jur_kredit
             perush,         // jur_perush_kode
-            user            // user_create
+            user || 'SYSTEM' // user_create (gunakan fallback SYSTEM jika user kosong)
         ];
 
-        // 3. Eksekusi query menggunakan connection yang dikirim dari service utama
+        // 3. Eksekusi query
         return await connection.query(sql, values);
 
     } catch (error) {
