@@ -24,15 +24,14 @@ const getReport = async (startDate, endDate, gdgKode) => {
           ELSE ''
       END AS status_barang,
 
-      /* --- SPESIFIKASI DIAMBIL DARI MASTER BARANG (tbarang_mmt) --- */
+      /* --- SPESIFIKASI MURNI (PANJANG X LEBAR) --- */
       IFNULL(a.brg_panjang, 0) AS Panjang,
       IFNULL(a.brg_lebar, 0) AS Lebar,
-      (IFNULL(a.brg_panjang, 0) * (IFNULL(a.brg_lebar, 0) - 0.1)) AS m2,
+      (IFNULL(a.brg_panjang, 0) * IFNULL(a.brg_lebar, 0)) AS m2,
 
       /* ================= STOK AWAL ================= */
       IFNULL(b.stok_awal_q, 0) AS stok_awal_q,
       IFNULL(b.stok_awal_m, 0) AS stok_awal_m,
-      /* Valuasi: Total M2 Riil * Harga Rata-rata per M2 */
       IFNULL(b.stok_awal_m, 0) * IFNULL(c.harga_m2_avg, 0) AS stok_awal_nominal,
 
       /* ================= MUTASI MASUK (TERIMA) ================= */
@@ -52,43 +51,41 @@ const getReport = async (startDate, endDate, gdgKode) => {
 
     FROM tbarang_mmt a
 
-    /* Subquery b: Stok Awal (Kalkulasi M2 pakai mst_panjang/lebar) */
+    /* Subquery b: Stok Awal */
     LEFT JOIN (
       SELECT 
         mst_brg_kode, 
         SUM(mst_stok_in - mst_stok_out) AS stok_awal_q,
-        SUM((mst_stok_in - mst_stok_out) * (IFNULL(mst_panjang, 0) * (IFNULL(mst_lebar, 0) - 0.1))) AS stok_awal_m
+        SUM((mst_stok_in - mst_stok_out) * (IFNULL(mst_panjang, 0) * IFNULL(mst_lebar, 0))) AS stok_awal_m
       FROM tmasterstok_mmt
       WHERE mst_tanggal < ? AND mst_gdg_kode = ?
       GROUP BY mst_brg_kode
     ) b ON b.mst_brg_kode = a.brg_kode
 
-    /* Subquery c: Mutasi & Harga (Kalkulasi pakai mst_panjang/lebar) */
+    /* Subquery c: Mutasi & Harga */
     LEFT JOIN (
       SELECT 
         mst_brg_kode,
         SUM(mst_stok_in) AS terima_q,
         SUM(mst_stok_out) AS keluar_q,
-        SUM(mst_stok_in * (IFNULL(mst_panjang, 0) * (IFNULL(mst_lebar, 0) - 0.1))) AS terima_m,
-        SUM(mst_stok_out * (IFNULL(mst_panjang, 0) * (IFNULL(mst_lebar, 0) - 0.1))) AS keluar_m,
+        SUM(mst_stok_in * (IFNULL(mst_panjang, 0) * IFNULL(mst_lebar, 0))) AS terima_m,
+        SUM(mst_stok_out * (IFNULL(mst_panjang, 0) * IFNULL(mst_lebar, 0))) AS keluar_m,
         
-        /* Nominal: Cek Satuan (m2 vs Roll) */
         SUM(
           CASE 
             WHEN LOWER(mst_satuan_harga) = 'm2' 
-              THEN (mst_stok_in * (IFNULL(mst_panjang, 0) * (IFNULL(mst_lebar, 0) - 0.1))) * mst_hargabeli
+              THEN (mst_stok_in * (IFNULL(mst_panjang, 0) * IFNULL(mst_lebar, 0))) * mst_hargabeli
             ELSE 
               mst_stok_in * mst_hargabeli
           END
         ) AS nilai_masuk_total,
 
-        /* Harga Rata-rata per M2 untuk valuasi saldo */
         AVG(
           CASE 
             WHEN LOWER(mst_satuan_harga) = 'm2' 
               THEN mst_hargabeli
             ELSE 
-              mst_hargabeli / NULLIF((IFNULL(mst_panjang, 0) * (IFNULL(mst_lebar, 0) - 0.1)), 0)
+              mst_hargabeli / NULLIF((IFNULL(mst_panjang, 0) * IFNULL(mst_lebar, 0)), 0)
           END
         ) AS harga_m2_avg
 
@@ -97,12 +94,12 @@ const getReport = async (startDate, endDate, gdgKode) => {
       GROUP BY mst_brg_kode
     ) c ON c.mst_brg_kode = a.brg_kode
 
-    /* Subquery d: Stok Akhir (Kalkulasi M2 pakai mst_panjang/lebar) */
+    /* Subquery d: Stok Akhir */
     LEFT JOIN (
       SELECT 
         mst_brg_kode, 
         SUM(mst_stok_in - mst_stok_out) AS stok_akhir_q,
-        SUM((mst_stok_in - mst_stok_out) * (IFNULL(mst_panjang, 0) * (IFNULL(mst_lebar, 0) - 0.1))) AS stok_akhir_m
+        SUM((mst_stok_in - mst_stok_out) * (IFNULL(mst_panjang, 0) * IFNULL(mst_lebar, 0))) AS stok_akhir_m
       FROM tmasterstok_mmt
       WHERE mst_tanggal <= ? AND mst_gdg_kode = ?
       GROUP BY mst_brg_kode
