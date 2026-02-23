@@ -12,7 +12,8 @@ exports.getReport = async (req, res) => {
 
         if (!isValidDateInput(startDate) || !isValidDateInput(endDate)) {
             return res.status(400).json({
-                message: "Parameter startDate dan endDate wajib diisi (format tanggal valid).",
+                message:
+                    "Parameter startDate dan endDate wajib diisi (format tanggal valid).",
             });
         }
 
@@ -25,4 +26,3 @@ exports.getReport = async (req, res) => {
         });
     }
 };
-
