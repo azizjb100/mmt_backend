@@ -1,5 +1,3 @@
-// backend/src/services/permintaanBahan.service.js
-
 const pool = require('../config/db.config');
 const { format } = require('date-fns');
 
@@ -10,7 +8,6 @@ const throwDbError = (message, error) => {
 
 exports.getInvoicePembelianData = async (startDate, endDate) => {
     try {
-        // --- 1. Query Master (Header) ---
         const sqlMaster = `
             SELECT
                 h.invp_nomor AS Nomor,
