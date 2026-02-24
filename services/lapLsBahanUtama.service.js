@@ -24,7 +24,7 @@ const getReport = async (startDate, endDate, gdgKode) => {
           ELSE ''
       END AS status_barang,
 
-      /* --- SPESIFIKASI MURNI (PANJANG X LEBAR) --- */
+      /* --- SPESIFIKASI MURNI --- */
       IFNULL(a.brg_panjang, 0) AS Panjang,
       IFNULL(a.brg_lebar, 0) AS Lebar,
       (IFNULL(a.brg_panjang, 0) * IFNULL(a.brg_lebar, 0)) AS m2,
@@ -32,7 +32,7 @@ const getReport = async (startDate, endDate, gdgKode) => {
       /* ================= STOK AWAL ================= */
       IFNULL(b.stok_awal_q, 0) AS stok_awal_q,
       IFNULL(b.stok_awal_m, 0) AS stok_awal_m,
-      IFNULL(b.stok_awal_m, 0) * IFNULL(c.harga_m2_avg, 0) AS stok_awal_nominal,
+      IFNULL(b.stok_awal_m, 0) * IFNULL(c.harga_referensi, 0) AS stok_awal_nominal,
 
       /* ================= MUTASI MASUK (TERIMA) ================= */
       IFNULL(c.terima_q, 0) AS terima_q,
@@ -42,12 +42,12 @@ const getReport = async (startDate, endDate, gdgKode) => {
       /* ================= MUTASI KELUAR ================= */
       IFNULL(c.keluar_q, 0) AS keluar_q,
       IFNULL(c.keluar_m, 0) AS keluar_m,
-      IFNULL(c.keluar_m, 0) * IFNULL(c.harga_m2_avg, 0) AS keluar_nominal,
+      IFNULL(c.keluar_m, 0) * IFNULL(c.harga_referensi, 0) AS keluar_nominal,
 
       /* ================= STOK AKHIR ================= */
       IFNULL(d.stok_akhir_q, 0) AS stok_akhir_q,
       IFNULL(d.stok_akhir_m, 0) AS stok_akhir_m,
-      IFNULL(d.stok_akhir_m, 0) * IFNULL(c.harga_m2_avg, 0) AS stok_akhir_nominal
+      IFNULL(d.stok_akhir_m, 0) * IFNULL(c.harga_referensi, 0) AS stok_akhir_nominal
 
     FROM tbarang_mmt a
 
@@ -62,24 +62,17 @@ const getReport = async (startDate, endDate, gdgKode) => {
       GROUP BY mst_brg_kode
     ) b ON b.mst_brg_kode = a.brg_kode
 
-    /* Subquery c: Mutasi & Harga */
+    /* Subquery c: Mutasi & Harga (LOGIKA BARU) */
     LEFT JOIN (
       SELECT 
         mst_brg_kode,
-        SUM(mst_stok_in) AS terima_q,
-        SUM(mst_stok_out) AS keluar_q,
-        SUM(mst_stok_in * (IFNULL(mst_panjang, 0) * IFNULL(mst_lebar, 0))) AS terima_m,
-        SUM(mst_stok_out * (IFNULL(mst_panjang, 0) * IFNULL(mst_lebar, 0))) AS keluar_m,
+        /* Mutasi tetap difilter berdasarkan range tanggal inputan */
+        SUM(CASE WHEN mst_tanggal BETWEEN ? AND ? THEN mst_stok_in ELSE 0 END) AS terima_q,
+        SUM(CASE WHEN mst_tanggal BETWEEN ? AND ? THEN mst_stok_out ELSE 0 END) AS keluar_q,
+        SUM(CASE WHEN mst_tanggal BETWEEN ? AND ? THEN (mst_stok_in * (IFNULL(mst_panjang, 0) * IFNULL(mst_lebar, 0))) ELSE 0 END) AS terima_m,
+        SUM(CASE WHEN mst_tanggal BETWEEN ? AND ? THEN (mst_stok_out * (IFNULL(mst_panjang, 0) * IFNULL(mst_lebar, 0))) ELSE 0 END) AS keluar_m,
         
-        SUM(
-          CASE 
-            WHEN LOWER(mst_satuan_harga) = 'm2' 
-              THEN (mst_stok_in * (IFNULL(mst_panjang, 0) * IFNULL(mst_lebar, 0))) * mst_hargabeli
-            ELSE 
-              mst_stok_in * mst_hargabeli
-          END
-        ) AS nilai_masuk_total,
-
+        /* Harga mengambil histori sampai tanggal akhir agar data lama (Januari) ikut terhitung */
         AVG(
           CASE 
             WHEN LOWER(mst_satuan_harga) = 'm2' 
@@ -87,10 +80,24 @@ const getReport = async (startDate, endDate, gdgKode) => {
             ELSE 
               mst_hargabeli / NULLIF((IFNULL(mst_panjang, 0) * IFNULL(mst_lebar, 0)), 0)
           END
-        ) AS harga_m2_avg
+        ) AS harga_referensi,
+
+        /* Nilai nominal barang masuk sesuai periode */
+        SUM(
+          CASE 
+            WHEN mst_tanggal BETWEEN ? AND ? THEN
+              CASE 
+                WHEN LOWER(mst_satuan_harga) = 'm2' 
+                  THEN (mst_stok_in * (IFNULL(mst_panjang, 0) * IFNULL(mst_lebar, 0))) * mst_hargabeli
+                ELSE 
+                  mst_stok_in * mst_hargabeli
+              END
+            ELSE 0 
+          END
+        ) AS nilai_masuk_total
 
       FROM tmasterstok_mmt
-      WHERE mst_tanggal BETWEEN ? AND ? AND mst_gdg_kode = ?
+      WHERE mst_tanggal <= ? AND mst_gdg_kode = ?
       GROUP BY mst_brg_kode
     ) c ON c.mst_brg_kode = a.brg_kode
 
@@ -110,10 +117,16 @@ const getReport = async (startDate, endDate, gdgKode) => {
     ORDER BY a.brg_nama ASC
   `;
 
+  /* Penyesuaian urutan params agar sesuai dengan tanda tanya (?) di query */
   const params = [
-    tglMulai, kodeGudang,
-    tglMulai, tglSelesai, kodeGudang,
-    tglSelesai, kodeGudang
+    tglMulai, kodeGudang,                             // Subquery b
+    tglMulai, tglSelesai,                             // Subquery c (terima_q)
+    tglMulai, tglSelesai,                             // Subquery c (keluar_q)
+    tglMulai, tglSelesai,                             // Subquery c (terima_m)
+    tglMulai, tglSelesai,                             // Subquery c (keluar_m)
+    tglMulai, tglSelesai,                             // Subquery c (nilai_masuk_total)
+    tglSelesai, kodeGudang,                           // Subquery c (WHERE & harga_referensi)
+    tglSelesai, kodeGudang                            // Subquery d
   ];
 
   const [rows] = await pool.query(ssql, params);
