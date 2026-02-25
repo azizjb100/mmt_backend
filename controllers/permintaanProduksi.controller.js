@@ -70,9 +70,11 @@ exports.savePermintaanProduksi = async (req, res) => {
 
         if (!header) return res.status(400).json({ message: "Header tidak ditemukan." });
 
+        // AMBIL USER DARI TOKEN (Middleware Auth)
+        const userLogin = req.user ? req.user.kdUser : 'SYSTEM';
+
         let Nomor = header.nomor && header.nomor !== 'AUTO' ? header.nomor : null;
 
-        // Mapping Detail: Pastikan index digunakan sebagai no urut
         const normalizedDetails = (details || []).map((d, index) => ({
             sku: d.sku,
             barcode: d.barcode,
@@ -80,7 +82,7 @@ exports.savePermintaanProduksi = async (req, res) => {
             satuan: d.satuan || null,
             spk: d.spk || "0",
             keterangan: d.keterangan || null,
-            nourut: index + 1 // Menghasilkan 1, 2, 3...
+            nourut: index + 1 
         }));
 
         const serviceData = {
@@ -89,11 +91,11 @@ exports.savePermintaanProduksi = async (req, res) => {
             LokasiProduksi: header.mnt_lokasiproduksi,
             Tanggal: header.tanggal,
             Keterangan: header.mnt_keterangan || null,
-            User: header.user_create || 'ADMIN',
             Details: normalizedDetails
         };
 
-        const result = await permintaanProduksiService.savePermintaanProduksi(serviceData, isUpdate);
+        // Kirim userLogin sebagai parameter ke-3
+        const result = await permintaanProduksiService.savePermintaanProduksi(serviceData, isUpdate, userLogin);
         return res.status(200).json({ message: "Berhasil disimpan", nomor: result.nomor });
 
     } catch (error) {

@@ -184,48 +184,52 @@ exports.getNewNomor = async () => {
 };
 
 
-exports.savePermintaanProduksi = async (data, isUpdate = false) => {
+exports.savePermintaanProduksi = async (data, isUpdate = false, userLogin) => {
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
-        let { Nomor, Gudang, Tanggal, Keterangan, User, Details, LokasiProduksi } = data;
+        let { Nomor, Gudang, Tanggal, Keterangan, Details, LokasiProduksi } = data;
 
-        // 1. Generate nomor baru jika simpan baru
+        const serverTime = new Date();
+        const activeUser = userLogin || 'SYSTEM';
+
         if (!isUpdate && (!Nomor || Nomor === 'AUTO')) {
             Nomor = await exports.getNewNomor();
         }
 
         if (isUpdate) {
             await connection.query(
-                `UPDATE tminta_mmt_hdr SET mnt_gdg_kode=?, mnt_lokasiproduksi=?, mnt_tanggal=?, mnt_keterangan=?, user_modified=? WHERE mnt_nomor=?`,
-                [Gudang, LokasiProduksi, Tanggal, Keterangan, User, Nomor]
+                `UPDATE tminta_mmt_hdr SET 
+                    mnt_gdg_kode=?, 
+                    mnt_lokasiproduksi=?, 
+                    mnt_tanggal=?, 
+                    mnt_keterangan=?, 
+                    user_modified=?, 
+                    date_modified=? 
+                WHERE mnt_nomor=?`,
+                [Gudang, LokasiProduksi, Tanggal, Keterangan, activeUser, serverTime, Nomor]
             );
             await connection.query('DELETE FROM tminta_mmt_dtl WHERE mntd_mnt_nomor = ?', [Nomor]);
         } else {
             await connection.query(
-                `INSERT INTO tminta_mmt_hdr (mnt_nomor, mnt_gdg_kode, mnt_lokasiproduksi, mnt_tanggal, mnt_keterangan, user_create) VALUES (?, ?, ?, ?, ?, ?)`,
-                [Nomor, Gudang, LokasiProduksi, Tanggal, Keterangan, User]
+                `INSERT INTO tminta_mmt_hdr 
+                    (mnt_nomor, mnt_gdg_kode, mnt_lokasiproduksi, mnt_tanggal, mnt_keterangan, user_create, date_create) 
+                VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [Nomor, Gudang, LokasiProduksi, Tanggal, Keterangan, activeUser, serverTime]
             );
         }
 
-        // 2. Insert ke tminta_mmt_dtl
+        // ... proses detail tetap sama ...
         const detailValues = Details.map(d => [
-            Nomor,
-            d.nourut,      // mntd_nourut (Bagian dari Primary Key)
-            d.sku,         // mntd_brg_kode
-            d.qty,
-            d.satuan,
-            null,          // mntd_operator
-            d.spk,
-            d.keterangan,
-            d.barcode
+            Nomor, d.nourut, d.sku, d.qty, d.satuan, null, d.spk, d.keterangan, d.barcode
         ]);
 
         if (detailValues.length > 0) {
-            const sql = `INSERT INTO tminta_mmt_dtl 
+            await connection.query(
+                `INSERT INTO tminta_mmt_dtl 
                 (mntd_mnt_nomor, mntd_nourut, mntd_brg_kode, mntd_qty, mntd_brg_satuan, mntd_operator, mntd_spk_nomor, mntd_keterangan, mntd_barcode) 
-                VALUES ?`;
-            await connection.query(sql, [detailValues]);
+                VALUES ?`, [detailValues]
+            );
         }
 
         await connection.commit();
