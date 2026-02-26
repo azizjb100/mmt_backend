@@ -25,4 +25,16 @@ router.post('/', verifyToken, controller.saveLhk);
 // 6. Hapus (DELETE)
 router.delete('/:nomor', verifyToken, controller.deleteHeader);
 
+router.get('/report/dashboard', verifyToken, controller.getDashboardAgregasi);
+
+// Untuk Tabel Rekap Produksi
+router.get('/rekap', verifyToken, controller.getReportRekap);
+router.get('/rekap-detail-mesin', verifyToken, controller.getDetailRekapPerMesin);
+
+// Untuk Export Excel CrossTab (Mesin vs Tanggal)
+router.get('/report/export-crosstab', verifyToken, controller.getExcelCrossTab);
+
+// Untuk Export Detail Raw Data
+router.get('/report/export-detail', verifyToken, controller.getExportLhk)
+
 module.exports = router;

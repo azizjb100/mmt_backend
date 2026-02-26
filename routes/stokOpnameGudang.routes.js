@@ -12,9 +12,11 @@ router.post('/start', opnameController.startSession);
 router.get('/scan', opnameController.scanBarcode);
 
 // 3. Update Hasil Ukur Fisik (PUT)
-router.put('/update', opnameController.updateResult);
+router.put('/update', opnameController.updateScan);
 
 // 4. Lihat Daftar Barang Belum Ditemukan (GET)
 router.get('/pending/:sessionID', opnameController.getPending);
+
+router.get('/report/:sessionID', opnameController.getReport);
 
 module.exports = router;

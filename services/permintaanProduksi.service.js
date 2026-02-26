@@ -188,11 +188,14 @@ exports.savePermintaanProduksi = async (data, isUpdate = false, userLogin) => {
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
-        let { Nomor, Gudang, Tanggal, Keterangan, Details, LokasiProduksi } = data;
+
+        // Ambil properti langsung dari 'data' sesuai mapping di Controller
+        let { Nomor, Gudang, Tanggal, Keterangan, Details, LokasiProduksi, Permintaan } = data;
 
         const serverTime = new Date();
         const activeUser = userLogin || 'SYSTEM';
 
+        // Logika Nomor Otomatis
         if (!isUpdate && (!Nomor || Nomor === 'AUTO')) {
             Nomor = await exports.getNewNomor();
         }
@@ -204,27 +207,36 @@ exports.savePermintaanProduksi = async (data, isUpdate = false, userLogin) => {
                     mnt_lokasiproduksi=?, 
                     mnt_tanggal=?, 
                     mnt_keterangan=?, 
+                    mnt_permintaan=?, 
                     user_modified=?, 
                     date_modified=? 
                 WHERE mnt_nomor=?`,
-                [Gudang, LokasiProduksi, Tanggal, Keterangan, activeUser, serverTime, Nomor]
+                [Gudang, LokasiProduksi, Tanggal, Keterangan, Permintaan, activeUser, serverTime, Nomor]
             );
             await connection.query('DELETE FROM tminta_mmt_dtl WHERE mntd_mnt_nomor = ?', [Nomor]);
         } else {
             await connection.query(
                 `INSERT INTO tminta_mmt_hdr 
-                    (mnt_nomor, mnt_gdg_kode, mnt_lokasiproduksi, mnt_tanggal, mnt_keterangan, user_create, date_create) 
-                VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                [Nomor, Gudang, LokasiProduksi, Tanggal, Keterangan, activeUser, serverTime]
+                    (mnt_nomor, mnt_gdg_kode, mnt_lokasiproduksi, mnt_tanggal, mnt_keterangan, mnt_permintaan, user_create, date_create) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                [Nomor, Gudang, LokasiProduksi, Tanggal, Keterangan, Permintaan, activeUser, serverTime]
             );
         }
 
-        // ... proses detail tetap sama ...
-        const detailValues = Details.map(d => [
-            Nomor, d.nourut, d.sku, d.qty, d.satuan, null, d.spk, d.keterangan, d.barcode
-        ]);
+        // Simpan Detail
+        if (Details && Details.length > 0) {
+            const detailValues = Details.map(d => [
+                Nomor, 
+                d.nourut, 
+                d.sku, 
+                d.qty, 
+                d.satuan, 
+                null, // operator
+                d.spk || "0", 
+                d.keterangan, 
+                d.barcode
+            ]);
 
-        if (detailValues.length > 0) {
             await connection.query(
                 `INSERT INTO tminta_mmt_dtl 
                 (mntd_mnt_nomor, mntd_nourut, mntd_brg_kode, mntd_qty, mntd_brg_satuan, mntd_operator, mntd_spk_nomor, mntd_keterangan, mntd_barcode) 

@@ -44,21 +44,16 @@ exports.scanBarcode = async (req, res) => {
     }
 };
 
-exports.updateResult = async (req, res) => {
+exports.updateScan = async (req, res) => {
     try {
-        const { sessionID, barcode, fisik } = req.body;
-
-        if (!sessionID || !barcode || fisik === undefined) {
-            return res.status(400).json({ success: false, message: "Data tidak lengkap" });
-        }
-
-        const success = await opnameService.updateScanResult(sessionID, barcode, fisik);
+        const { sessionID, barcode } = req.body; // Pastikan mengambil sessionID dan barcode
+        const success = await opnameService.updateScanResult(sessionID, barcode);
         
-        if (!success) {
-            return res.status(404).json({ success: false, message: "Data tidak ditemukan atau gagal diupdate" });
+        if (success) {
+            res.json({ success: true, message: 'Barcode terverifikasi' });
+        } else {
+            res.status(404).json({ success: false, message: 'Data tidak ditemukan' });
         }
-
-        res.status(200).json({ success: true, message: "Hasil opname berhasil disimpan" });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -71,5 +66,23 @@ exports.getPending = async (req, res) => {
         res.status(200).json({ success: true, data });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+exports.getReport = async (req, res) => {
+    try {
+        const { sessionID } = req.params;
+        const reportData = await opnameService.getOpnameReport(sessionID);
+        
+        if (!reportData.details.length) {
+            return res.status(404).json({ message: "Data laporan tidak ditemukan." });
+        }
+
+        res.json({
+            success: true,
+            data: reportData
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
     }
 };

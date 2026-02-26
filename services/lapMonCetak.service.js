@@ -2,14 +2,12 @@ const pool = require('../config/db.config');
 const moment = require('moment');
 
 const lapMonCetak = async (startDate, endDate) => {
-
   const tglMulai = moment(startDate).format('YYYY-MM-DD');
   const tglSelesai = moment(endDate).format('YYYY-MM-DD');
 
   const ssql = `
     SELECT 
         spk.spk_perush_kode AS PERUSH,
-        -- Jika Tanggal LHK NULL maka tampilkan '-', di frontend nanti dicek jika '-' beri warna merah
         IFNULL(DATE_FORMAT(zz.Tanggal, '%Y-%m-%d'), '-') AS TANGGAL_LHK,
         DATE_FORMAT(spk.spk_tanggal, '%Y-%m-%d') AS TGL_SPK,
         DATE_FORMAT(spk.spk_dateline, '%Y-%m-%d') AS DEADLINE,
@@ -34,73 +32,62 @@ const lapMonCetak = async (startDate, endDate) => {
         IFNULL(zz.mt05, 0) AS PCS_MT05,
         IFNULL(zz.Jml_Cetak, 0) AS JUMLAH_PCS,
 
-        -- METER
+        -- METER (Diambil dari akumulasi ld_luas_m2)
         IFNULL(zz.jmt01, 0) AS METER_MT01,
         IFNULL(zz.jmt02, 0) AS METER_MT02,
         IFNULL(zz.jmt03, 0) AS METER_MT03,
         IFNULL(zz.jmt04, 0) AS METER_MT04,
         IFNULL(zz.jmt05, 0) AS METER_MT05,
-        IFNULL(zz.cetak_meter, 0) AS JUMLAH_METER
+        IFNULL(zz.total_m2, 0) AS JUMLAH_METER
 
     FROM tspk spk
-    -- Menggunakan LEFT JOIN agar SPK yang belum ada LHK-nya tetap muncul
     LEFT JOIN (
         SELECT 
-            X.Nomor_SPK,
-            X.Tanggal,
-            X.Jml_Cetak,
-            X.mt01, X.mt02, X.mt03, X.mt04, X.mt05,
+            res.ld_spk_nomor AS Nomor_SPK,
+            MAX(res.ltanggal) AS Tanggal,
+            SUM(res.ld_total_qtycetak) AS Jml_Cetak,
+            SUM(res.ld_luas_m2) AS total_m2,
+            
+            -- Grouping PCS per Mesin
+            SUM(IF(res.lmesin='MT01', res.ld_total_qtycetak, 0)) AS mt01,
+            SUM(IF(res.lmesin='MT02', res.ld_total_qtycetak, 0)) AS mt02,
+            SUM(IF(res.lmesin='MT03', res.ld_total_qtycetak, 0)) AS mt03,
+            SUM(IF(res.lmesin='MT04', res.ld_total_qtycetak, 0)) AS mt04,
+            SUM(IF(res.lmesin='MT05', res.ld_total_qtycetak, 0)) AS mt05,
 
-            (X.Jml_Cetak * y.spk_panjang * IF(SUBSTR(y.spk_nomor,4,2)='MX',1,y.spk_lebar)
-            ) AS cetak_meter,
-
-            (X.mt01 * y.spk_panjang * IF(SUBSTR(y.spk_nomor,4,2)='MX',1,y.spk_lebar)
-            ) AS jmt01,
-
-            (X.mt02 * y.spk_panjang * IF(SUBSTR(y.spk_nomor,4,2)='MX',1,y.spk_lebar)
-            ) AS jmt02,
-
-            (X.mt03 * y.spk_panjang * IF(SUBSTR(y.spk_nomor,4,2)='MX',1,y.spk_lebar)
-            ) AS jmt03,
-
-            (X.mt04 * y.spk_panjang * IF(SUBSTR(y.spk_nomor,4,2)='MX',1,y.spk_lebar)
-            ) AS jmt04,
-
-            (X.mt05 * y.spk_panjang * IF(SUBSTR(y.spk_nomor,4,2)='MX',1,y.spk_lebar)
-            ) AS jmt05,
-
+            -- Grouping METER per Mesin
+            SUM(IF(res.lmesin='MT01', res.ld_luas_m2, 0)) AS jmt01,
+            SUM(IF(res.lmesin='MT02', res.ld_luas_m2, 0)) AS jmt02,
+            SUM(IF(res.lmesin='MT03', res.ld_luas_m2, 0)) AS jmt03,
+            SUM(IF(res.lmesin='MT04', res.ld_luas_m2, 0)) AS jmt04,
+            SUM(IF(res.lmesin='MT05', res.ld_luas_m2, 0)) AS jmt05,
+            
             IFNULL(h.cetak_luarx, 0) AS cetak_luarx
 
         FROM (
             SELECT 
-                a.lcd_spk_nomor AS Nomor_SPK,
-                MAX(b.lch_tanggal) AS Tanggal,
-                SUM(a.lcd_qty_cetak) AS Jml_Cetak,
-                SUM(IF(a.lcd_jns_mesin='MT01', a.lcd_qty_cetak,0)) AS mt01,
-                SUM(IF(a.lcd_jns_mesin='MT02', a.lcd_qty_cetak,0)) AS mt02,
-                SUM(IF(a.lcd_jns_mesin='MT03', a.lcd_qty_cetak,0)) AS mt03,
-                SUM(IF(a.lcd_jns_mesin='MT04', a.lcd_qty_cetak,0)) AS mt04,
-                SUM(IF(a.lcd_jns_mesin='MT05', a.lcd_qty_cetak,0)) AS mt05
-            FROM tlhk_cetakmmt_dtl a
-            INNER JOIN tlhk_cetakmmt_hdr b 
-                ON b.lch_nomor = a.lcd_lch_nomor
-            -- Filter tanggal LHK di sini dihapus agar tidak membatasi SPK
-            GROUP BY a.lcd_spk_nomor
-        ) X
-        INNER JOIN tspk y ON y.spk_nomor = X.Nomor_SPK
+                d.ld_spk_nomor, 
+                h.ltanggal, 
+                h.lmesin, 
+                d.ld_total_qtycetak, 
+                d.ld_luas_m2
+            FROM tlhk_mesin_dtl d
+            INNER JOIN tlhk_mesin_hdr h ON h.lnomor = d.ld_lnomor
+            WHERE h.lstatus = 'POSTED' -- Hanya yang sudah ACC
+        ) res
         LEFT JOIN (
             SELECT poe_spk_nomor, 
-                    SUM(IFNULL(poe_jumlah,0)) AS cetak_luarx
+                   SUM(IFNULL(poe_jumlah,0)) AS cetak_luarx
             FROM tpoexternal_hdr
             WHERE poe_cab='P05'
             GROUP BY poe_spk_nomor
-        ) h ON h.poe_spk_nomor = X.Nomor_SPK
+        ) h ON h.poe_spk_nomor = res.ld_spk_nomor
+        GROUP BY res.ld_spk_nomor
     ) zz ON zz.Nomor_SPK = spk.spk_nomor
 
     WHERE spk.spk_aktif='Y'
       AND spk.spk_divisi=5
       AND SUBSTR(spk.spk_nomor,4,2)='MT'
-      -- FILTER SEKARANG BERDASARKAN TANGGAL SPK
       AND spk.spk_tanggal BETWEEN ? AND ?
 
     ORDER BY spk.spk_tanggal ASC, spk.spk_nomor ASC;

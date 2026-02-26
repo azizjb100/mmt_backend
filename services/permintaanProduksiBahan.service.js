@@ -62,6 +62,47 @@ exports.getPermintaanProduksiData = async (startDate, endDate) => {
 // 2. GENERATE NOMOR (getmaxkode)
 // ===================================
 
+// Tambahkan fungsi ini di permintaanProduksi.service.js jika belum ada
+exports.getPermintaanProduksiDataByNomor = async (nomor) => {
+    try {
+        const sqlHeader = `
+            SELECT
+                mnt_nomor AS Nomor, 
+                mnt_gdg_kode AS Gudang, 
+                DATE_FORMAT(mnt_tanggal, '%Y-%m-%d') AS Tanggal, 
+                mnt_keterangan AS Keterangan,
+                mnt_lokasiproduksi AS Lokasi,
+                mnt_status AS Status
+            FROM tpermintaan_prod_hdr
+            WHERE mnt_nomor = ?;
+        `;
+        const [headerResults] = await pool.query(sqlHeader, [nomor]);
+        
+        if (headerResults.length === 0) return null;
+
+        const sqlDetail = `
+            SELECT
+                mntd_brg_kode AS SKU, 
+                mntd_spk_nomor AS spk,
+                mntd_qty AS qtyMinta, 
+                mntd_brg_satuan AS satuan,
+                mntd_keterangan AS keterangan,
+                mntd_nourut AS NoUrut
+            FROM tpermintaan_prod_dtl
+            WHERE mntd_mnt_nomor = ?
+            ORDER BY mntd_nourut;
+        `;
+        const [detailResults] = await pool.query(sqlDetail, [nomor]);
+
+        return {
+            ...headerResults[0],
+            Details: detailResults
+        };
+    } catch (error) {
+        throwDbError('Gagal mengambil detail nomor ' + nomor, error);
+    }
+};
+
 exports.getNewNomor = async () => {
     const NOMERATOR = 'MNT';
     try {

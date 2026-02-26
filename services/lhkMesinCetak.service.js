@@ -1,4 +1,4 @@
-// backend/services/lhkCetak.service.js
+
 const pool = require('../config/db.config'); // Pastikan path ini benar
 const { format } = require('date-fns');
 
@@ -487,11 +487,196 @@ const deleteLhk = async (nomor) => {
  * Fungsi untuk menentukan suffix alfabet berikutnya (-A, -B, dst)
  */
 
+// =========================================================================
+// 2. FUNGSI LAPORAN & AGREGASI (tlhk_mesin_hdr & tlhk_mesin_dtl)
+// =========================================================================
+
+/**
+ * Mendapatkan ringkasan statistik produksi untuk Dashboard
+ */
+const getLaporanAgregasi = async (startDate, endDate) => {
+    const tglMulai = format(new Date(startDate), 'yyyy-MM-dd');
+    const tglSelesai = format(new Date(endDate), 'yyyy-MM-dd');
+
+    // 1. Per Mesin (Total m2 per mesin)
+    const sqlMesin = `
+        SELECT h.lmesin as Mesin, SUM(d.ld_luas_m2) as Total_m2
+        FROM tlhk_mesin_dtl d
+        JOIN tlhk_mesin_hdr h ON d.ld_lnomor = h.lnomor
+        WHERE h.ltanggal BETWEEN ? AND ?
+        GROUP BY h.lmesin
+    `;
+
+    // 2. Per Hari (Tren produksi)
+    const sqlHarian = `
+        SELECT DATE_FORMAT(h.ltanggal, '%Y-%m-%d') as Tanggal, 
+               SUM(d.ld_luas_m2) as Total_m2
+        FROM tlhk_mesin_hdr h
+        JOIN tlhk_mesin_dtl d ON h.lnomor = d.ld_lnomor
+        WHERE h.ltanggal BETWEEN ? AND ?
+        GROUP BY h.ltanggal
+        ORDER BY h.ltanggal ASC
+    `;
+
+    // 3. Per SPK (Top 10 SPK terbanyak dikerjakan)
+    const sqlSPK = `
+        SELECT d.ld_spk_nomor as lcd_spk_nomor, s.spk_nama, 
+               SUM(d.ld_total_qtycetak) as Total_Qty,
+               SUM(d.ld_luas_m2) as Total_m2
+        FROM tlhk_mesin_dtl d
+        LEFT JOIN tspk s ON d.ld_spk_nomor = s.spk_nomor
+        JOIN tlhk_mesin_hdr h ON d.ld_lnomor = h.lnomor
+        WHERE h.ltanggal BETWEEN ? AND ?
+        GROUP BY d.ld_spk_nomor, s.spk_nama
+        ORDER BY Total_m2 DESC
+        LIMIT 10
+    `;
+
+    const [resMesin] = await pool.query(sqlMesin, [tglMulai, tglSelesai]);
+    const [resHarian] = await pool.query(sqlHarian, [tglMulai, tglSelesai]);
+    const [resSPK] = await pool.query(sqlSPK, [tglMulai, tglSelesai]);
+
+    return { perMesin: resMesin, perHari: resHarian, perSPK: resSPK };
+};
+
+/**
+ * Rekap LHK untuk tampilan tabel report
+ */
+const getRekapLhk = async (startDate, endDate) => {
+    const tglMulai = format(new Date(startDate), 'yyyy-MM-dd');
+    const tglSelesai = format(new Date(endDate), 'yyyy-MM-dd');
+
+    const sqlMesin = `
+        SELECT 
+            h.lmesin AS Mesin,
+            COUNT(DISTINCT d.ld_spk_nomor) AS Jml_SPK,
+            SUM(d.ld_total_qtycetak) AS Total_Pcs,
+            SUM(d.ld_luas_m2) AS Total_Meter
+        FROM tlhk_mesin_dtl d
+        JOIN tlhk_mesin_hdr h ON d.ld_lnomor = h.lnomor
+        WHERE h.ltanggal BETWEEN ? AND ?
+        GROUP BY h.lmesin
+    `;
+
+    const sqlHarian = `
+        SELECT 
+            h.lmesin AS Mesin,
+            DATE_FORMAT(h.ltanggal, '%Y-%m-%d') AS Tanggal,
+            SUM(d.ld_luas_m2) AS Total_Meter
+        FROM tlhk_mesin_hdr h
+        JOIN tlhk_mesin_dtl d ON d.ld_lnomor = h.lnomor
+        WHERE h.ltanggal BETWEEN ? AND ?
+        GROUP BY h.lmesin, h.ltanggal
+        ORDER BY h.ltanggal ASC, h.lmesin ASC
+    `;
+
+    const [rekapMesin] = await pool.query(sqlMesin, [tglMulai, tglSelesai]);
+    const [rekapHarian] = await pool.query(sqlHarian, [tglMulai, tglSelesai]);
+
+    return { rekapMesin, rekapHarian };
+};
+
+/**
+ * Export Excel CrossTab (Mesin vs Tanggal)
+ */
+const getExportLhkCrossTab = async (month, year) => {
+    const sql = `
+        SELECT 
+            h.lmesin AS Mesin,
+            DAY(h.ltanggal) AS Hari,
+            SUM(d.ld_luas_m2) AS Total_Meter
+        FROM tlhk_mesin_dtl d
+        JOIN tlhk_mesin_hdr h ON d.ld_lnomor = h.lnomor
+        WHERE MONTH(h.ltanggal) = ? AND YEAR(h.ltanggal) = ?
+        GROUP BY h.lmesin, DAY(h.ltanggal)
+    `;
+
+    const [rows] = await pool.query(sql, [month, year]);
+    return rows;
+};
+
+/**
+ * Export data detail lengkap ke Excel/CSV
+ */
+const getAllDataForExport = async (startDate, endDate, mesin) => {
+    const tglMulai = format(new Date(startDate), 'yyyy-MM-dd');
+    const tglSelesai = format(new Date(endDate), 'yyyy-MM-dd');
+
+    let params = [tglMulai, tglSelesai];
+    let filterMesin = "";
+
+    if (mesin) {
+        const mesinArray = Array.isArray(mesin) ? mesin : mesin.split(',').filter(m => m.trim() !== '');
+        if (mesinArray.length > 0) {
+            filterMesin = ` AND h.lmesin IN (${mesinArray.map(() => '?').join(',')})`;
+            params.push(...mesinArray);
+        }
+    }
+
+    const sql = `
+        SELECT 
+            h.lnomor AS Nomor_LHK,
+            DATE_FORMAT(h.ltanggal, '%d/%m/%Y') AS Tanggal,
+            h.lshift AS Shift_LHK,
+            h.loperator AS Operator_LHK,
+            g.gdg_nama AS Gudang,
+            d.ld_spk_nomor AS Nomor_SPK,
+            s.spk_nama AS Nama_Order,
+            h.lmesin AS Mesin,
+            d.ld_total_qtycetak AS Qty_Cetak,
+            IFNULL(s.spk_panjang, 0) AS Panjang,
+            IFNULL(s.spk_lebar, 0) AS Lebar,
+            d.ld_luas_m2 AS m2_cetak
+        FROM tlhk_mesin_hdr h
+        JOIN tlhk_mesin_dtl d ON h.lnomor = d.ld_lnomor
+        LEFT JOIN tGUDANG g ON g.gdg_kode = h.lgdg_prod
+        LEFT JOIN tspk s ON s.spk_nomor = d.ld_spk_nomor
+        WHERE h.ltanggal BETWEEN ? AND ?
+        ${filterMesin}
+        ORDER BY h.ltanggal DESC, h.lnomor DESC, d.ld_urut ASC
+    `;
+
+    const [rows] = await pool.query(sql, params);
+    return rows;
+};
+
+/**
+ * Mendapatkan detail pengerjaan SPK per mesin tertentu
+ */
+const getDetailRekapMesin = async (startDate, endDate, mesin) => {
+    const tglMulai = format(new Date(startDate), 'yyyy-MM-dd');
+    const tglSelesai = format(new Date(endDate), 'yyyy-MM-dd');
+
+    const sql = `
+        SELECT 
+            d.ld_spk_nomor AS No_SPK,
+            s.spk_nama AS Nama_Order,
+            SUM(d.ld_total_qtycetak) AS Total_Pcs,
+            SUM(d.ld_luas_m2) AS Total_Meter
+        FROM tlhk_mesin_dtl d
+        JOIN tlhk_mesin_hdr h ON d.ld_lnomor = h.lnomor
+        LEFT JOIN tspk s ON s.spk_nomor = d.ld_spk_nomor
+        WHERE h.ltanggal BETWEEN ? AND ?
+          AND h.lmesin = ?
+        GROUP BY d.ld_spk_nomor, s.spk_nama
+        ORDER BY Total_Meter DESC
+    `;
+
+    const [rows] = await pool.query(sql, [tglMulai, tglSelesai, mesin]);
+    return rows;
+};
+
 module.exports = {
     getAllHeaders,
     getLookupByNomor,
     generateNewNomor,
     getLookupByMultipleNomor,
     deleteLhk,
-    saveLhk
+    saveLhk,
+    getLaporanAgregasi,
+    getRekapLhk,
+    getExportLhkCrossTab,
+    getAllDataForExport,
+    getDetailRekapMesin
+
 };

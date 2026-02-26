@@ -158,3 +158,63 @@ exports.getLookupByNomor = async (req, res) => {
     });
   }
 };
+
+
+exports.getDashboardAgregasi = async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+        if (!startDate || !endDate) return res.status(400).json({ message: "Filter tanggal diperlukan" });
+        
+        const data = await lhkCetakService.getLaporanAgregasi(startDate, endDate);
+        res.json({ success: true, data });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+exports.getReportRekap = async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+        const data = await lhkCetakService.getRekapLhk(startDate, endDate);
+        res.json({ success: true, data });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+exports.getExcelCrossTab = async (req, res) => {
+    try {
+        const { month, year } = req.query;
+        const data = await lhkCetakService.getExportLhkCrossTab(month, year);
+        res.json({ success: true, data });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+exports.getExportLhk = async (req, res) => {
+    try {
+        const { startDate, endDate, mesin } = req.query;
+        const data = await lhkCetakService.getAllDataForExport(startDate, endDate, mesin);
+        res.json({ success: true, data });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+
+
+exports.getDetailRekapPerMesin = async (req, res) => {
+    try {
+        const { startDate, endDate, mesin } = req.query;
+        
+        if (!mesin) {
+            return res.status(400).json({ success: false, message: "Parameter mesin diperlukan" });
+        }
+
+        const data = await lhkCetakService.getDetailRekapMesin(startDate, endDate, mesin);
+        res.json({ success: true, data });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};

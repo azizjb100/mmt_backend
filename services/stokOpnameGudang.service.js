@@ -101,21 +101,27 @@ exports.scanBarcodeOpname = async (barcode, sessionID) => {
 // ===================================
 // 4. UPDATE RESULT (Submit Scan)
 // ===================================
-exports.updateScanResult = async (sessionID, barcode, fisik) => {
+// backend/src/services/stokOpname.service.js
+
+exports.updateScanResult = async (sessionID, barcode) => {
     try {
         const sql = `
             UPDATE topname_mmt 
             SET 
-                opn_stok_fisik = ?,
-                opn_selisih = ? - opn_stok_sistem,
-                opn_status = IF(? - opn_stok_sistem = 0, 'MATCHED', 'DISCREPANCY')
-            WHERE opn_session_id = ? AND opn_barcode = ?;
+                opn_barcode_fisik = ?,       -- Tanda tanya 1
+                opn_stok_fisik = opn_stok_sistem, 
+                opn_status = 'MATCHED',
+                opn_selisih = 0
+            WHERE opn_session_id = ?        -- Tanda tanya 2
+              AND opn_barcode = ?;          -- Tanda tanya 3
         `;
 
-        const [result] = await pool.query(sql, [fisik, fisik, fisik, sessionID, barcode]);
+        // Pastikan isi array ini ada 3 sesuai jumlah tanda tanya di atas
+        const [result] = await pool.query(sql, [barcode, sessionID, barcode]);
         return result.affectedRows > 0;
     } catch (error) {
-        throwDbError('Gagal mengupdate hasil opname', error);
+        // Ini yang memicu pesan error di screenshot Anda
+        throwDbError('Gagal memverifikasi barcode', error);
     }
 };
 
@@ -143,5 +149,58 @@ exports.getAllSessionData = async (sessionID) => {
         return results;
     } catch (error) {
         throwDbError('Gagal mengambil data sesi opname', error);
+    }
+};
+
+// ===================================
+// 6. GET OPNAME REPORT (Fixed for ONLY_FULL_GROUP_BY)
+// ===================================
+exports.getOpnameReport = async (sessionID) => {
+    try {
+        const sql = `
+            SELECT 
+                o.opn_session_id AS SessionID,
+                o.opn_gdg_kode AS Gudang,
+                o.opn_brg_kode AS Kode_Barang,
+                TRIM(b.brg_nama) AS Nama_Barang,
+                COUNT(o.opn_barcode) AS Total_Barcode_Sistem,
+                SUM(CASE WHEN o.opn_status != 'PENDING' THEN 1 ELSE 0 END) AS Barcode_Ditemukan,
+                SUM(CASE WHEN o.opn_status = 'PENDING' THEN 1 ELSE 0 END) AS Barcode_Hilang,
+                ROUND(SUM(o.opn_stok_sistem), 3) AS Total_Stok_Sistem,
+                ROUND(SUM(CASE WHEN o.opn_status != 'PENDING' THEN o.opn_stok_fisik ELSE 0 END), 3) AS Total_Stok_Fisik,
+                ROUND(SUM(CASE WHEN o.opn_status != 'PENDING' THEN o.opn_stok_fisik ELSE 0 END) - SUM(o.opn_stok_sistem), 3) AS Selisih_Meter
+            FROM topname_mmt o
+            LEFT JOIN tbarang_mmt b ON o.opn_brg_kode = b.brg_kode
+            WHERE o.opn_session_id = ?
+            GROUP BY 
+                o.opn_session_id,  -- Tambahkan ini
+                o.opn_gdg_kode,    -- Tambahkan ini
+                o.opn_brg_kode, 
+                b.brg_nama
+            ORDER BY b.brg_nama ASC;
+        `;
+
+        const sqlSummary = `
+            SELECT 
+                COUNT(*) as total_items,
+                SUM(CASE WHEN opn_status = 'PENDING' THEN 1 ELSE 0 END) as total_missing,
+                opn_user as petugas,
+                opn_created_at as tanggal_mulai
+            FROM topname_mmt
+            WHERE opn_session_id = ?
+            GROUP BY 
+                opn_user, 
+                opn_created_at;
+        `;
+
+        const [details] = await pool.query(sql, [sessionID]);
+        const [summary] = await pool.query(sqlSummary, [sessionID]);
+
+        return {
+            header: summary[0] || {},
+            details: details
+        };
+    } catch (error) {
+        throwDbError('Gagal membuat laporan opname', error);
     }
 };

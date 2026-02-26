@@ -38,6 +38,8 @@ const lhkTekstilMmtRoutes = require("./routes/lhkTekstilMmt.routes");
 const lhkCetakMmtRoutes = require("./routes/lhkCetakMmt.routes");
 const stokOpnameRoutes = require("./routes/stokOpnameGudang.routes");
 const pelunasanPembelianRoutes = require("./routes/pelunasanPembelian.routes");
+const mesinMmtRoutes = require("./routes/mesinMmt.routes");
+const masterObatRoutes = require("./routes/masterObat.routes");
 
 
 
@@ -138,7 +140,9 @@ app.use("/api/mmt/lhk-tekstil-mmt", lhkTekstilMmtRoutes);
 app.use("/api/mmt/lhk-cetak-mmt", lhkCetakMmtRoutes);
 app.use("/api/mmt/stok-opname", stokOpnameRoutes);
 app.use("/api/mmt/pelunasan-pembelian", pelunasanPembelianRoutes);
-
+app.use("/api/mmt/mesin", mesinMmtRoutes);
+app.use("/api/master/bahan/obat", masterObatRoutes);
+app.use("/api/mmt/master-obat", masterObatRoutes);
 
 
 
