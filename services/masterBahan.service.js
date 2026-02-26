@@ -29,7 +29,8 @@ exports.getBahanData = async ({ zdivisi = null, keyword = "" } = {}) => {
                 b.brg_panjang AS Panjang,
                 b.brg_lebar AS Lebar
             FROM tbarang_mmt b
-            WHERE 1=1
+            WHERE b.brg_gdg_default = 'WH-16'
+            AND 1=1
         `;
 
         const params = [];
@@ -332,9 +333,14 @@ exports.getBahanDetailByKodeMmt = async (kode) => {
                 brg_nama AS Nama, 
                 brg_satuan AS Satuan,
                 brg_panjang AS Panjang, 
-                brg_lebar AS Lebar
+                brg_lebar AS Lebar,
+                brg_jenis AS Jenis,
+                brg_ktg_kode AS KtgKode,
+                brg_divisi AS Divisi,
+                brg_gdg_default AS GdgDefault,
+                brg_sup_kode AS SupKode
             FROM tbarang_mmt 
-            WHERE brg_kode = ? AND brg_gdg_default = 'WH-16';
+            WHERE brg_kode = ? ;
         `;
 
         const [rows] = await pool.query(sql, [kode]);
