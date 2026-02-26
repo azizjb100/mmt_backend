@@ -1,4 +1,4 @@
-const mesinService = require("../services/MesinMmt.Service");
+const mesinService = require("../services/mesinMmt.Service");
 
 // 1. READ ALL / Lookup (F1 di Delphi)
 exports.getLookupMesin = async (req, res) => {

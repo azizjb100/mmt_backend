@@ -142,7 +142,7 @@ app.use("/api/mmt/stok-opname", stokOpnameRoutes);
 app.use("/api/mmt/pelunasan-pembelian", pelunasanPembelianRoutes);
 app.use("/api/mmt/mesin", mesinMmtRoutes);
 app.use("/api/master/bahan/obat", masterObatRoutes);
-app.use("/api/mmt/master-obat", masterObatRoutes);
+
 
 
 

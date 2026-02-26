@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const mesinController = require("../controllers/MesinMmt.controller");
+const mesinController = require("../controllers/mesinMmt.controller");
 const verifyToken = require("../middleware/auth.middleware");
 
 // 1. Browse / List Utama
