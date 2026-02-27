@@ -114,6 +114,8 @@ const getLookupObat = async (keyword = "") => {
         sql += ` ORDER BY x.Nama ASC`;
 
         const [rows] = await pool.query(sql, params);
+        
+        // Mapping agar formatnya seragam dengan MasterBahan
         return rows.map(row => ({
             Kode: row.Kode,
             Nama: row.Nama,

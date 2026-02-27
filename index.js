@@ -120,7 +120,7 @@ app.use("/api/mmt/permintaan-bahan", permintaanBahanRoutes);
 app.use("/api/mmt/penerimaan-bahan", penerimaanBahanRoutes);
 app.use("/api/mmt/permintaan-produksi", permintaanProduksiRoutes);
 app.use("/api/supplier", supplierRoutes);
-app.use("/api/master/bahan", masterBahanRoutes);
+
 app.use("/api/mmt/koreksi-stok", koreksiStokMmtRoutes);
 app.use("/api/mmt/po-paperprint", poPaperprintRoutes);
 app.use("/api/mmt/operator", operatorRoutes);
@@ -142,6 +142,8 @@ app.use("/api/mmt/stok-opname", stokOpnameRoutes);
 app.use("/api/mmt/pelunasan-pembelian", pelunasanPembelianRoutes);
 app.use("/api/mmt/mesin", mesinMmtRoutes);
 app.use("/api/master/bahan/obat", masterObatRoutes);
+app.use("/api/master/bahan", masterBahanRoutes);
+app.use("/api/mmt/master-obatt", masterObatRoutes);
 
 
 
