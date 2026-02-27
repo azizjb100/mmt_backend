@@ -7,36 +7,73 @@ const { format } = require('date-fns');
 const throwDbError = (message, error) => { throw new Error(message + ': ' + error.message); };
 
 
+// exports.getStokByBarcode = async (barcode, gudangKode) => {
+//     try {
+//         const sql = `
+//             SELECT 
+//                 s.mst_barcode AS Barcode, 
+//                 s.mst_brg_kode AS Kode, 
+//                 TRIM(b.brg_nama) AS Nama_Bahan, 
+//                 b.brg_satuan AS Satuan, 
+//                 s.mst_panjang AS Panjang, 
+//                 s.mst_lebar AS Lebar,
+//                 s.mst_spk_nomor AS Nomor_SPK,
+//                 -- Menghitung total saldo stok dari semua baris di gudang tersebut
+//                 SUM(s.mst_stok_in - s.mst_stok_out) AS Stok
+//             FROM tmasterstok_mmt s
+//             LEFT JOIN tbarang_mmt b ON s.mst_brg_kode = b.brg_kode
+//             WHERE s.mst_barcode = ? 
+//               AND s.mst_gdg_kode = ?
+//             GROUP BY 
+//                 s.mst_barcode, s.mst_brg_kode, b.brg_nama, 
+//                 b.brg_satuan, s.mst_panjang, s.mst_lebar, s.mst_spk_nomor
+//             -- Filter hasil akhir: hanya tampilkan jika total stok > 0
+//             HAVING Stok > 0;
+//         `;
+
+//         const [results] = await pool.query(sql, [barcode, gudangKode]);
+        
+//         // Jika saldo akhir 0 atau negatif, results akan kosong []
+//         return results[0] || null;
+//     } catch (error) {
+//         throwDbError('Gagal mencari data barcode', error);
+//     }
+// };
+
 exports.getStokByBarcode = async (barcode, gudangKode) => {
     try {
         const sql = `
             SELECT 
-                s.mst_barcode AS Barcode, 
-                s.mst_brg_kode AS Kode, 
+                m.mst_barcode AS Barcode, 
+                m.mst_brg_kode AS Kode, 
                 TRIM(b.brg_nama) AS Nama_Bahan, 
                 b.brg_satuan AS Satuan, 
-                s.mst_panjang AS Panjang, 
-                s.mst_lebar AS Lebar,
-                s.mst_spk_nomor AS Nomor_SPK,
-                -- Menghitung total saldo stok dari semua baris di gudang tersebut
-                SUM(s.mst_stok_in - s.mst_stok_out) AS Stok
-            FROM tmasterstok_mmt s
-            LEFT JOIN tbarang_mmt b ON s.mst_brg_kode = b.brg_kode
-            WHERE s.mst_barcode = ? 
-              AND s.mst_gdg_kode = ?
+                -- PAKSA HITUNG SELURUH RIWAYAT BARCODE INI
+                ROUND(
+                    SUM(COALESCE(m.mst_stok_in, 0) * m.mst_panjang) - 
+                    SUM(COALESCE(m.mst_stok_out, 0) * m.mst_panjang), 
+                    3
+                ) AS Panjang, 
+                MAX(m.mst_lebar) AS Lebar,
+                -- Jangan masukkan SPK ke GROUP BY jika nilainya bisa berubah (0 vs Nomor SPK)
+                MAX(m.mst_spk_nomor) AS Nomor_SPK,
+                SUM(COALESCE(m.mst_stok_in, 0) - COALESCE(m.mst_stok_out, 0)) AS Stok
+            FROM tmasterstok_mmt m
+            LEFT JOIN tbarang_mmt b ON m.mst_brg_kode = b.brg_kode
+            WHERE m.mst_barcode = ? 
+              AND m.mst_gdg_kode = ?
             GROUP BY 
-                s.mst_barcode, s.mst_brg_kode, b.brg_nama, 
-                b.brg_satuan, s.mst_panjang, s.mst_lebar, s.mst_spk_nomor
-            -- Filter hasil akhir: hanya tampilkan jika total stok > 0
+                m.mst_barcode, 
+                m.mst_brg_kode, 
+                b.brg_nama, 
+                b.brg_satuan
             HAVING Stok > 0;
         `;
 
         const [results] = await pool.query(sql, [barcode, gudangKode]);
-        
-        // Jika saldo akhir 0 atau negatif, results akan kosong []
         return results[0] || null;
     } catch (error) {
-        throwDbError('Gagal mencari data barcode', error);
+        throw new Error('Gagal hitung sisa: ' + error.message);
     }
 };
 

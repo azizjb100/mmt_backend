@@ -551,11 +551,13 @@ const getRekapLhk = async (startDate, endDate) => {
             h.lmesin AS Mesin,
             COUNT(DISTINCT d.ld_spk_nomor) AS Jml_SPK,
             SUM(d.ld_total_qtycetak) AS Total_Pcs,
-            SUM(d.ld_luas_m2) AS Total_Meter
-        FROM tlhk_mesin_dtl d
-        JOIN tlhk_mesin_hdr h ON d.ld_lnomor = h.lnomor
+            SUM(d.ld_luas_m2) AS Total_Meter,
+            IFNULL(m.msn_kapasitas, 0) AS Kapasitas
+        FROM tlhk_mesin_hdr h
+        JOIN tlhk_mesin_dtl d ON d.ld_lnomor = h.lnomor
+        LEFT JOIN tmesin_mmt m ON h.lmesin = m.msn_nama -- Asumsi join berdasarkan nama mesin
         WHERE h.ltanggal BETWEEN ? AND ?
-        GROUP BY h.lmesin
+        GROUP BY h.lmesin, m.msn_kapasitas
     `;
 
     const sqlHarian = `
