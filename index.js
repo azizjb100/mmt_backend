@@ -40,6 +40,7 @@ const stokOpnameRoutes = require("./routes/stokOpnameGudang.routes");
 const pelunasanPembelianRoutes = require("./routes/pelunasanPembelian.routes");
 const mesinMmtRoutes = require("./routes/mesinMmt.routes");
 const masterObatRoutes = require("./routes/masterObat.routes");
+const lapLsTintaRoutes = require("./routes/lapLsTinta.routes");
 
 
 
@@ -144,6 +145,7 @@ app.use("/api/mmt/mesin", mesinMmtRoutes);
 app.use("/api/master/bahan/obat", masterObatRoutes);
 app.use("/api/master/bahan", masterBahanRoutes);
 app.use("/api/mmt/master-obatt", masterObatRoutes);
+app.use("/api/mmt/laporan-ls-tinta", lapLsTintaRoutes)
 
 
 
