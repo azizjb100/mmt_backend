@@ -5,7 +5,7 @@ const authService = require('../services/auth.service');
 
 exports.login = async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, password } = req.body || {};
     
     if (!username || !password) {
       return res.status(400).json({ message: 'Username dan Password harus diisi' });
@@ -24,7 +24,7 @@ exports.login = async (req, res) => {
 
 exports.register = async (req, res) => {
   try {
-    const { username } = req.body; // Ambil data lain jika perlu
+    const { username } = req.body || {}; // Ambil data lain jika perlu
     if (!username) {
       return res.status(400).json({ message: 'User harus diisi' });
     }
