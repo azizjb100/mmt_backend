@@ -79,7 +79,7 @@ exports.getInvoicePembelianData = async (startDate, endDate) => {
 
 exports.getPermintaanBahanData = async (startDate, endDate) => {
     try {
-        // 1. Sub-query Agregasi untuk performa (Menghitung status per nomor dokumen)
+        // 1. Sub-query Agregasi (Sama seperti sebelumnya)
         const sqlAggregates = `
             SELECT
                 mbd_mb_nomor,
@@ -92,7 +92,7 @@ exports.getPermintaanBahanData = async (startDate, endDate) => {
             GROUP BY mbd_mb_nomor
         `;
 
-        // 2. Query Utama (Master)
+        // 2. Query Utama
         const sqlMaster = `
             SELECT
                 t1.mb_nomor AS Nomor,
@@ -101,6 +101,17 @@ exports.getPermintaanBahanData = async (startDate, endDate) => {
                 DATE_FORMAT(t1.mb_tanggal, '%d-%M-%Y') AS Tanggal,
                 t1.mb_keterangan AS Keterangan,
                 
+                -- AMBIL ESTIMASI DARI PO (Gunakan Subquery Terpisah)
+                (SELECT DATE_FORMAT(MAX(po.po_dateline), '%Y-%m-%d') 
+                 FROM tpo_mmt_dtl pod 
+                 JOIN tpo_mmt_hdr po ON pod.pod_po_nomor = po.po_nomor
+                 WHERE pod.pod_mb_nomor = t1.mb_nomor) AS Estimasi_Kedatangan,
+
+                -- AMBIL TANGGAL DATANG DARI PENERIMAAN
+                (SELECT DATE_FORMAT(MAX(rec.rec_tanggal), '%Y-%m-%d')
+                 FROM trec_mmt_hdr rec
+                 WHERE rec.rec_memo = t1.mb_nomor) AS Tanggal_Datang,
+
                 CASE
                     WHEN t1.mb_acc = 'Y' THEN 'Acc Manager'
                     WHEN t1.mb_acc_req = 'Y' THEN 'Acc SPV'
@@ -111,7 +122,6 @@ exports.getPermintaanBahanData = async (startDate, endDate) => {
                 IFNULL(t2.Total_DiPO, 0) AS Total_DiPO,
                 IFNULL(t2.Total_Diterima, 0) AS Total_Diterima,
 
-                -- Logika Status PO
                 CASE
                     WHEN t2.Total_Baris_Detail IS NULL OR t2.Total_Baris_Detail = 0 THEN 'OPEN'
                     WHEN t1.mb_acc = 'Y' AND IFNULL(t2.Jml_Item_Acc, 0) = 0 THEN 'CLOSED'
@@ -120,7 +130,6 @@ exports.getPermintaanBahanData = async (startDate, endDate) => {
                     ELSE 'OPEN'
                 END AS Status_PO,
 
-                -- Logika Status Diterima
                 CASE
                     WHEN t2.Total_Baris_Detail IS NULL OR t2.Total_Baris_Detail = 0 THEN 'OPEN'
                     WHEN t1.mb_acc = 'Y' AND IFNULL(t2.Jml_Item_Acc, 0) = 0 THEN 'CLOSED'
@@ -133,16 +142,16 @@ exports.getPermintaanBahanData = async (startDate, endDate) => {
             LEFT JOIN (${sqlAggregates}) t2 ON t2.mbd_mb_nomor = t1.mb_nomor
             LEFT JOIN tgudang t3 ON t3.gdg_kode = t1.mb_gdg_kode
             WHERE t1.mb_tanggal BETWEEN ? AND ?
-            ORDER BY t1.mb_tanggal DESC;
+            ORDER BY t1.mb_tanggal DESC
         `;
 
         const [masterResults] = await pool.query(sqlMaster, [startDate, endDate]);
         
+        // Sisanya (mapping detail) tetap sama dengan kode Anda yang lama
         if (masterResults.length === 0) return [];
 
         const masterNomors = masterResults.map(row => row.Nomor);
 
-        // 3. Query Detail (Mengambil data barang dan SPK)
         const sqlDetail = `
             SELECT
                 d.mbd_mb_nomor AS Nomor,
@@ -153,9 +162,7 @@ exports.getPermintaanBahanData = async (startDate, endDate) => {
                 d.mbd_qty_terima AS Jumlah_terima,
                 TRIM(b.brg_nama) AS Nama_Bahan,
                 d.mbd_qty AS Jumlah,
-                d.mbd_brg_satuan AS Satuan,
-                b.brg_panjang AS Panjang,
-                b.brg_lebar AS Lebar
+                d.mbd_brg_satuan AS Satuan
             FROM tmintabahan_mmt_dtl d
             LEFT JOIN tbarang_mmt b ON d.mbd_brg_kode = b.brg_kode
             LEFT JOIN (
@@ -169,7 +176,6 @@ exports.getPermintaanBahanData = async (startDate, endDate) => {
 
         const [detailResults] = await pool.query(sqlDetail, [masterNomors]);
 
-        // 4. Mapping Data (Menyatukan Master dan Detail)
         const result = masterResults.map(master => ({
             ...master,
             Detail: detailResults.filter(dtl => dtl.Nomor === master.Nomor)

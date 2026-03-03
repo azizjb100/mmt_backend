@@ -91,6 +91,7 @@ exports.savePermintaanProduksi = async (req, res) => {
             LokasiProduksi: header.mnt_lokasiproduksi,
             Tanggal: header.tanggal,
             Keterangan: header.mnt_keterangan || null,
+            Permintaan: header.mnt_permintaan || null,
             Details: normalizedDetails
         };
 

@@ -1,14 +1,18 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/permintaanProduksiBahan.controller');
+const verifyToken = require('../middleware/auth.middleware');
 
-// GET /api/mmt/permintaan-produksi-bahan?startDate=...&endDate=...
-router.get('/', controller.getBrowse);
+// --- Route List & Lookup (Statis) ---
+router.get('/', verifyToken, controller.getBrowse);
+router.get('/lookup', verifyToken, controller.getLookupPermintaan); 
 
-// POST /api/mmt/permintaan-produksi-bahan
-router.post('/', controller.save);
+// --- Route Action ---
+router.post('/', verifyToken, controller.save);
 
-// DELETE /api/mmt/permintaan-produksi-bahan/:nomor
-router.delete('/:nomor', controller.remove);
+// --- Route Detail & Delete (Dinamis dengan Parameter) ---
+// Letakkan paling bawah agar 'lookup/history' tidak dianggap sebagai ':nomor'
+router.get('/:nomor', verifyToken, controller.getDetailByNomor); 
+router.delete('/:nomor', verifyToken, controller.remove);
 
 module.exports = router;
