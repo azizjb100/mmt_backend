@@ -42,99 +42,112 @@ const throwDbError = (message, error) => { throw new Error(message + ': ' + erro
 
 exports.getStokByBarcode = async (barcode, gudangKode) => {
     try {
-        const sql = `
+        // --- LANGKAH 1: Coba cari di tabel MMT dulu ---
+        const sqlMMT = `
             SELECT 
                 m.mst_barcode AS Barcode, 
                 m.mst_brg_kode AS Kode, 
                 TRIM(b.brg_nama) AS Nama_Bahan, 
                 b.brg_satuan AS Satuan, 
-                -- PAKSA HITUNG SELURUH RIWAYAT BARCODE INI
-                ROUND(
-                    SUM(COALESCE(m.mst_stok_in, 0) * m.mst_panjang) - 
-                    SUM(COALESCE(m.mst_stok_out, 0) * m.mst_panjang), 
-                    3
-                ) AS Panjang, 
+                ROUND(SUM(COALESCE(m.mst_stok_in, 0) * m.mst_panjang) - SUM(COALESCE(m.mst_stok_out, 0) * m.mst_panjang), 3) AS Panjang, 
                 MAX(m.mst_lebar) AS Lebar,
-                -- Jangan masukkan SPK ke GROUP BY jika nilainya bisa berubah (0 vs Nomor SPK)
                 MAX(m.mst_spk_nomor) AS Nomor_SPK,
                 SUM(COALESCE(m.mst_stok_in, 0) - COALESCE(m.mst_stok_out, 0)) AS Stok
             FROM tmasterstok_mmt m
             LEFT JOIN tbarang_mmt b ON m.mst_brg_kode = b.brg_kode
-            WHERE m.mst_barcode = ? 
-              AND m.mst_gdg_kode = ?
-            GROUP BY 
-                m.mst_barcode, 
-                m.mst_brg_kode, 
-                b.brg_nama, 
-                b.brg_satuan
+            WHERE m.mst_barcode = ? AND m.mst_gdg_kode = ?
+            GROUP BY m.mst_barcode, m.mst_brg_kode, b.brg_nama, b.brg_satuan
             HAVING Stok > 0;
         `;
 
-        const [results] = await pool.query(sql, [barcode, gudangKode]);
-        return results[0] || null;
+        const [resultsMMT] = await pool.query(sqlMMT, [barcode, gudangKode]);
+
+        // Jika ketemu di MMT, langsung kembalikan datanya
+        if (resultsMMT.length > 0) {
+            return resultsMMT[0];
+        }
+
+        // --- LANGKAH 2: Jika tidak ketemu di MMT DAN gudangnya WH-20, cari di tabel OBAT ---
+        if (gudangKode === 'WH-20') {
+            const sqlObat = `
+                SELECT 
+                    m.mst_barcode AS Barcode, 
+                    m.mst_brg_kode AS Kode, 
+                    TRIM(b.o_nama) AS Nama_Bahan, 
+                    b.o_satuan AS Satuan, 
+                    ROUND(SUM(COALESCE(m.mst_stok_in, 0) * m.mst_panjang) - SUM(COALESCE(m.mst_stok_out, 0) * m.mst_panjang), 3) AS Panjang, 
+                    MAX(m.mst_lebar) AS Lebar,
+                    MAX(m.mst_spk_nomor) AS Nomor_SPK,
+                    SUM(COALESCE(m.mst_stok_in, 0) - COALESCE(m.mst_stok_out, 0)) AS Stok
+                FROM tmasterstok_obat m
+                LEFT JOIN tobat b ON m.mst_brg_kode = b.o_kode
+                WHERE m.mst_barcode = ? AND m.mst_gdg_kode = ?
+                GROUP BY m.mst_barcode, m.mst_brg_kode, b.o_nama, b.o_satuan
+                HAVING Stok > 0;
+            `;
+
+            const [resultsObat] = await pool.query(sqlObat, [barcode, gudangKode]);
+            return resultsObat[0] || null;
+        }
+
+        return null; // Benar-benar tidak ditemukan di manapun
     } catch (error) {
-        throw new Error('Gagal hitung sisa: ' + error.message);
+        throw new Error(`Gagal scan barcode: ${error.message}`);
     }
 };
 
-
-exports.getPermintaanProduksiData = async (startDate, endDate) => {
+exports.getPermintaanProduksiData = async (startDate, endDate, userDivisi) => {
     try {
-        // Query SQL Master (Header Permintaan)
+        // Logika penentuan gudang berdasarkan user_divisi
+        let filterDivisi = "";
+        
+        if (userDivisi == 1) {
+            // Role 1 hanya boleh melihat WH-16
+            filterDivisi = "AND mnt_gdg_kode = 'WH-16'";
+        } else if (userDivisi == 4) {
+            // Role 4 hanya boleh melihat WH-20
+            filterDivisi = "AND mnt_gdg_kode = 'WH-20'";
+        } else {
+            // Jika admin atau role lain, bisa melihat semua WH
+            filterDivisi = "AND gdg_kode LIKE '%WH%'";
+        }
+
+        // Query SQL Master dengan Filter Divisi
         const sqlMaster = `
             SELECT
                 mnt_nomor AS Nomor, mnt_gdg_kode AS Gudang, gdg_nama AS Nama,
                 DATE_FORMAT(mnt_tanggal, '%d-%M-%Y') AS Tanggal, mnt_keterangan AS Keterangan
             FROM tminta_mmt_hdr
-            LEFT JOIN tminta_mmt_dtl ON mntd_mnt_nomor = mnt_nomor
             LEFT JOIN tgudang ON gdg_kode = mnt_gdg_kode
             WHERE mnt_tanggal BETWEEN ? AND ?
-                AND mntd_brg_kode IN (SELECT brg_kode FROM tbarang_mmt WHERE brg_gdg_default = 'WH-16')
-                AND gdg_kode LIKE '%WH%'
-            GROUP BY mnt_gdg_kode, mnt_nomor, mnt_tanggal, mnt_keterangan
+                ${filterDivisi}
+            GROUP BY mnt_nomor, mnt_gdg_kode, mnt_tanggal, mnt_keterangan
             ORDER BY mnt_tanggal DESC;
         `;
 
         const [masterResults] = await pool.query(sqlMaster, [startDate, endDate]);
         const masterNomors = masterResults.map(row => row.Nomor);
+        
         if (masterNomors.length === 0) return [];
 
-        // Query SQL Detail (Item Permintaan)
-
-const sqlDetail = `
-    SELECT
-        d.mntd_mnt_nomor AS Nomor, 
-        d.mntd_brg_kode AS Kode, 
-        d.mntd_barcode AS Barcode,
-        TRIM(b.brg_nama) AS Nama_Bahan,
-        d.mntd_qty AS Jumlah, 
-        d.mntd_brg_satuan AS Satuan,
-        d.mntd_operator AS Operator, 
-        d.mntd_spk_nomor AS Nomor_SPK,
-        d.mntd_keterangan AS Keterangan,
-        MAX(s.mst_panjang) AS Panjang, 
-        MAX(s.mst_lebar) AS Lebar
-    FROM tminta_mmt_dtl d
-    LEFT JOIN tbarang_mmt b ON d.mntd_brg_kode = b.brg_kode
-    LEFT JOIN tmasterstok_mmt s ON d.mntd_barcode = s.mst_barcode 
-    WHERE d.mntd_mnt_nomor IN (?)
-    GROUP BY 
-        d.mntd_mnt_nomor, 
-        d.mntd_nourut, 
-        d.mntd_brg_kode, 
-        d.mntd_barcode, 
-        b.brg_nama, 
-        d.mntd_qty, 
-        d.mntd_brg_satuan, 
-        d.mntd_operator, 
-        d.mntd_spk_nomor, 
-        d.mntd_keterangan
-    ORDER BY d.mntd_mnt_nomor, d.mntd_nourut;
-`;
+        // Query Detail tetap sama (menggunakan IN masterNomors yang sudah terfilter)
+        const sqlDetail = `
+            SELECT
+                d.mntd_mnt_nomor AS Nomor, d.mntd_brg_kode AS Kode, d.mntd_barcode AS Barcode,
+                TRIM(b.brg_nama) AS Nama_Bahan, d.mntd_qty AS Jumlah, d.mntd_brg_satuan AS Satuan,
+                d.mntd_spk_nomor AS Nomor_SPK, d.mntd_keterangan AS Keterangan,
+                MAX(s.mst_panjang) AS Panjang, MAX(s.mst_lebar) AS Lebar
+            FROM tminta_mmt_dtl d
+            LEFT JOIN tbarang_mmt b ON d.mntd_brg_kode = b.brg_kode
+            LEFT JOIN tmasterstok_mmt s ON d.mntd_barcode = s.mst_barcode 
+            WHERE d.mntd_mnt_nomor IN (?)
+            GROUP BY d.mntd_mnt_nomor, d.mntd_nourut, d.mntd_brg_kode, d.mntd_barcode, b.brg_nama, d.mntd_qty, d.mntd_brg_satuan, d.mntd_spk_nomor, d.mntd_keterangan
+            ORDER BY d.mntd_mnt_nomor, d.mntd_nourut;
+        `;
 
         const [detailResults] = await pool.query(sqlDetail, [masterNomors]);
 
-        // Menggabungkan Master dan Detail
+        // Mapping Data (Gunakan Map untuk efisiensi)
         const dataMap = new Map();
         masterResults.forEach(item => dataMap.set(item.Nomor, { ...item, Detail: [] }));
         detailResults.forEach(detail => {
@@ -146,7 +159,7 @@ const sqlDetail = `
         return Array.from(dataMap.values());
 
     } catch (error) {
-        throwDbError('Gagal mengambil data Permintaan Produksi', error);
+        throw new Error('Gagal mengambil data Permintaan: ' + error.message);
     }
 };
 

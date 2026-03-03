@@ -15,7 +15,14 @@ exports.getBrowse = async (req, res) => {
 exports.getLookupPermintaan = async (req, res) => {
     try {
         const search = req.query.q || '';
-        const data = await service.lookupPermintaanProduksi(search);
+        
+        // Ambil data divisi dari req.user (hasil decode middleware verifyToken)
+        // Ingat: Di Auth Service Anda, nama propertinya adalah 'divisi'
+        const userDivisi = req.user ? req.user.divisi : null;
+
+        // Panggil service dengan parameter tambahan userDivisi
+        const data = await service.lookupPermintaanProduksi(search, userDivisi);
+        
         res.json({ success: true, data });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });

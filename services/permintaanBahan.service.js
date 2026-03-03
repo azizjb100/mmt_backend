@@ -163,6 +163,7 @@ exports.getPermintaanBahanData = async (startDate, endDate) => {
                 TRIM(b.brg_nama) AS Nama_Bahan,
                 d.mbd_qty AS Jumlah,
                 d.mbd_brg_satuan AS Satuan
+                b.brg_satuan_harga
             FROM tmintabahan_mmt_dtl d
             LEFT JOIN tbarang_mmt b ON d.mbd_brg_kode = b.brg_kode
             LEFT JOIN (
@@ -233,6 +234,7 @@ exports.getPermintaanBahanByNomor = async (nomor) => {
                 mbd_brg_kode AS Kode, TRIM(tbarang_mmt.brg_nama) AS Nama_Bahan,
                 mbd_qty AS Jumlah, mbd_brg_satuan AS Satuan,
                 tbarang_mmt.brg_panjang AS Panjang, tbarang_mmt.brg_lebar AS Lebar,
+                tbarang_mmt.brg_satuan_harga,
                 mbd_keterangan AS KeteranganItem,mbd_acc AS Is_Acc -- TAMBAHKAN INI
             FROM tmintabahan_mmt_dtl
             LEFT JOIN tbarang_mmt ON mbd_brg_kode = tbarang_mmt.brg_kode
@@ -307,7 +309,8 @@ ORDER BY h.mb_tanggal DESC, h.mb_nomor DESC
         mbd_qty AS Jumlah,
         mbd_brg_satuan AS Satuan, 
         brg_panjang AS Panjang, 
-        brg_lebar AS Lebar 
+        brg_lebar AS Lebar,
+        brg_satuan_harga
     FROM tmintabahan_mmt_dtl
     LEFT JOIN tbarang_mmt ON mbd_brg_kode = brg_kode
             LEFT JOIN (SELECT spk_nomor, spk_nama FROM tspk UNION ALL SELECT mspk_nomor, mspk_nama from tmemospk) x ON x.spk_nomor=mbd_spk_nomor
