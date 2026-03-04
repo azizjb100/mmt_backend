@@ -363,7 +363,8 @@ const getUnfulfilledMbDetail = async (mbNomor) => {
       (req.mbd_qty - COALESCE(req.mbd_qty_po, 0)) AS Sisa_Qty_Roll,
 
       b.brg_panjang AS Panjang,
-      b.brg_lebar   AS Lebar
+      b.brg_lebar   AS Lebar,
+      b.brg_satuan_harga
 
     FROM tmintabahan_mmt_dtl req
     LEFT JOIN tbarang_mmt b 
@@ -401,7 +402,8 @@ const getUnfulfilledMbDetail = async (mbNomor) => {
         Jumlah: parseFloat(item.Sisa_Qty_Roll), // ✅ qty roll
         Panjang: panjang,
         Lebar: lebar,
-        M2: m2,                                  // ✅ luas per roll
+        M2: m2, 
+        brg_satuan_harga: item.brg_satuan_harga,
 
         Harga: 0,
         Diskon: 0,
