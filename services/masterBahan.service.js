@@ -27,7 +27,8 @@ exports.getBahanData = async ({ zdivisi = null, keyword = "" } = {}) => {
                 b.brg_jenis AS Jenis,
                 b.brg_satuan AS Satuan,
                 b.brg_panjang AS Panjang,
-                b.brg_lebar AS Lebar
+                b.brg_lebar AS Lebar,
+                b.brg_satuan_harga AS brg_satuan_harga
             FROM tbarang_mmt b
             WHERE b.brg_gdg_default = 'WH-16'
             AND 1=1
@@ -68,6 +69,7 @@ exports.getBahanByKode = async (kode) => {
                 b.brg_kode AS Kode,
                 b.brg_nama AS Nama,
                 b.brg_satuan AS Satuan,
+                b.brg_satuan_harga,
                 COALESCE(b.brg_hrgbeli, 0) AS HrgBeli,
                 COALESCE(b.brg_hrgjual, 0) AS HrgJual,
                 COALESCE(b.brg_gramasi, '') AS Gramasi,

@@ -135,7 +135,9 @@ exports.savePermintaanProduksi = async (data, isUpdate = false) => {
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
-        let { Nomor, Tanggal, Departemen, Keterangan, Details, User } = data;
+        
+        // Tambahkan GudangKode ke dalam destrukturisasi data
+        let { Nomor, Tanggal, Departemen, Keterangan, Details, User, GudangKode } = data;
 
         if (!isUpdate && (!Nomor || Nomor === 'AUTO')) {
             Nomor = await exports.getNewNomor();
@@ -143,14 +145,24 @@ exports.savePermintaanProduksi = async (data, isUpdate = false) => {
 
         if (isUpdate) {
             await connection.query(
-                `UPDATE tpermintaan_prod_hdr SET mnt_tanggal=?, mnt_keterangan=?, mnt_lokasiproduksi=?, user_modified=?, date_modified=NOW() WHERE mnt_nomor=?`,
-                [Tanggal, Keterangan, Departemen, User, Nomor]
+                `UPDATE tpermintaan_prod_hdr 
+                 SET mnt_tanggal=?, 
+                     mnt_keterangan=?, 
+                     mnt_lokasiproduksi=?, 
+                     mnt_gdg_kode=?, -- Tambahkan update gudang jika diizinkan
+                     user_modified=?, 
+                     date_modified=NOW() 
+                 WHERE mnt_nomor=?`,
+                [Tanggal, Keterangan, Departemen, GudangKode, User, Nomor]
             );
             await connection.query('DELETE FROM tpermintaan_prod_dtl WHERE mntd_mnt_nomor = ?', [Nomor]);
         } else {
             await connection.query(
-                `INSERT INTO tpermintaan_prod_hdr (mnt_nomor, mnt_tanggal, mnt_gdg_kode, mnt_keterangan, mnt_lokasiproduksi, user_create, date_create) VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-                [Nomor, Tanggal, 'WH-16', Keterangan, Departemen, User]
+                `INSERT INTO tpermintaan_prod_hdr 
+                (mnt_nomor, mnt_tanggal, mnt_gdg_kode, mnt_keterangan, mnt_lokasiproduksi, user_create, date_create) 
+                VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+                // SEBELUMNYA: 'WH-16' diganti menjadi variabel GudangKode
+                [Nomor, Tanggal, GudangKode, Keterangan, Departemen, User]
             );
         }
 
@@ -160,7 +172,9 @@ exports.savePermintaanProduksi = async (data, isUpdate = false) => {
 
         if (detailValues.length > 0) {
             await connection.query(
-                `INSERT INTO tpermintaan_prod_dtl (mntd_mnt_nomor, mntd_spk_nomor, mntd_brg_kode, mntd_brg_satuan, mntd_qty, mntd_keterangan, mntd_nourut) VALUES ?`,
+                `INSERT INTO tpermintaan_prod_dtl 
+                (mntd_mnt_nomor, mntd_spk_nomor, mntd_brg_kode, mntd_brg_satuan, mntd_qty, mntd_keterangan, mntd_nourut) 
+                VALUES ?`,
                 [detailValues]
             );
         }
@@ -195,24 +209,41 @@ exports.deletePermintaanProduksi = async (nomor) => {
     }
 };
 
-exports.lookupPermintaanProduksi = async (search = '') => {
+// backend/services/permintaan.service.js
+
+exports.lookupPermintaanProduksi = async (search = '', userDivisi) => {
     try {
+        let filterDivisi = "";
+
+        // Tentukan gudang berdasarkan divisi user
+        if (userDivisi == 1) {
+            filterDivisi = "AND h.mnt_gdg_kode = 'WH-16'";
+        } else if (userDivisi == 4) {
+            filterDivisi = "AND h.mnt_gdg_kode = 'WH-20'";
+        } else {
+            // Jika admin/divisi lain, tampilkan semua gudang WH
+            filterDivisi = "AND h.mnt_gdg_kode LIKE 'WH%'";
+        }
+
         const sql = `
             SELECT 
                 h.mnt_nomor AS Nomor, 
                 DATE_FORMAT(h.mnt_tanggal, '%d-%m-%Y') AS Tanggal, 
                 h.mnt_lokasiproduksi AS Lokasi,
+                h.mnt_gdg_kode AS Gudang,
                 h.mnt_keterangan AS Keterangan,
                 h.mnt_status AS Status
             FROM tpermintaan_prod_hdr h
             WHERE (h.mnt_nomor LIKE ? OR h.mnt_keterangan LIKE ?)
+            ${filterDivisi} 
             ORDER BY h.mnt_tanggal DESC
             LIMIT 50;
         `;
+
         const pattern = `%${search}%`;
         const [results] = await pool.query(sql, [pattern, pattern]);
         return results;
     } catch (error) {
-        throwDbError('Gagal mengambil lookup daftar permintaan', error);
+        throw new Error('Gagal mengambil lookup daftar permintaan: ' + error.message);
     }
 };

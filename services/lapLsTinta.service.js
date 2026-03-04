@@ -1,3 +1,4 @@
+
 const pool = require("../config/db.config");
 const { format } = require('date-fns');
 
@@ -12,59 +13,39 @@ exports.getLaporanStokObat = async (startDate, endDate) => {
                 o.o_nama AS Nama,
                 o.o_satuan AS satuan,
                 'TINTA' AS jb_nama,
-                '-' AS Spesifikasi,
                 
-                -- STOCK AWAL
-                IFNULL(sa.awal_pcs, 0) AS stok_awal,
-                IFNULL(sa.awal_ket, 0) AS stok_Awal2,
+                -- 1. STOK AWAL (Semua transaksi < startDate)
+                IFNULL(sa.stok_awal, 0) AS stok_awal,
 
-                -- MASUK (PENERIMAAN)
-                IFNULL(mutasi.terima_pcs, 0) AS terima,
-                IFNULL(mutasi.terima_ket, 0) AS terima2,
+                -- 2. PENERIMAAN (Penerimaan di periode berjalan)
+                IFNULL(mutasi.terima, 0) AS terima,
 
-                -- KELUAR (PEMAKAIAN)
-                IFNULL(mutasi.keluar_pcs, 0) AS keluar,
-                IFNULL(mutasi.keluar_ket, 0) AS keluar2,
+                -- 3. PENGELUARAN (Pemakaian di periode berjalan)
+                IFNULL(mutasi.keluar, 0) AS keluar,
 
-                -- RETUR / SISA PRODUKSI (KOREKSI)
-                IFNULL(mutasi.retur_pcs, 0) AS Retur_Prod,
-                IFNULL(mutasi.retur_ket, 0) AS retur_prod2,
-
-                -- STOCK AKHIR
-                (IFNULL(sa.awal_pcs, 0) + IFNULL(mutasi.terima_pcs, 0) - IFNULL(mutasi.keluar_pcs, 0) + IFNULL(mutasi.retur_pcs, 0)) AS Stok_Akhir,
-                (IFNULL(sa.awal_ket, 0) + IFNULL(mutasi.terima_ket, 0) - IFNULL(mutasi.keluar_ket, 0) + IFNULL(mutasi.retur_ket, 0)) AS stok_akhir2
+                -- 4. STOK AKHIR (Stok Awal + Terima - Keluar)
+                (IFNULL(sa.stok_awal, 0) + IFNULL(mutasi.terima, 0) - IFNULL(mutasi.keluar, 0)) AS Stok_Akhir
             
             FROM tobat o
             
-            -- Subquery Saldo Awal (Mutasi < startDate)
+            -- Subquery Saldo Awal: Menghitung saldo bersih sebelum tanggal mulai
             LEFT JOIN (
                 SELECT 
                     mst_brg_kode, 
-                    SUM(mst_stok_in - mst_stok_out) AS awal_pcs,
-                    -- Contoh KET: Total Volume (Panjang x Lebar x Qty)
-                    SUM((mst_stok_in - mst_stok_out) * IF(mst_panjang > 0, mst_panjang * mst_lebar, 1)) AS awal_ket
+                    SUM(mst_stok_in - mst_stok_out) AS stok_awal
                 FROM tmasterstok_obat
-                WHERE mst_tanggal < ?
+                WHERE mst_tanggal < ? AND mst_aktif = 'Y'
                 GROUP BY mst_brg_kode
             ) sa ON o.o_kode = sa.mst_brg_kode
 
-            -- Subquery Mutasi Periode Berjalan (startDate s/d endDate)
+            -- Subquery Mutasi: Menghitung aktivitas di dalam rentang tanggal
             LEFT JOIN (
                 SELECT 
                     mst_brg_kode,
-                    -- Masuk
-                    SUM(IF(mst_type = 'PENERIMAAN' OR (mst_stok_in > 0 AND mst_type <> 'KOREKSI'), mst_stok_in, 0)) AS terima_pcs,
-                    SUM(IF(mst_type = 'PENERIMAAN', mst_stok_in * IF(mst_panjang > 0, mst_panjang * mst_lebar, 1), 0)) AS terima_ket,
-                    
-                    -- Keluar
-                    SUM(IF(mst_type = 'PEMAKAIAN' OR (mst_stok_out > 0 AND mst_type <> 'KOREKSI'), mst_stok_out, 0)) AS keluar_pcs,
-                    SUM(IF(mst_type = 'PEMAKAIAN', mst_stok_out * IF(mst_panjang > 0, mst_panjang * mst_lebar, 1), 0)) AS keluar_ket,
-                    
-                    -- Koreksi/Retur
-                    SUM(IF(mst_type = 'KOREKSI', mst_stok_in - mst_stok_out, 0)) AS retur_pcs,
-                    SUM(IF(mst_type = 'KOREKSI', (mst_stok_in - mst_stok_out) * IF(mst_panjang > 0, mst_panjang * mst_lebar, 1), 0)) AS retur_ket
+                    SUM(mst_stok_in) AS terima,
+                    SUM(mst_stok_out) AS keluar
                 FROM tmasterstok_obat
-                WHERE mst_tanggal BETWEEN ? AND ?
+                WHERE (mst_tanggal BETWEEN ? AND ?) AND mst_aktif = 'Y'
                 GROUP BY mst_brg_kode
             ) mutasi ON o.o_kode = mutasi.mst_brg_kode
 
@@ -72,8 +53,10 @@ exports.getLaporanStokObat = async (startDate, endDate) => {
             ORDER BY o.o_nama ASC
         `;
 
+        // Masukkan parameter: sDate untuk saldo awal, lalu sDate & eDate untuk mutasi
         const [rows] = await pool.query(sql, [sDate, sDate, eDate]);
         return rows;
+
     } catch (error) {
         console.error("Database Error:", error.message);
         throw error;

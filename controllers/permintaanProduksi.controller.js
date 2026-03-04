@@ -8,11 +8,24 @@ exports.getPermintaanProduksi = async (req, res) => {
         const { startDate, endDate } = req.query;
         if (!startDate || !endDate) return res.status(400).json({ message: "Tanggal wajib diisi." });
 
-        const data = await permintaanProduksiService.getPermintaanProduksiData(startDate, endDate);
-        return res.status(200).json({ message: 'Pengambilan data transaksi berhasil.', data: data });
+        // SESUAIKAN DI SINI:
+        // Karena di Auth Service payloadnya adalah 'divisi', maka ambil req.user.divisi
+        const userDivisi = req.user ? req.user.divisi : null;
+
+        const data = await permintaanProduksiService.getPermintaanProduksiData(startDate, endDate, userDivisi);
+        
+        return res.status(200).json({ 
+            success: true,
+            message: 'Pengambilan data transaksi berhasil.', 
+            data: data 
+        });
 
     } catch (error) {
-        return res.status(500).json({ message: "Gagal mengambil data transaksi.", error: error.message });
+        return res.status(500).json({ 
+            success: false,
+            message: "Gagal mengambil data transaksi.", 
+            error: error.message 
+        });
     }
 };
 
