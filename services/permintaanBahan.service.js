@@ -154,18 +154,20 @@ exports.getPermintaanBahanData = async (startDate, endDate) => {
 
         const sqlDetail = `
             SELECT
-                d.mbd_mb_nomor AS Nomor,
-                d.mbd_spk_nomor AS Nomor_SPK,
-                TRIM(x.spk_nama) AS spk_nama,
-                d.mbd_brg_kode AS Kode,
-                d.mbd_acc AS Is_Acc,
-                d.mbd_qty_terima AS Jumlah_terima,
-                TRIM(b.brg_nama) AS Nama_Bahan,
-                d.mbd_qty AS Jumlah,
-                d.mbd_brg_satuan AS Satuan
-                b.brg_satuan_harga
-            FROM tmintabahan_mmt_dtl d
-            LEFT JOIN tbarang_mmt b ON d.mbd_brg_kode = b.brg_kode
+        d.mbd_mb_nomor AS Nomor,
+        d.mbd_spk_nomor AS Nomor_SPK,
+        TRIM(x.spk_nama) AS spk_nama,
+        d.mbd_brg_kode AS Kode,
+        d.mbd_acc AS Is_Acc,
+        d.mbd_qty_terima AS Jumlah_terima,
+        TRIM(b.brg_nama) AS Nama_Bahan,
+        d.mbd_qty AS Jumlah,
+        d.mbd_brg_satuan AS Satuan,
+        b.brg_panjang AS Panjang,
+        b.brg_lebar AS Lebar,        -- <--- PASTIKAN ADA KOMA DI SINI
+        b.brg_satuan_harga           -- <--- SEBELUM KOLOM BARU INI
+    FROM tmintabahan_mmt_dtl d
+    LEFT JOIN tbarang_mmt b ON d.mbd_brg_kode = b.brg_kode
             LEFT JOIN (
                 SELECT spk_nomor, spk_nama FROM tspk
                 UNION ALL
