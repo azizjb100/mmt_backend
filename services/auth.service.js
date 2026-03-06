@@ -18,7 +18,7 @@ const loginUser = async (username, password) => {
       user_kode, user_nama, user_aktif, user_edit_report,
       user_lihat_beli, user_lihat_harga, user_cab, user_divisi,
       user_lihat_cus, user_cmo, user_cmo3, user_manager,
-      user_ppic, user_bagian, user_jabat, user_acckor, user_cabkaos
+     user_bagian, user_jabat, user_acckor, user_cabkaos
     FROM tuser
     WHERE UPPER(user_kode) = ? AND user_password = ?
   `;
