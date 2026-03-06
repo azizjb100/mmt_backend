@@ -133,8 +133,6 @@ app.use("/api/master/bahan/obat", masterObatRoutes);
 app.use("/api/master/bahan", masterBahanRoutes);
 app.use("/api/mmt/master-obatt", masterObatRoutes);
 app.use("/api/mmt/laporan-ls-tinta", lapLsTintaRoutes);
-<<<<<<< HEAD
-=======
 app.use("/api/mmt/retur-produksi", returProduksiRoutes);
 app.use("/api/mmt/penerimaan-po-ext-mmt", penerimaanPoExtMmtRoutes);
 
@@ -149,7 +147,6 @@ app.use("/api/mmt/penerimaan-po-ext-mmt", penerimaanPoExtMmtRoutes);
 
 
 
->>>>>>> 123390d (ok)
 
 const port = process.env.PORT || 8003;
 
