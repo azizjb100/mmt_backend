@@ -1,4 +1,4 @@
-// backend/src/services/permintaanProduksi.service.js
+// backend/src/services/permintaanProduksiBahan.service.js
 
 const pool = require('../config/db.config');
 const { format } = require('date-fns');
@@ -8,175 +8,142 @@ const throwDbError = (message, error) => { throw new Error(message + ': ' + erro
 // ===================================
 // 1. READ (Browse & Detail)
 // ===================================
-
-exports.getPermintaanProduksiData = async (startDate, endDate) => {
-    try {
-        const sqlMaster = `
-            SELECT
-                mnt_nomor AS Nomor, 
-                mnt_gdg_kode AS Gudang, 
-                DATE_FORMAT(mnt_tanggal, '%d-%M-%Y') AS Tanggal, 
-                mnt_keterangan AS Keterangan,
-                mnt_lokasiproduksi AS Lokasi,
-                mnt_status AS Status
-            FROM tpermintaan_prod_hdr
-            WHERE mnt_tanggal BETWEEN ? AND ?
-            ORDER BY mnt_tanggal DESC;
-        `;
-
-        const [masterResults] = await pool.query(sqlMaster, [startDate, endDate]);
-        const masterNomors = masterResults.map(row => row.Nomor);
-        if (masterNomors.length === 0) return [];
-
-        const sqlDetail = `
-            SELECT
-                mntd_mnt_nomor AS Nomor, 
-                mntd_brg_kode AS Kode, 
-                mntd_spk_nomor AS Nomor_SPK,
-                mntd_qty AS Jumlah, 
-                mntd_brg_satuan AS Satuan,
-                mntd_keterangan AS Keterangan,
-                mntd_nourut AS NoUrut
-            FROM tpermintaan_prod_dtl
-            WHERE mntd_mnt_nomor IN (?)
-            ORDER BY mntd_mnt_nomor, mntd_nourut;
-        `;
-
-        const [detailResults] = await pool.query(sqlDetail, [masterNomors]);
-
-        const dataMap = new Map();
-        masterResults.forEach(item => dataMap.set(item.Nomor, { ...item, Detail: [] }));
-        detailResults.forEach(detail => {
-            if (dataMap.has(detail.Nomor)) {
-                dataMap.get(detail.Nomor).Detail.push(detail);
-            }
-        });
-
-        return Array.from(dataMap.values());
-    } catch (error) {
-        throwDbError('Gagal mengambil data Permintaan Produksi', error);
+// Konfigurasi Mapping Tabel yang Diperbaiki
+const TABLE_CONFIG = {
+    MMT: {
+        hdr: 'tpermintaan_prod_hdr',
+        dtl: 'tpermintaan_prod_dtl',
+        prefix: 'MNT',
+        fields: {
+            h: ['mnt_nomor', 'mnt_tanggal', 'mnt_gdg_kode', 'mnt_keterangan', 'mnt_lokasiproduksi'],
+            d: ['mntd_mnt_nomor', 'mntd_brg_kode', 'mntd_qty', 'mntd_brg_satuan', 'mntd_keterangan', 'mntd_spk_nomor', 'mntd_nourut']
+        }
+    },
+    OBAT: {
+        hdr: 'tobatminta_hdr',
+        dtl: 'tobatminta_dtl',
+        prefix: 'MIO',
+        fields: {
+            h: ['min_nomor', 'min_tanggal', 'min_gp', 'min_ket', 'min_cab'],
+            // SESUAI GAMBAR: mind_urut dan mind_spk
+            d: ['mind_nomor', 'mind_o_kode', 'mind_jumlah', 'mind_ket', 'mind_urut', 'mind_satuan', 'mind_spk']
+        }
     }
 };
 
 // ===================================
-// 2. GENERATE NOMOR (getmaxkode)
+// 1. GENERATE NOMOR (Dinamis MMT/OBAT)
 // ===================================
-
-// Tambahkan fungsi ini di permintaanProduksi.service.js jika belum ada
-exports.getPermintaanProduksiDataByNomor = async (nomor) => {
+exports.getNewNomor = async (tipe = 'MMT') => {
+    // 1. Ambil konfigurasi tabel berdasarkan tipe yang diminta
+    // Jika tipe 'OBAT', maka conf.hdr adalah 'tobatminta_hdr'
+    // Jika tipe 'MMT', maka conf.hdr adalah 'tpermintaan_prod_hdr'
+    const conf = TABLE_CONFIG[tipe] || TABLE_CONFIG.MMT;
+    
     try {
-        const sqlHeader = `
-            SELECT
-                mnt_nomor AS Nomor, 
-                mnt_gdg_kode AS Gudang, 
-                DATE_FORMAT(mnt_tanggal, '%Y-%m-%d') AS Tanggal, 
-                mnt_keterangan AS Keterangan,
-                mnt_lokasiproduksi AS Lokasi,
-                mnt_status AS Status
-            FROM tpermintaan_prod_hdr
-            WHERE mnt_nomor = ?;
-        `;
-        const [headerResults] = await pool.query(sqlHeader, [nomor]);
+        const currentYear = format(new Date(), 'yyyy');
+        const currentYYMM = format(new Date(), 'yyMMdd');
         
-        if (headerResults.length === 0) return null;
+        // 2. Tentukan pola pencarian spesifik per tabel agar tidak tercampur
+        // OBAT mencari MIO-2026-% di tobatminta_hdr
+        // MMT mencari MNT-260305-% di tpermintaan_prod_hdr
+        const pattern = tipe === 'OBAT' 
+            ? `${conf.prefix}-${currentYear}-%` 
+            : `${conf.prefix}-${currentYYMM}-%`;
 
-        const sqlDetail = `
-            SELECT
-                mntd_brg_kode AS SKU, 
-                mntd_spk_nomor AS spk,
-                mntd_qty AS qtyMinta, 
-                mntd_brg_satuan AS satuan,
-                mntd_keterangan AS keterangan,
-                mntd_nourut AS NoUrut
-            FROM tpermintaan_prod_dtl
-            WHERE mntd_mnt_nomor = ?
-            ORDER BY mntd_nourut;
-        `;
-        const [detailResults] = await pool.query(sqlDetail, [nomor]);
-
-        return {
-            ...headerResults[0],
-            Details: detailResults
-        };
-    } catch (error) {
-        throwDbError('Gagal mengambil detail nomor ' + nomor, error);
-    }
-};
-
-exports.getNewNomor = async () => {
-    const NOMERATOR = 'MNT';
-    try {
-        const currentYYMM = format(new Date(), 'yyMMdd'); 
-        const searchPattern = `${NOMERATOR}-${currentYYMM}-%`;
-
-        const sql = `SELECT MAX(mnt_nomor) AS MaxNomor FROM tpermintaan_prod_hdr WHERE mnt_nomor LIKE ?;`;
-        const [results] = await pool.query(sql, [searchPattern]);
-
+        const fieldNomor = conf.fields.h[0];
+        
+        // Query ini hanya akan mencari nilai tertinggi di tabel masing-masing
+        const sql = `SELECT MAX(${fieldNomor}) AS MaxNomor FROM ${conf.hdr} WHERE ${fieldNomor} LIKE ?;`;
+        
+        const [results] = await pool.query(sql, [pattern]);
         const maxNomor = results[0].MaxNomor;
-        let newNumber = '0001';
+        let nextNum = 1;
 
+        // 3. Ambil nomor terakhir jika data sudah ada
         if (maxNomor) {
-            const lastNumberString = maxNomor.split('-').pop();
-            const lastNumber = parseInt(lastNumberString, 10);
-            newNumber = (lastNumber + 1).toString().padStart(4, '0');
+            const parts = maxNomor.split('-');
+            const lastPart = parts.pop(); // Mengambil bagian angka paling belakang
+            nextNum = parseInt(lastPart, 10) + 1;
         }
 
-        return `${NOMERATOR}-${currentYYMM}-${newNumber}`;
+        // 4. Formatting angka:
+        // MMT menggunakan 4 digit (0004), OBAT menggunakan 5 digit (00008) atau sesuaikan kebutuhan
+        const formattedNum = nextNum.toString().padStart(tipe === 'OBAT' ? 5 : 4, '0');
+        
+        // 5. Kembalikan nomor baru yang unik untuk tabel tersebut
+        return tipe === 'OBAT' 
+            ? `${conf.prefix}-${currentYear}-${formattedNum}`  // Contoh: MIO-2026-00008
+            : `${conf.prefix}-${currentYear}-${formattedNum}`; // Contoh: MNT-260305-0004
+            
     } catch (error) {
-        throwDbError('Gagal mendapatkan nomor dokumen baru', error);
+        throw new Error('Gagal mendapatkan nomor baru: ' + error.message);
     }
 };
 
 // ===================================
-// 3. SAVE / UPDATE (cxButton1Click)
+// 2. SAVE / UPDATE (Dinamis)
 // ===================================
+// backend/src/services/permintaanProduksiBahan.service.js
 
 exports.savePermintaanProduksi = async (data, isUpdate = false) => {
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
         
-        // Tambahkan GudangKode ke dalam destrukturisasi data
+        // 1. Logika Pemisahan Eksklusif:
+        // Jika WH-20, paksa pakai tipe OBAT. Selain itu paksa pakai tipe MMT.
+        const tipe = data.GudangKode === 'WH-20' ? 'OBAT' : 'MMT';
+        const conf = TABLE_CONFIG[tipe];
+        const f = conf.fields;
+
         let { Nomor, Tanggal, Departemen, Keterangan, Details, User, GudangKode } = data;
 
+        // 2. Generate Nomor Baru sesuai tipe jika data baru
         if (!isUpdate && (!Nomor || Nomor === 'AUTO')) {
-            Nomor = await exports.getNewNomor();
+            Nomor = await exports.getNewNomor(tipe);
         }
 
+        // 3. Simpan Header ke tabel yang sesuai (MMT atau OBAT saja)
         if (isUpdate) {
-            await connection.query(
-                `UPDATE tpermintaan_prod_hdr 
-                 SET mnt_tanggal=?, 
-                     mnt_keterangan=?, 
-                     mnt_lokasiproduksi=?, 
-                     mnt_gdg_kode=?, -- Tambahkan update gudang jika diizinkan
-                     user_modified=?, 
-                     date_modified=NOW() 
-                 WHERE mnt_nomor=?`,
-                [Tanggal, Keterangan, Departemen, GudangKode, User, Nomor]
-            );
-            await connection.query('DELETE FROM tpermintaan_prod_dtl WHERE mntd_mnt_nomor = ?', [Nomor]);
+            const sqlUpdate = `UPDATE ${conf.hdr} SET 
+                ${f.h[1]}=?, ${f.h[3]}=?, ${f.h[4]}=?, ${f.h[2]}=?, 
+                user_modified=?, date_modified=NOW() WHERE ${f.h[0]}=?`;
+            await connection.query(sqlUpdate, [Tanggal, Keterangan, Departemen, GudangKode, User, Nomor]);
+            
+            // Hapus detail lama sebelum insert ulang
+            await connection.query(`DELETE FROM ${conf.dtl} WHERE ${f.d[0]} = ?`, [Nomor]);
         } else {
-            await connection.query(
-                `INSERT INTO tpermintaan_prod_hdr 
-                (mnt_nomor, mnt_tanggal, mnt_gdg_kode, mnt_keterangan, mnt_lokasiproduksi, user_create, date_create) 
-                VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-                // SEBELUMNYA: 'WH-16' diganti menjadi variabel GudangKode
-                [Nomor, Tanggal, GudangKode, Keterangan, Departemen, User]
-            );
+            const sqlInsert = `INSERT INTO ${conf.hdr} 
+                (${f.h[0]}, ${f.h[1]}, ${f.h[2]}, ${f.h[3]}, ${f.h[4]}, user_create, date_create) 
+                VALUES (?, ?, ?, ?, ?, ?, NOW())`;
+            await connection.query(sqlInsert, [Nomor, Tanggal, GudangKode, Keterangan, Departemen, User]);
         }
 
-        const detailValues = Details.map((d, index) => [
-            Nomor, d.spk || '', d.sku, d.satuan, d.qtyMinta, d.keterangan || '', index + 1
-        ]);
+        // 4. Simpan Detail ke tabel yang sesuai
+        if (Details && Details.length > 0) {
+            const detailValues = Details.map((d, index) => {
+                if (tipe === 'MMT') {
+                    // Mapping MMT: Nomor, Kode, Qty, Satuan, Ket, SPK, Urut
+                    return [Nomor, d.sku, d.qtyMinta, d.satuan, d.keterangan || '', d.spk || '', index + 1];
+                } else {
+                    // Mapping OBAT: mind_nomor, mind_o_kode, mind_jumlah, mind_ket, mind_urut, mind_satuan, mind_spk
+                    return [
+                        Nomor, 
+                        d.sku, 
+                        d.qtyMinta, 
+                        d.keterangan || '', 
+                        index + 1, 
+                        d.satuan || '', 
+                        d.spk ? parseInt(d.spk) : 0 
+                    ];
+                }
+            });
 
-        if (detailValues.length > 0) {
-            await connection.query(
-                `INSERT INTO tpermintaan_prod_dtl 
-                (mntd_mnt_nomor, mntd_spk_nomor, mntd_brg_kode, mntd_brg_satuan, mntd_qty, mntd_keterangan, mntd_nourut) 
-                VALUES ?`,
-                [detailValues]
-            );
+            const sqlInsertDtl = `INSERT INTO ${conf.dtl} 
+                (${f.d.join(',')}) 
+                VALUES ?`;
+            await connection.query(sqlInsertDtl, [detailValues]);
         }
 
         await connection.commit();
@@ -190,58 +157,323 @@ exports.savePermintaanProduksi = async (data, isUpdate = false) => {
 };
 
 // ===================================
+// 3. READ (Detail by Nomor)
+// ===================================
+exports.getPermintaanProduksiDataByNomor = async (nomor) => {
+    try {
+        // Deteksi tipe berdasarkan prefix nomor
+        const tipe = nomor.startsWith('MIO') ? 'OBAT' : 'MMT';
+        const conf = TABLE_CONFIG[tipe];
+        const f = conf.fields; // Merujuk ke { h: [...], d: [...] }
+
+        // MAPPING HEADER:
+        // Index h -> 0:Nomor, 1:Tanggal, 2:Gudang, 3:Keterangan, 4:Lokasi
+        const sqlHeader = `
+            SELECT
+                ${f.h[0]} AS Nomor, 
+                ${f.h[2]} AS Gudang, 
+                DATE_FORMAT(${f.h[1]}, '%Y-%m-%d') AS Tanggal, 
+                ${f.h[3]} AS Keterangan, 
+                ${f.h[4]} AS Lokasi
+            FROM ${conf.hdr} WHERE ${f.h[0]} = ?;
+        `;
+        const [header] = await pool.query(sqlHeader, [nomor]);
+        if (header.length === 0) return null;
+
+        // MAPPING DETAIL:
+        // MMT Index d -> 0:Nomor, 1:Kode, 2:Qty, 3:Satuan, 4:Ket, 5:SPK, 6:Urut
+        // OBAT Index d -> 0:Nomor, 1:Kode, 2:Qty, 3:Ket, 4:Urut, 5:Satuan, 6:SPK
+        
+        let sqlDetail = "";
+        if (tipe === 'MMT') {
+            sqlDetail = `
+                SELECT
+                    ${f.d[1]} AS SKU, 
+                    ${f.d[5]} AS spk,
+                    ${f.d[2]} AS qtyMinta, 
+                    ${f.d[3]} AS satuan,
+                    ${f.d[4]} AS keterangan
+                FROM ${conf.dtl} WHERE ${f.d[0]} = ?
+                ORDER BY ${f.d[6]};
+            `;
+        } else {
+            // Mapping OBAT sesuai gambar tabel: mind_nomor, mind_o_kode, mind_jumlah, mind_ket, mind_urut, mind_satuan, mind_spk
+            sqlDetail = `
+                SELECT
+                    ${f.d[1]} AS SKU, 
+                    ${f.d[6]} AS spk,
+                    ${f.d[2]} AS qtyMinta, 
+                    ${f.d[5]} AS satuan,
+                    ${f.d[3]} AS keterangan
+                FROM ${conf.dtl} WHERE ${f.d[0]} = ?
+                ORDER BY ${f.d[4]};
+            `;
+        }
+
+        const [details] = await pool.query(sqlDetail, [nomor]);
+
+        return { ...header[0], tipe, Details: details };
+    } catch (error) {
+        throw new Error('Gagal ambil detail: ' + error.message);
+    }
+};
+// ===================================
 // 4. DELETE
 // ===================================
-
 exports.deletePermintaanProduksi = async (nomor) => {
     const connection = await pool.getConnection();
     try {
+        const tipe = nomor.startsWith('MIO') ? 'OBAT' : 'MMT';
+        const conf = TABLE_CONFIG[tipe];
+
         await connection.beginTransaction();
-        await connection.query('DELETE FROM tpermintaan_prod_dtl WHERE mntd_mnt_nomor = ?', [nomor]);
-        const [result] = await connection.query('DELETE FROM tpermintaan_prod_hdr WHERE mnt_nomor = ?', [nomor]);
+        await connection.query(`DELETE FROM ${conf.dtl} WHERE ${conf.fields.d_nomor} = ?`, [nomor]);
+        const [result] = await connection.query(`DELETE FROM ${conf.hdr} WHERE ${conf.fields.h_nomor} = ?`, [nomor]);
         await connection.commit();
         return result.affectedRows > 0;
     } catch (error) {
         await connection.rollback();
-        throwDbError('Gagal menghapus data', error);
+        throwDbError('Gagal hapus data', error);
     } finally {
         connection.release();
     }
 };
 
+// ===================================
+// 5. READ (Browse)
+// ===================================
+// backend/src/services/permintaanProduksiBahan.service.js
+
+
+exports.getPermintaanProduksiData = async (startDate, endDate, userDivisi) => {
+    try {
+        let sql = "";
+        let params = [];
+        
+        // Pastikan userDivisi dikonversi ke Number untuk perbandingan yang akurat
+        const divisi = userDivisi ? Number(userDivisi) : null;
+
+        // LOGIKA FILTER TABEL BERDASARKAN DIVISI USER
+        if (divisi === 4) {
+            sql = `
+                SELECT
+                    h.min_nomor AS Nomor, 
+                    h.min_gp AS Gudang, 
+                    DATE_FORMAT(h.min_tanggal, '%d-%m-%Y') AS Tanggal, 
+                    h.min_ket AS Keterangan, 
+                    h.min_cab AS Lokasi,
+                    'OPEN' AS Status,
+                    'OBAT' AS Tipe
+                FROM tobatminta_hdr h
+                WHERE h.min_tanggal BETWEEN ? AND ?
+                ORDER BY h.min_tanggal DESC;
+            `;
+            params = [startDate, endDate];
+        } 
+        else if (divisi === 1) {
+            // KHUSUS DIVISI 1: Ambil data dari tabel MMT (tpermintaan_prod_hdr)
+            sql = `
+                SELECT
+                    h.mnt_nomor AS Nomor, 
+                    h.mnt_gdg_kode AS Gudang, 
+                    DATE_FORMAT(h.mnt_tanggal, '%d-%m-%Y') AS Tanggal, 
+                    h.mnt_keterangan AS Keterangan, 
+                    h.mnt_status AS Status,
+                    'MMT' AS Tipe
+                FROM tpermintaan_prod_hdr h
+                WHERE h.mnt_tanggal BETWEEN ? AND ?
+                ORDER BY h.mnt_tanggal DESC;
+            `;
+            params = [startDate, endDate];
+        } 
+        else {
+            // ADMIN / DIVISI LAIN: Tampilkan gabungan MMT dan OBAT
+            sql = `
+                SELECT mnt_nomor AS Nomor, mnt_gdg_kode AS Gudang, DATE_FORMAT(mnt_tanggal, '%d-%m-%Y') AS Tanggal, 
+                       mnt_keterangan AS Keterangan, mnt_lokasiproduksi AS Lokasi, mnt_status AS Status, 'MMT' AS Tipe
+                FROM tpermintaan_prod_hdr WHERE mnt_tanggal BETWEEN ? AND ?
+                UNION ALL
+                SELECT min_nomor AS Nomor, min_gp AS Gudang, DATE_FORMAT(min_tanggal, '%d-%m-%Y') AS Tanggal, 
+                       min_ket AS Keterangan, min_cab AS Lokasi, 'OPEN' AS Status, 'OBAT' AS Tipe
+                FROM tobatminta_hdr WHERE min_tanggal BETWEEN ? AND ?
+                ORDER BY Tanggal DESC;
+            `;
+            params = [startDate, endDate, startDate, endDate];
+        }
+
+        const [results] = await pool.query(sql, params);
+        return results;
+    } catch (error) {
+        throw new Error('Gagal mengambil data permintaan: ' + error.message);
+    }
+};
+
+// exports.getNewNomor = async () => {
+//     const NOMERATOR = 'MNT';
+//     try {
+//         const currentYYMM = format(new Date(), 'yyMMdd'); 
+//         const searchPattern = `${NOMERATOR}-${currentYYMM}-%`;
+
+//         const sql = `SELECT MAX(mnt_nomor) AS MaxNomor FROM tpermintaan_prod_hdr WHERE mnt_nomor LIKE ?;`;
+//         const [results] = await pool.query(sql, [searchPattern]);
+
+//         const maxNomor = results[0].MaxNomor;
+//         let newNumber = '0001';
+
+//         if (maxNomor) {
+//             const lastNumberString = maxNomor.split('-').pop();
+//             const lastNumber = parseInt(lastNumberString, 10);
+//             newNumber = (lastNumber + 1).toString().padStart(4, '0');
+//         }
+
+//         return `${NOMERATOR}-${currentYYMM}-${newNumber}`;
+//     } catch (error) {
+//         throwDbError('Gagal mendapatkan nomor dokumen baru', error);
+//     }
+// };
+
+// // ===================================
+// // 3. SAVE / UPDATE (cxButton1Click)
+// // ===================================
+
+// exports.savePermintaanProduksi = async (data, isUpdate = false) => {
+//     const connection = await pool.getConnection();
+//     try {
+//         await connection.beginTransaction();
+        
+//         // Tambahkan GudangKode ke dalam destrukturisasi data
+//         let { Nomor, Tanggal, Departemen, Keterangan, Details, User, GudangKode } = data;
+
+//         if (!isUpdate && (!Nomor || Nomor === 'AUTO')) {
+//             Nomor = await exports.getNewNomor();
+//         }
+
+//         if (isUpdate) {
+//             await connection.query(
+//                 `UPDATE tpermintaan_prod_hdr 
+//                  SET mnt_tanggal=?, 
+//                      mnt_keterangan=?, 
+//                      mnt_lokasiproduksi=?, 
+//                      mnt_gdg_kode=?, -- Tambahkan update gudang jika diizinkan
+//                      user_modified=?, 
+//                      date_modified=NOW() 
+//                  WHERE mnt_nomor=?`,
+//                 [Tanggal, Keterangan, Departemen, GudangKode, User, Nomor]
+//             );
+//             await connection.query('DELETE FROM tpermintaan_prod_dtl WHERE mntd_mnt_nomor = ?', [Nomor]);
+//         } else {
+//             await connection.query(
+//                 `INSERT INTO tpermintaan_prod_hdr 
+//                 (mnt_nomor, mnt_tanggal, mnt_gdg_kode, mnt_keterangan, mnt_lokasiproduksi, user_create, date_create) 
+//                 VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+//                 // SEBELUMNYA: 'WH-16' diganti menjadi variabel GudangKode
+//                 [Nomor, Tanggal, GudangKode, Keterangan, Departemen, User]
+//             );
+//         }
+
+//         const detailValues = Details.map((d, index) => [
+//             Nomor, d.spk || '', d.sku, d.satuan, d.qtyMinta, d.keterangan || '', index + 1
+//         ]);
+
+//         if (detailValues.length > 0) {
+//             await connection.query(
+//                 `INSERT INTO tpermintaan_prod_dtl 
+//                 (mntd_mnt_nomor, mntd_spk_nomor, mntd_brg_kode, mntd_brg_satuan, mntd_qty, mntd_keterangan, mntd_nourut) 
+//                 VALUES ?`,
+//                 [detailValues]
+//             );
+//         }
+
+//         await connection.commit();
+//         return { success: true, nomor: Nomor };
+//     } catch (error) {
+//         await connection.rollback();
+//         throw error;
+//     } finally {
+//         connection.release();
+//     }
+// };
+
+// ===================================
+// 4. DELETE
+// ===================================
+
+// exports.deletePermintaanProduksi = async (nomor) => {
+//     const connection = await pool.getConnection();
+//     try {
+//         await connection.beginTransaction();
+//         await connection.query('DELETE FROM tpermintaan_prod_dtl WHERE mntd_mnt_nomor = ?', [nomor]);
+//         const [result] = await connection.query('DELETE FROM tpermintaan_prod_hdr WHERE mnt_nomor = ?', [nomor]);
+//         await connection.commit();
+//         return result.affectedRows > 0;
+//     } catch (error) {
+//         await connection.rollback();
+//         throwDbError('Gagal menghapus data', error);
+//     } finally {
+//         connection.release();
+//     }
+// };
+
 // backend/services/permintaan.service.js
 
 exports.lookupPermintaanProduksi = async (search = '', userDivisi) => {
     try {
-        let filterDivisi = "";
+        const pattern = `%${search}%`;
+        let sql = "";
+        let params = [];
 
-        // Tentukan gudang berdasarkan divisi user
-        if (userDivisi == 1) {
-            filterDivisi = "AND h.mnt_gdg_kode = 'WH-16'";
-        } else if (userDivisi == 4) {
-            filterDivisi = "AND h.mnt_gdg_kode = 'WH-20'";
+        // Pastikan userDivisi dikonversi ke Number agar perbandingan aman
+        const divisi = userDivisi ? Number(userDivisi) : null;
+
+        // LOGIKA PEMISAHAN TABEL BERDASARKAN DIVISI
+        if (divisi === 4) {
+            // KHUSUS DIVISI 4: Ambil dari tabel OBAT (tobatminta_hdr)
+            sql = `
+                SELECT 
+                    h.min_nomor AS Nomor, 
+                    DATE_FORMAT(h.min_tanggal, '%d-%m-%Y') AS Tanggal, 
+                    h.min_cab AS Lokasi,
+                    h.min_gp AS Gudang,
+                    h.min_ket AS Keterangan,
+                    'OPEN' AS Status
+                FROM tobatminta_hdr h
+                WHERE (h.min_nomor LIKE ? OR h.min_ket LIKE ?)
+                ORDER BY h.min_tanggal DESC 
+                LIMIT 50;
+            `;
+            params = [pattern, pattern];
+        } else if (divisi === 1) {
+            // KHUSUS DIVISI 1: Ambil dari tabel MMT (tpermintaan_prod_hdr)
+            sql = `
+                SELECT 
+                    h.mnt_nomor AS Nomor, 
+                    DATE_FORMAT(h.mnt_tanggal, '%d-%m-%Y') AS Tanggal, 
+                    h.mnt_lokasiproduksi AS Lokasi,
+                    h.mnt_gdg_kode AS Gudang,
+                    h.mnt_keterangan AS Keterangan,
+                    h.mnt_status AS Status
+                FROM tpermintaan_prod_hdr h
+                WHERE (h.mnt_nomor LIKE ? OR h.mnt_keterangan LIKE ?)
+                AND h.mnt_gdg_kode = 'WH-16'
+                ORDER BY h.mnt_tanggal DESC 
+                LIMIT 50;
+            `;
+            params = [pattern, pattern];
         } else {
-            // Jika admin/divisi lain, tampilkan semua gudang WH
-            filterDivisi = "AND h.mnt_gdg_kode LIKE 'WH%'";
+            // ADMIN / LAINNYA: Tampilkan gabungan (UNION ALL)
+            sql = `
+                SELECT mnt_nomor AS Nomor, DATE_FORMAT(mnt_tanggal, '%d-%m-%Y') AS Tanggal, mnt_lokasiproduksi AS Lokasi, mnt_gdg_kode AS Gudang, mnt_keterangan AS Keterangan, mnt_status AS Status
+                FROM tpermintaan_prod_hdr WHERE (mnt_nomor LIKE ? OR mnt_keterangan LIKE ?)
+                UNION ALL
+                SELECT min_nomor AS Nomor, DATE_FORMAT(min_tanggal, '%d-%m-%Y') AS Tanggal, min_cab AS Lokasi, min_gp AS Gudang, min_ket AS Keterangan, 'OPEN' AS Status
+                FROM tobatminta_hdr WHERE (min_nomor LIKE ? OR min_ket LIKE ?)
+                ORDER BY Tanggal DESC 
+                LIMIT 50;
+            `;
+            params = [pattern, pattern, pattern, pattern];
         }
 
-        const sql = `
-            SELECT 
-                h.mnt_nomor AS Nomor, 
-                DATE_FORMAT(h.mnt_tanggal, '%d-%m-%Y') AS Tanggal, 
-                h.mnt_lokasiproduksi AS Lokasi,
-                h.mnt_gdg_kode AS Gudang,
-                h.mnt_keterangan AS Keterangan,
-                h.mnt_status AS Status
-            FROM tpermintaan_prod_hdr h
-            WHERE (h.mnt_nomor LIKE ? OR h.mnt_keterangan LIKE ?)
-            ${filterDivisi} 
-            ORDER BY h.mnt_tanggal DESC
-            LIMIT 50;
-        `;
-
-        const pattern = `%${search}%`;
-        const [results] = await pool.query(sql, [pattern, pattern]);
+        const [results] = await pool.query(sql, params);
         return results;
     } catch (error) {
         throw new Error('Gagal mengambil lookup daftar permintaan: ' + error.message);

@@ -41,6 +41,8 @@ const pelunasanPembelianRoutes = require("./routes/pelunasanPembelian.routes");
 const mesinMmtRoutes = require("./routes/mesinMmt.routes");
 const masterObatRoutes = require("./routes/masterObat.routes");
 const lapLsTintaRoutes = require("./routes/lapLsTinta.routes");
+const returProduksiRoutes = require("./routes/returProduksi.routes");
+const penerimaanPoExtMmtRoutes =require("./routes/penerimaanPoExtMmt.routes");
 
 // Konfigurasi
 
@@ -131,6 +133,23 @@ app.use("/api/master/bahan/obat", masterObatRoutes);
 app.use("/api/master/bahan", masterBahanRoutes);
 app.use("/api/mmt/master-obatt", masterObatRoutes);
 app.use("/api/mmt/laporan-ls-tinta", lapLsTintaRoutes);
+<<<<<<< HEAD
+=======
+app.use("/api/mmt/retur-produksi", returProduksiRoutes);
+app.use("/api/mmt/penerimaan-po-ext-mmt", penerimaanPoExtMmtRoutes);
+
+
+
+
+
+
+
+
+
+
+
+
+>>>>>>> 123390d (ok)
 
 const port = process.env.PORT || 8003;
 

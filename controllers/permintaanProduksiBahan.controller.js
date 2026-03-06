@@ -1,10 +1,18 @@
 const service = require('../services/permintaanProduksiBahan.service');
 
 // 1. GET BROWSE (Data untuk Table List/History)
+// backend/src/controllers/permintaan.controller.js
+
 exports.getBrowse = async (req, res) => {
     try {
         const { startDate, endDate } = req.query;
-        const data = await service.getPermintaanProduksiData(startDate, endDate);
+        
+        // Ambil divisi dari user yang sedang login
+        const userDivisi = req.user ? req.user.user_divisi : null;
+
+        // Kirim userDivisi ke fungsi service
+        const data = await service.getPermintaanProduksiData(startDate, endDate, userDivisi);
+        
         res.json({ success: true, data });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });

@@ -8,11 +8,10 @@ const { format } = require('date-fns');
  */
 const getAllHeaders = async (startDate, endDate) => {
     try {
-        // 1. Sinkronisasi Timezone: Paksa ke format yyyy-MM-dd string
-        // Ini mencegah masalah pergeseran tanggal akibat timezone server/lokal
         const tglMulai = format(new Date(startDate), 'yyyy-MM-dd');
         const tglSelesai = format(new Date(endDate), 'yyyy-MM-dd');
 
+        // Menggunakan LEFT JOIN + GROUP BY jauh lebih cepat daripada Subquery per baris
         const sql = `
             SELECT 
                 t1.lfh_nomor AS Nomor, 
@@ -21,33 +20,106 @@ const getAllHeaders = async (startDate, endDate) => {
                 t2.gdg_nama AS Nama_Gudang, 
                 t1.lfh_shift AS Shift,
                 t1.lfh_user_create AS Operator,
-                -- Logika pengecekan kelengkapan bahan pendukung
-                (
-                    SELECT IF(COUNT(*) > 0, 'N', 'Y')
-                    FROM tlhk_finishingmmt_dtl d
-                    WHERE d.lfd_lfh_nomor = t1.lfh_nomor
-                    AND (
-                        (d.lfd_j_mataayam > 0 AND (d.lfd_mataayam_qty IS NULL OR d.lfd_mataayam_qty = 0)) 
-                        OR
-                        ((d.lfd_xbanner_kode IS NOT NULL AND d.lfd_xbanner_kode <> '') AND (d.lfd_xbanner_qty IS NULL OR d.lfd_xbanner_qty = 0))
-                        OR
-                        ((d.lfd_rollupbanner_kode IS NOT NULL AND d.lfd_rollupbanner_kode <> '') AND (d.lfd_rollupbanner_qty IS NULL OR d.lfd_rollupbanner_qty = 0))
-                    )
-                ) AS Lengkap
+                IF(bad_items.lfd_lfh_nomor IS NOT NULL, 'N', 'Y') AS Lengkap
             FROM tlhk_finishingmmt_hdr t1
             LEFT JOIN tgudang t2 ON (t2.gdg_kode = t1.lfh_gdg_prod)
+            LEFT JOIN (
+                SELECT DISTINCT lfd_lfh_nomor 
+                FROM tlhk_finishingmmt_dtl 
+                WHERE 
+                    (lfd_j_mataayam > 0 AND (lfd_mataayam_qty IS NULL OR lfd_mataayam_qty = 0)) 
+                    OR (lfd_xbanner_kode != '' AND (lfd_xbanner_qty IS NULL OR lfd_xbanner_qty = 0))
+                    OR (lfd_rollupbanner_kode != '' AND (lfd_rollupbanner_qty IS NULL OR lfd_rollupbanner_qty = 0))
+            ) AS bad_items ON t1.lfh_nomor = bad_items.lfd_lfh_nomor
             WHERE t1.lfh_tanggal BETWEEN ? AND ?
             ORDER BY t1.lfh_tanggal DESC, t1.lfh_nomor DESC
         `;
 
-        // Gunakan .query (lebih fleksibel untuk string format)
         const [rows] = await pool.query(sql, [tglMulai, tglSelesai]);
-        
-        console.log(`[Finishing] Filter: ${tglMulai} to ${tglSelesai} | Found: ${rows.length}`);
         return rows;
     } catch (error) {
         console.error("Error in getAllHeaders Finishing:", error);
-        throw new Error(`Gagal mengambil daftar LHK Finishing: ${error.message}`);
+        throw error;
+    }
+};
+
+const generateLhkNomor = async (conn, tanggal) => {
+    const date = new Date(tanggal);
+    const yearMonth = format(date, 'yyMM'); // Hasil: 2512 (untuk Des 2025)
+    const prefix = `MMT-LHK-F.${yearMonth}.`;
+
+    // Cari nomor terakhir yang memiliki prefix yang sama
+    const [lastNomor] = await conn.query(
+        `SELECT lfh_nomor FROM tlhk_finishingmmt_hdr 
+         WHERE lfh_nomor LIKE ? 
+         ORDER BY lfh_nomor DESC LIMIT 1`,
+        [`${prefix}%`]
+    );
+
+    let nextNumber = 1;
+    if (lastNomor.length > 0) {
+        // Ambil 4 digit terakhir dan tambah 1
+        const lastFullNomor = lastNomor[0].lfh_nomor;
+        const lastSequence = lastFullNomor.split('.').pop();
+        nextNumber = parseInt(lastSequence) + 1;
+    }
+
+    // Format menjadi 4 digit (0010)
+    const formattedSequence = nextNumber.toString().padStart(4, '0');
+    return `${prefix}${formattedSequence}`;
+};
+
+/**
+ * Modifikasi finalizeBundling untuk menggunakan penomoran otomatis
+ */
+const finalizeBundling = async (headerData, detailIds) => {
+    const conn = await pool.getConnection();
+    try {
+        await conn.beginTransaction();
+        const lfh_nomor = await generateLhkNomor(conn, headerData.lfh_tanggal);
+        const finalHeader = { ...headerData, lfh_nomor };
+        await conn.query(`INSERT INTO tlhk_finishingmmt_hdr SET ?`, [finalHeader]);
+        const [praItems] = await conn.query(
+            `SELECT * FROM tpra_lhk_finishing WHERE id IN (?) ORDER BY id ASC`, 
+            [detailIds]
+        );
+
+        if (praItems.length === 0) throw new Error("Tidak ada detail yang dipilih.");
+
+        // 4. Masukkan ke dtl dengan batch insert
+const dtlValues = praItems.map((item, index) => {
+    // Normalisasi teks agar "MATA AYAM" menjadi "MATA_AYAM"
+    const kategori = item.proses_kategori.toUpperCase().replace(/\s+/g, '_');
+
+    return [
+        lfh_nomor,              // 1. lfd_lfh_nomor
+        item.spk_nomor,         // 2. lfd_spk_nomor
+        kategori === 'SEAMING' ? item.qty_hasil : 0,   // 3. lfd_j_seaming
+        kategori === 'MATA_AYAM' ? item.qty_hasil : 0, // 4. lfd_j_mataayam
+        kategori === 'KOLI' ? item.qty_hasil : 0,      // 5. lfd_j_coly (TAMBAHKAN INI)
+        item.qty_bs || 0,       // 6. lfd_j_bs
+        index + 1               // 7. lfd_no_urut
+    ];
+});
+
+const sqlDtl = `
+    INSERT INTO tlhk_finishingmmt_dtl 
+    (lfd_lfh_nomor, lfd_spk_nomor, lfd_j_seaming, lfd_j_mataayam, lfd_j_coly, lfd_j_bs, lfd_no_urut) 
+    VALUES ?
+`;
+        await conn.query(sqlDtl, [dtlValues]);
+        await conn.query(
+            `UPDATE tpra_lhk_finishing SET is_bundled = 1, lfh_nomor = ? WHERE id IN (?)`,
+            [lfh_nomor, detailIds]
+        );
+
+        await conn.commit();
+        return { success: true, nomor: lfh_nomor };
+    } catch (error) {
+        if (conn) await conn.rollback();
+        throw error;
+    } finally {
+        if (conn) conn.release();
     }
 };
 
@@ -118,8 +190,109 @@ const deleteLhk = async (nomor) => {
     }
 };
 
+const savePraLhk = async (details) => {
+    const conn = await pool.getConnection();
+    try {
+        await conn.beginTransaction();
+
+        const sql = `
+            INSERT INTO tpra_lhk_finishing (
+                spk_nomor, spk_nama, proses_kategori, 
+                qty_hasil, qty_bs, material_kode, 
+                tgl_input, shift_input, input_by, is_bundled
+            ) VALUES ?
+        `;
+
+        // Map data dari frontend ke format array of arrays untuk mysql2 batch insert
+        const values = details.map(d => [
+            d.spk_nomor,
+            d.spk_nama,
+            d.proses_kategori,
+            d.qty_hasil || 0,
+            d.qty_bs || 0,
+            d.material_kode || null,
+            d.tgl_input,
+            d.shift_input,
+            d.input_by || 'system',
+            false // is_bundled selalu false saat input baru
+        ]);
+
+        await conn.query(sql, [values]);
+        await conn.commit();
+        
+        return { success: true, message: `${details.length} data berhasil disimpan ke Pra-LHK` };
+    } catch (error) {
+        if (conn) await conn.rollback();
+        console.error("Error savePraLhk:", error);
+        throw error;
+    } finally {
+        if (conn) conn.release();
+    }
+};
+
+const getUnassignedPraLhk = async (tanggal, shift, proses) => {
+    try {
+        let sql = `
+            SELECT 
+                id, spk_nomor, spk_nama, proses_kategori, 
+                qty_hasil, qty_bs, material_kode, 
+                tgl_input, shift_input, created_at
+            FROM tpra_lhk_finishing
+            WHERE is_bundled = 0
+        `;
+        
+        const params = [];
+
+        // Filter Tanggal
+        if (tanggal) {
+            sql += ` AND tgl_input = ?`;
+            params.push(tanggal);
+        }
+
+        // Filter Shift
+        if (shift) {
+            sql += ` AND shift_input = ?`;
+            params.push(shift);
+        }
+
+        // --- PERBAIKAN: Tambahkan logika filter proses di sini ---
+        if (proses) {
+            sql += ` AND proses_kategori = ?`;
+            params.push(proses);
+        }
+
+        sql += ` ORDER BY created_at ASC`;
+
+        const [rows] = await pool.query(sql, params);
+        return rows;
+    } catch (error) {
+        console.error("Error getUnassignedPraLhk:", error);
+        throw error;
+    }
+};
+
+/**
+ * Menghapus data pra-lhk jika ada kesalahan input (sebelum bundling)
+ */
+const deletePraLhk = async (id) => {
+    try {
+        const [res] = await pool.query('DELETE FROM tpra_lhk_finishing WHERE id = ? AND is_bundled = 0', [id]);
+        if (res.affectedRows === 0) throw new Error("Data tidak ditemukan atau sudah di-bundling.");
+        return { success: true };
+    } catch (error) {
+        throw error;
+    }
+};
+
+
 module.exports = {
     getAllHeaders,
     getDetailsByNomor,
-    deleteLhk
+    deleteLhk,
+    savePraLhk,
+    getUnassignedPraLhk,
+    deletePraLhk,
+    finalizeBundling
+
+
 };
