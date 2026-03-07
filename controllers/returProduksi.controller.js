@@ -1,60 +1,78 @@
+// backend/src/controllers/returProduksi.controller.js
+
 const returService = require('../services/returProduksi.service');
+
+exports.scanBarcode = async (req, res) => {
+    try {
+        const { barcode, gudangAsal } = req.query;
+        if (!barcode || !gudangAsal) {
+            return res.status(400).json({ message: 'Barcode dan Gudang Asal harus diisi' });
+        }
+
+        const data = await returService.getStokByBarcode(barcode, gudangAsal);
+        if (!data) {
+            return res.status(404).json({ message: 'Barang tidak ditemukan atau stok kosong di gudang tersebut' });
+        }
+
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
 
 exports.getNewNomor = async (req, res) => {
     try {
-        const nomor = await returService.getNewNomorRetur();
-        res.status(200).json({ success: true, nomor });
+        const nomor = await returService.getNewNomor();
+        res.json({ nomor });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ message: error.message });
     }
 };
 
 exports.createRetur = async (req, res) => {
     try {
         // userLogin diambil dari middleware auth (jika ada)
-        const userLogin = req.user ? req.user.username : 'SYSTEM';
+        const userLogin = req.user?.username || 'ADMIN'; 
         const result = await returService.saveReturProduksi(req.body, false, userLogin);
         
         res.status(201).json({
             success: true,
             message: 'Retur produksi berhasil disimpan',
-            data: result
+            nomor: result.nomor
         });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ message: error.message });
     }
 };
 
 exports.updateRetur = async (req, res) => {
     try {
         const { nomor } = req.params;
-        const userLogin = req.user ? req.user.username : 'SYSTEM';
+        const userLogin = req.user?.username || 'ADMIN';
         
-        // Memastikan nomor di body sama dengan nomor di parameter URL
         const data = { ...req.body, Nomor: nomor };
-        
         const result = await returService.saveReturProduksi(data, true, userLogin);
-        res.status(200).json({
+        
+        res.json({
             success: true,
-            message: 'Retur produksi berhasil diperbarui',
-            data: result
+            message: `Retur ${nomor} berhasil diperbarui`
         });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ message: error.message });
     }
 };
 
 exports.deleteRetur = async (req, res) => {
     try {
         const { nomor } = req.params;
-        const result = await returService.deleteReturProduksi(nomor);
+        const success = await returService.deleteReturProduksi(nomor);
         
-        if (result) {
-            res.status(200).json({ success: true, message: 'Data retur berhasil dihapus' });
+        if (success) {
+            res.json({ message: 'Data retur berhasil dihapus' });
         } else {
-            res.status(404).json({ success: false, message: 'Data retur tidak ditemukan' });
+            res.status(404).json({ message: 'Data tidak ditemukan' });
         }
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ message: error.message });
     }
 };

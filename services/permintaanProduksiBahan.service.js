@@ -41,7 +41,7 @@ exports.getNewNomor = async (tipe = 'MMT') => {
     const conf = TABLE_CONFIG[tipe] || TABLE_CONFIG.MMT;
     
     try {
-        const currentYear = format(new Date(), 'yyyy');
+        const currentYear = format(new Date(), 'yyMM');
         const currentYYMM = format(new Date(), 'yyMMdd');
         
         // 2. Tentukan pola pencarian spesifik per tabel agar tidak tercampur

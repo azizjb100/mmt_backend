@@ -43,6 +43,7 @@ const masterObatRoutes = require("./routes/masterObat.routes");
 const lapLsTintaRoutes = require("./routes/lapLsTinta.routes");
 const returProduksiRoutes = require("./routes/returProduksi.routes");
 const penerimaanPoExtMmtRoutes =require("./routes/penerimaanPoExtMmt.routes");
+const returBeliRoutes =require("./routes/returBeli.routes");
 
 // Konfigurasi
 
@@ -135,6 +136,7 @@ app.use("/api/mmt/master-obatt", masterObatRoutes);
 app.use("/api/mmt/laporan-ls-tinta", lapLsTintaRoutes);
 app.use("/api/mmt/retur-produksi", returProduksiRoutes);
 app.use("/api/mmt/penerimaan-po-ext-mmt", penerimaanPoExtMmtRoutes);
+app.use("/api/mmt/retur-beli", returBeliRoutes);
 
 
 
