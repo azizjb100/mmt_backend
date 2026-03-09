@@ -35,46 +35,37 @@ const TABLE_CONFIG = {
 // 1. GENERATE NOMOR (Dinamis MMT/OBAT)
 // ===================================
 exports.getNewNomor = async (tipe = 'MMT') => {
-    // 1. Ambil konfigurasi tabel berdasarkan tipe yang diminta
-    // Jika tipe 'OBAT', maka conf.hdr adalah 'tobatminta_hdr'
-    // Jika tipe 'MMT', maka conf.hdr adalah 'tpermintaan_prod_hdr'
     const conf = TABLE_CONFIG[tipe] || TABLE_CONFIG.MMT;
     
     try {
-        const currentYear = format(new Date(), 'yyMM');
-        const currentYYMM = format(new Date(), 'yyMMdd');
-        
-        // 2. Tentukan pola pencarian spesifik per tabel agar tidak tercampur
-        // OBAT mencari MIO-2026-% di tobatminta_hdr
-        // MMT mencari MNT-260305-% di tpermintaan_prod_hdr
-        const pattern = tipe === 'OBAT' 
-            ? `${conf.prefix}-${currentYear}-%` 
-            : `${conf.prefix}-${currentYYMM}-%`;
+        // 1. Gunakan format YYMM (4 digit) sesuai permintaan Anda: MNT-2603
+        const currentYYMM = format(new Date(), 'yyMM'); 
 
+        // 2. Buat pattern pencarian: MNT-2603-%
+        const pattern = `${conf.prefix}-${currentYYMM}-%`;
         const fieldNomor = conf.fields.h[0];
         
-        // Query ini hanya akan mencari nilai tertinggi di tabel masing-masing
+        // 3. Cari nomor tertinggi dengan pattern tersebut
         const sql = `SELECT MAX(${fieldNomor}) AS MaxNomor FROM ${conf.hdr} WHERE ${fieldNomor} LIKE ?;`;
-        
         const [results] = await pool.query(sql, [pattern]);
+        
         const maxNomor = results[0].MaxNomor;
         let nextNum = 1;
 
-        // 3. Ambil nomor terakhir jika data sudah ada
+        // 4. Jika ditemukan, ambil angka terakhir dan tambah 1
         if (maxNomor) {
             const parts = maxNomor.split('-');
-            const lastPart = parts.pop(); // Mengambil bagian angka paling belakang
+            const lastPart = parts[parts.length - 1]; // Mengambil bagian angka paling belakang (0001)
             nextNum = parseInt(lastPart, 10) + 1;
         }
 
-        // 4. Formatting angka:
-        // MMT menggunakan 4 digit (0004), OBAT menggunakan 5 digit (00008) atau sesuaikan kebutuhan
-        const formattedNum = nextNum.toString().padStart(tipe === 'OBAT' ? 5 : 4, '0');
+        // 5. Formatting angka (0001 untuk MMT, 00001 untuk OBAT)
+        const padSize = tipe === 'OBAT' ? 5 : 4;
+        const formattedNum = nextNum.toString().padStart(padSize, '0');
         
-        // 5. Kembalikan nomor baru yang unik untuk tabel tersebut
-        return tipe === 'OBAT' 
-            ? `${conf.prefix}-${currentYear}-${formattedNum}`  // Contoh: MIO-2026-00008
-            : `${conf.prefix}-${currentYear}-${formattedNum}`; // Contoh: MNT-260305-0004
+        // 6. Return dengan format: PREFIX-YYMM-COUNTER
+        // Contoh: MNT-2603-0001
+        return `${conf.prefix}-${currentYYMM}-${formattedNum}`;
             
     } catch (error) {
         throw new Error('Gagal mendapatkan nomor baru: ' + error.message);
@@ -161,58 +152,66 @@ exports.savePermintaanProduksi = async (data, isUpdate = false) => {
 // ===================================
 exports.getPermintaanProduksiDataByNomor = async (nomor) => {
     try {
-        // Deteksi tipe berdasarkan prefix nomor
         const tipe = nomor.startsWith('MIO') ? 'OBAT' : 'MMT';
         const conf = TABLE_CONFIG[tipe];
-        const f = conf.fields; // Merujuk ke { h: [...], d: [...] }
+        const f = conf.fields;
 
-        // MAPPING HEADER:
-        // Index h -> 0:Nomor, 1:Tanggal, 2:Gudang, 3:Keterangan, 4:Lokasi
+        // 1. Ambil Header
         const sqlHeader = `
             SELECT
                 ${f.h[0]} AS Nomor, 
                 ${f.h[2]} AS Gudang, 
-                DATE_FORMAT(${f.h[1]}, '%Y-%m-%d') AS Tanggal, 
-                ${f.h[3]} AS Keterangan, 
-                ${f.h[4]} AS Lokasi
+                -- Tambahkan Join ke master gudang jika perlu Nama Gudang
+                DATE_FORMAT(${f.h[1]}, '%d-%m-%Y') AS Tanggal, 
+                ${f.h[3]} AS Keterangan
             FROM ${conf.hdr} WHERE ${f.h[0]} = ?;
         `;
         const [header] = await pool.query(sqlHeader, [nomor]);
         if (header.length === 0) return null;
 
-        // MAPPING DETAIL:
-        // MMT Index d -> 0:Nomor, 1:Kode, 2:Qty, 3:Satuan, 4:Ket, 5:SPK, 6:Urut
-        // OBAT Index d -> 0:Nomor, 1:Kode, 2:Qty, 3:Ket, 4:Urut, 5:Satuan, 6:SPK
-        
+        // 2. Ambil Detail (SESUAIKAN DENGAN FRONTEND)
+        // Frontend butuh: Nomor, Kode, Nama_Bahan, Panjang, Lebar, Satuan, Jumlah, dll
         let sqlDetail = "";
         if (tipe === 'MMT') {
             sqlDetail = `
                 SELECT
-                    ${f.d[1]} AS SKU, 
-                    ${f.d[5]} AS spk,
-                    ${f.d[2]} AS qtyMinta, 
-                    ${f.d[3]} AS satuan,
-                    ${f.d[4]} AS keterangan
-                FROM ${conf.dtl} WHERE ${f.d[0]} = ?
-                ORDER BY ${f.d[6]};
+                    d.${f.d[0]} AS Nomor,
+                    d.${f.d[1]} AS Kode, 
+                    b.brg_nama AS Nama_Bahan, -- Pastikan join ke tabel barang
+                    0 AS Panjang, -- Jika tidak ada di DB, default 0 agar tidak error toFixed
+                    0 AS Lebar,
+                    d.${f.d[3]} AS Satuan,
+                    d.${f.d[2]} AS Jumlah, 
+                    '' AS Operator,
+                    d.${f.d[5]} AS Nomor_SPK,
+                    d.${f.d[4]} AS Keterangan
+                FROM ${conf.dtl} d
+                LEFT JOIN tbarang b ON d.${f.d[1]} = b.brg_kode
+                WHERE d.${f.d[0]} = ?
+                ORDER BY d.${f.d[6]};
             `;
         } else {
-            // Mapping OBAT sesuai gambar tabel: mind_nomor, mind_o_kode, mind_jumlah, mind_ket, mind_urut, mind_satuan, mind_spk
             sqlDetail = `
                 SELECT
-                    ${f.d[1]} AS SKU, 
-                    ${f.d[6]} AS spk,
-                    ${f.d[2]} AS qtyMinta, 
-                    ${f.d[5]} AS satuan,
-                    ${f.d[3]} AS keterangan
-                FROM ${conf.dtl} WHERE ${f.d[0]} = ?
-                ORDER BY ${f.d[4]};
+                    d.${f.d[0]} AS Nomor,
+                    d.${f.d[1]} AS Kode, 
+                    o.o_nama AS Nama_Bahan,
+                    0 AS Panjang,
+                    0 AS Lebar,
+                    d.${f.d[5]} AS Satuan,
+                    d.${f.d[2]} AS Jumlah, 
+                    '' AS Operator,
+                    d.${f.d[6]} AS Nomor_SPK,
+                    d.${f.d[3]} AS Keterangan
+                FROM ${conf.dtl} d
+                LEFT JOIN tobat o ON d.${f.d[1]} = o.o_kode
+                WHERE d.${f.d[0]} = ?
+                ORDER BY d.${f.d[4]};
             `;
         }
 
         const [details] = await pool.query(sqlDetail, [nomor]);
-
-        return { ...header[0], tipe, Details: details };
+        return { ...header[0], Detail: details }; // Pastikan key-nya 'Detail' (Capital D) sesuai Frontend
     } catch (error) {
         throw new Error('Gagal ambil detail: ' + error.message);
     }
