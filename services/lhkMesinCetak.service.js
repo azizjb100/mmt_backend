@@ -668,6 +668,87 @@ const getDetailRekapMesin = async (startDate, endDate, mesin) => {
     return rows;
 };
 
+
+/**
+ * Mengambil data LHK Cetak secara mendalam berdasarkan nomor
+ * Digunakan untuk Form Edit atau Detail View
+ */
+const getDetailsByNomor = async (nomor) => {
+    try {
+        // 1. Ambil Data Header
+        const sqlHeader = `
+            SELECT 
+                t1.lnomor AS Nomor, 
+                t1.lshift AS Shift, 
+                DATE_FORMAT(t1.ltanggal, '%Y-%m-%d') AS Tanggal,
+                t1.lmesin AS Mesin, 
+                t1.lgdg_prod AS Gudang,
+                t1.loperator AS Operator,
+                t1.lbahan AS Kode_bahan,
+                t3.brg_nama AS Nama_bahan,
+                t1.lbarcode_roll AS Barcode,
+                t1.lstatus AS Status,
+                t1.ljumlah_kolom AS Tile_Header,
+                IFNULL(t1.lpanjang_bs, 0) AS PanjangBS,
+                IFNULL(t1.llebar_bs, 0) AS LebarBS,
+                IFNULL(t1.lpanjang_afal, 0) AS PanjangAfal,
+                IFNULL(t1.llebar_afal, 0) AS LebarAfal
+            FROM tlhk_mesin_hdr t1
+            LEFT JOIN tbarang_mmt t3 ON t3.brg_kode = t1.lbahan
+            WHERE t1.lnomor = ?
+        `;
+        const [headerRows] = await pool.query(sqlHeader, [nomor]);
+
+        if (headerRows.length === 0) {
+            throw new Error(`Data LHK dengan nomor ${nomor} tidak ditemukan`);
+        }
+
+        // 2. Ambil Data Detail beserta info SPK dan akumulasi produksi sebelumnya
+        const sqlDetail = `
+            SELECT 
+                d.ld_urut AS urut,
+                d.ld_spk_nomor AS nomor_spk,
+                s.spk_nama AS nama_spk,
+                s.spk_jumlah AS qty_order,
+                -- Ambil total yang sudah dicetak dari LHK lain untuk SPK yang sama
+                (SELECT SUM(dx.ld_total_qtycetak) 
+                 FROM tlhk_mesin_dtl dx 
+                 WHERE dx.ld_spk_nomor = d.ld_spk_nomor 
+                 AND dx.ld_lnomor < d.ld_lnomor) AS sudah_cetak_sebelumnya,
+                d.ld_qtyCetak1 AS cetak1,
+                d.ld_qtyCetak2 AS cetak2,
+                d.ld_qtyCetak3 AS cetak3,
+                d.ld_qtyCetak4 AS cetak4,
+                d.ld_qtyCetak5 AS cetak5,
+                d.ld_qtyCetak6 AS cetak6,
+                d.ld_qtyCetak7 AS cetak7,
+                d.ld_total_qtycetak AS totalcetak,
+                d.ld_total_metercetak AS cetakmeter,
+                d.ld_ambilbahan AS ambilBahanPanjang,
+                d.ld_ambilbahan_lebar AS ambilBahanLebar,
+                d.ld_sisameter AS sisabahan,
+                d.ld_sisalebar AS sisabahanlebar,
+                d.ld_tile AS tile,
+                d.ld_luas_m2 AS luasm2,
+                d.ld_padding AS padding
+            FROM tlhk_mesin_dtl d
+            LEFT JOIN tspk s ON s.spk_nomor = d.ld_spk_nomor
+            WHERE d.ld_lnomor = ?
+            ORDER BY d.ld_urut ASC
+        `;
+        const [detailRows] = await pool.query(sqlDetail, [nomor]);
+
+        return {
+            header: headerRows[0],
+            details: detailRows
+        };
+
+    } catch (error) {
+        console.error("Error getLhkByNomor:", error);
+        throw new Error(`Gagal mengambil detail LHK: ${error.message}`);
+    }
+};
+
 module.exports = {
     getAllHeaders,
     getLookupByNomor,
@@ -679,6 +760,7 @@ module.exports = {
     getRekapLhk,
     getExportLhkCrossTab,
     getAllDataForExport,
-    getDetailRekapMesin
+    getDetailRekapMesin,
+    getDetailsByNomor
 
 };

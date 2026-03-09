@@ -139,7 +139,7 @@ const getLookupPoForBpb = async (keyword) => {
                 (SELECT IFNULL(SUM(bpe_jumlah), 0) FROM tbpbpoexternal_hdr WHERE bpe_po = h.poe_nomor) AS TotalQtyBPB
             FROM tpoexternal_hdr h
             LEFT JOIN tsupplier u ON u.Sup_kode = h.poe_sup
-            WHERE (h.poe_status = 'OPEN' OR h.poe_status = 'PROSES')
+            WHERE 1=1 -- Memudahkan penambahan AND secara dinamis
         `;
 
         const params = [];
@@ -148,7 +148,8 @@ const getLookupPoForBpb = async (keyword) => {
             params.push(`%${keyword}%`, `%${keyword}%`);
         }
 
-        sql += ` HAVING TotalQtyBPB < TotalQtyPO ORDER BY h.poe_nomor DESC LIMIT 50`;
+        // MENGHAPUS FILTER STATUS DAN HAVING AGAR SEMUA TAMPIL
+        sql += ` ORDER BY h.poe_nomor DESC LIMIT 100`;
 
         const [rows] = await pool.query(sql, params);
         return rows;
@@ -163,30 +164,61 @@ const getLookupPoForBpb = async (keyword) => {
  */
 const getPoDetailForBpb = async (noPo) => {
     try {
+        // Query Gabungan sesuai logika Delphi edtnopoExit
         const sql = `
-            SELECT 
-                d.poed_nomor AS Nomor,
-                d.poed_nourut AS NoUrut,
-                d.poed_brg_kode AS KodeBrg,
-                b.brg_nama AS NamaBrg,
-                d.poed_satuan AS Satuan,
-                d.poed_jumlah AS QtyPO,
-                IFNULL(SUM(bh.bpe_jumlah), 0) AS QtySdhTerima,
-                (d.poed_jumlah - IFNULL(SUM(bh.bpe_jumlah), 0)) AS SisaQty
-            FROM tpoexternal_dtl d
-            LEFT JOIN tbarang_mmt b ON d.poed_brg_kode = b.brg_kode
-            LEFT JOIN tbpbpoexternal_hdr bh ON bh.bpe_po = d.poed_nomor -- Asumsi relasi detail ke header BPB
-            WHERE d.poed_nomor = ?
-            GROUP BY d.poed_nourut
-            HAVING SisaQty > 0
-            ORDER BY d.poed_nourut
+            SELECT h.*, 
+                   s.spk_nama, s.spk_kain, s.spk_ukuran, s.spk_jumlah, s.spk_jo_kode, 
+                   s.spk_divisi, s.spk_panjang, s.spk_lebar,
+                   v.divisi AS nama_divisi, 
+                   j.jo_nama,
+                   u.Sup_nama, u.Sup_alamat, u.Sup_kota,
+                   -- Hitung total yang sudah diterima (History)
+                   (SELECT IFNULL(SUM(bh.bpe_jumlah), 0) 
+                    FROM tbpbpoexternal_hdr bh 
+                    WHERE bh.bpe_po = h.poe_nomor) AS totalTerima
+            FROM tpoexternal_hdr h
+            LEFT JOIN tspk s ON s.spk_nomor = h.poe_spk_nomor
+            LEFT JOIN tdivisi v ON v.kode = s.spk_divisi
+            LEFT JOIN tjenisorder j ON j.jo_kode = s.spk_jo_kode
+            LEFT JOIN tsupplier u ON u.Sup_kode = h.poe_sup
+            WHERE h.poe_nomor = ?
         `;
 
         const [rows] = await pool.query(sql, [noPo]);
-        return rows;
+        if (rows.length === 0) return null;
+
+        const header = rows[0];
+
+        // Ambil Data Alokasi (Grid Detail)
+        const [alokasi] = await pool.query(
+            `SELECT poeda_nomor AS NomorPO, poeda_nourut AS NoUrut, 
+                    poeda_kota AS KodeBrg, poeda_kota AS NamaBrg, 
+                    poeda_jumlah AS QtyPO 
+             FROM tpoexternal_dtl_alokasi 
+             WHERE poeda_nomor = ? ORDER BY poeda_nourut`, 
+            [noPo]
+        );
+
+        return {
+            ...header,
+            details: alokasi
+        };
     } catch (error) {
-        throw new Error("Gagal mengambil detail PO untuk BPB: " + error.message);
+        console.error("Database Error (getPoDetailForBpb):", error);
+        throw error;
     }
 };
 
-module.exports = { getPoExternalBrowse, deletePoExternal, ajukanPerubahan, getLookupPoForBpb, getPoDetailForBpb};
+const getSudahTerima = async (noPo) => {
+    // Perbaikan: Tambahkan JOIN atau pastikan alias h benar
+    const sql = `
+        SELECT IFNULL(SUM(h.bpe_jumlah), 0) AS totalTerima
+        FROM tbpbpoexternal_hdr h
+        WHERE h.bpe_po = ?
+    `;
+    const [rows] = await pool.query(sql, [noPo]);
+    return rows[0].totalTerima;
+
+};
+
+module.exports = { getPoExternalBrowse, deletePoExternal, ajukanPerubahan, getLookupPoForBpb, getPoDetailForBpb, getSudahTerima };

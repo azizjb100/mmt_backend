@@ -45,6 +45,8 @@ const returProduksiRoutes = require("./routes/returProduksi.routes");
 const penerimaanPoExtMmtRoutes =require("./routes/penerimaanPoExtMmt.routes");
 const returBeliRoutes =require("./routes/returBeli.routes");
 const poExtMmtRoutes =require("./routes/poExtMmt.routes");
+const stbjRoutes =require("./routes/stbj.routes");
+
 
 // Konfigurasi
 
@@ -139,7 +141,7 @@ app.use("/api/mmt/retur-produksi", returProduksiRoutes);
 app.use("/api/mmt/penerimaan-po-ext-mmt", penerimaanPoExtMmtRoutes);
 app.use("/api/mmt/retur-beli", returBeliRoutes);
 app.use("/api/mmt/po-ext-mmt", poExtMmtRoutes);
-
+app.use("/api/mmt/stbj", stbjRoutes);
 
 
 

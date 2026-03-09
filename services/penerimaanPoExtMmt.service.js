@@ -92,58 +92,116 @@ exports.getDetailByNomor = async (nomor) => {
     return { ...header[0], Detail: details };
 };
 
-exports.saveBPB = async (data, user) => {
-    const conn = await pool.getConnection();
+/**
+ * Logika Simpan BPB (Penerimaan PO External)
+ * Mengikuti pola savePermintaanProduksi
+ */
+exports.saveBPB = async (data, isUpdate = false, userLogin) => {
+    const connection = await pool.getConnection();
     try {
-        await conn.beginTransaction();
-        const { nomorPo, terimaBaru, tanggal, cabang, supKode, gpAsalKode, gpTujuanKode, nomorSpk, keterangan } = data;
+        await connection.beginTransaction();
 
-        // 1. Generate Nomor Otomatis (Replikasi getmaxnomor)
-        const year = new Date(tanggal).getFullYear();
-        const [rows] = await conn.query(
-            `SELECT IFNULL(MAX(RIGHT(bpe_nomor, 5)), 0) AS max_num 
-             FROM tbpbpoexternal_hdr WHERE LEFT(bpe_nomor, 8) = ?`,
-            [`BPE.${year}`]
+        // 1. Ambil properti sesuai mapping dari Frontend (Payload Vue)
+        let { 
+            Nomor, 
+            Tanggal, 
+            NomorPO, 
+            NomorSPK, 
+            Cabang, 
+            Supplier, 
+            GpAsal, 
+            GpTujuan, 
+            Keterangan, 
+            JumlahTerima 
+        } = data;
+
+        const serverTime = new Date();
+        const activeUser = userLogin || 'SYSTEM';
+
+        // --- 2. VALIDASI PEMBAYARAN (Sama dengan getbayar di Delphi) ---
+        const [cekBayar] = await connection.query(
+            'SELECT 1 FROM tvoucher_dtl WHERE voud_nota = ? LIMIT 1',
+            [NomorPO]
         );
-        const nextNum = parseInt(rows[0].max_num) + 1;
-        const currentNomor = `BPE.${year}${String(nextNum).padStart(5, '0')}`;
+        if (cekBayar.length > 0) {
+            throw new Error("PO tersebut sudah ada pembayaran. Tidak bisa menyimpan/mengubah BPB.");
+        }
 
-        // 2. Insert Header BPB (tbpbpoexternal_hdr)
-        const sqlInsert = `
-            INSERT INTO tbpbpoexternal_hdr 
-            (bpe_nomor, bpe_tanggal, bpe_po, bpe_spk_nomor, bpe_cab, bpe_sup, bpe_gpasal, 
-             bpe_gptujuan, bpe_ket, bpe_jumlah, date_create, user_create)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)
-        `;
-        await conn.query(sqlInsert, [
-            currentNomor, tanggal, nomorPo, nomorSpk, cabang, supKode,
-            gpAsalKode, gpTujuanKode, keterangan, terimaBaru, user
-        ]);
+        // --- 3. LOGIKA NOMOR OTOMATIS (BPE.YYYY00001) ---
+        if (!isUpdate && (!Nomor || Nomor === 'AUTO')) {
+            const year = new Date(Tanggal).getFullYear();
+            const prefix = `BPE.${year}`;
+            const [rows] = await connection.query(
+                `SELECT IFNULL(MAX(RIGHT(bpe_nomor, 5)), 0) AS max_num 
+                 FROM tbpbpoexternal_hdr WHERE LEFT(bpe_nomor, 8) = ?`,
+                [prefix]
+            );
+            const nextNum = parseInt(rows[0].max_num) + 1;
+            Nomor = `${prefix}${String(nextNum).padStart(5, '0')}`;
+        }
 
-        // 3. Update Status PO (Replikasi Logika F10 Delphi)
-        // Hitung total PO vs total akumulasi BPB
-        const [poData] = await conn.query('SELECT poe_jumlah FROM tpoexternal_hdr WHERE poe_nomor = ?', [nomorPo]);
-        const [bpbData] = await conn.query(
-            'SELECT IFNULL(SUM(bpe_jumlah), 0) as total FROM tbpbpoexternal_hdr WHERE bpe_po = ?', 
-            [nomorPo]
+        // --- 4. EKSEKUSI INSERT ATAU UPDATE ---
+        if (isUpdate) {
+            await connection.query(
+                `UPDATE tbpbpoexternal_hdr SET 
+                    bpe_tanggal = ?, 
+                    bpe_spk_nomor = ?, 
+                    bpe_cab = ?, 
+                    bpe_sup = ?, 
+                    bpe_gpasal = ?, 
+                    bpe_gptujuan = ?, 
+                    bpe_ket = ?, 
+                    bpe_jumlah = ?, 
+                    user_modified = ?, 
+                    date_modified = ? 
+                WHERE bpe_nomor = ?`,
+                [Tanggal, NomorSPK, Cabang, Supplier, GpAsal, GpTujuan, Keterangan, JumlahTerima, activeUser, serverTime, Nomor]
+            );
+        } else {
+            await connection.query(
+                `INSERT INTO tbpbpoexternal_hdr 
+                    (bpe_nomor, bpe_tanggal, bpe_po, bpe_spk_nomor, bpe_cab, bpe_sup, 
+                     bpe_gpasal, bpe_gptujuan, bpe_ket, bpe_jumlah, user_create, date_create) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [Nomor, Tanggal, NomorPO, NomorSPK, Cabang, Supplier, GpAsal, GpTujuan, Keterangan, JumlahTerima, activeUser, serverTime]
+            );
+        }
+
+        // --- 5. UPDATE STATUS PO (OPEN/PROSES/CLOSE) ---
+        // Ambil Qty total dari PO
+        const [poData] = await connection.query(
+            'SELECT SUM(poe_jumlah) as totalPo FROM tpoexternal_hdr WHERE poe_nomor = ?', 
+            [NomorPO]
+        );
+        const nPO = poData[0]?.totalPo || 0;
+
+        // Hitung akumulasi yang sudah diterima di tabel BPB
+        const [bpbData] = await connection.query(
+            'SELECT IFNULL(SUM(bpe_jumlah), 0) as totalSj FROM tbpbpoexternal_hdr WHERE bpe_po = ?', 
+            [NomorPO]
+        );
+        const nSJ = bpbData[0]?.totalSj || 0;
+
+        let newStatus = "PROSES";
+        if (nSJ >= nPO && nPO > 0) {
+            newStatus = "CLOSE";
+        } else if (nSJ === 0) {
+            newStatus = "OPEN";
+        }
+
+        await connection.query(
+            'UPDATE tpoexternal_hdr SET poe_status = ? WHERE poe_nomor = ?', 
+            [newStatus, NomorPO]
         );
 
-        const nPO = poData[0].poe_jumlah;
-        const nSJ = bpbData[0].total;
+        await connection.commit();
+        return { success: true, nomor: Nomor, statusPo: newStatus };
 
-        let status = "PROSES";
-        if (nSJ >= nPO) status = "CLOSE";
-        else if (nSJ === 0) status = "OPEN";
-
-        await conn.query('UPDATE tpoexternal_hdr SET poe_status = ? WHERE poe_nomor = ?', [status, nomorPo]);
-
-        await conn.commit();
-        return { nomor: currentNomor };
-    } catch (err) {
-        await conn.rollback();
-        throw err;
+    } catch (error) {
+        await connection.rollback();
+        throw error;
     } finally {
-        conn.release();
+        connection.release();
     }
 };
 

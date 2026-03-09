@@ -9,6 +9,7 @@ router.get('/browse', poCtrl.browse);
 router.delete('/delete/:nomor', poCtrl.remove);
 router.post('/request-pin', poCtrl.submitPin);
 router.get('/lookup-bpb', poCtrl.getLookupBpb);
-router.get('/items-for-bpb/:nomor', poCtrl.getDetailForBpb);
+router.get('/lookup-bpb/:nomor', poCtrl.getDetailForBpb);
+router.get('/sudah-terima/:nomor', poCtrl.getSudahTerima);
 
 module.exports = router;

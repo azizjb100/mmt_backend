@@ -4,10 +4,14 @@ const poService = require('../services/poExtMmt.service');
 const browse = async (req, res) => {
     try {
         const { startDate, endDate } = req.query;
-        // currentUser.cab didapat dari middleware auth (misal JWT)
+        console.log("DEBUG ARGS:", { startDate, endDate, cab: req.user?.cab }); 
+        
         const data = await poService.getPoExternalBrowse(startDate, endDate, req.user?.cab);
+        
+        console.log("DEBUG HASIL:", data.length); 
         res.json({ success: true, data });
     } catch (error) {
+        console.error("ERROR API:", error.message);
         res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -54,4 +58,15 @@ const getDetailForBpb = async (req, res) => {
     }
 };
 
-module.exports = { browse, remove, submitPin, getLookupBpb, getDetailForBpb};
+const getSudahTerima = async (req, res) => {
+    try {
+        const { nomor } = req.params;
+        const { size } = req.query; // Ambil size dari query string jika diperlukan
+        const data = await poService.getSudahTerima(nomor, size);
+        res.json({ success: true, totalTerima: data });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+module.exports = { browse, remove, submitPin, getLookupBpb, getDetailForBpb, getSudahTerima };
