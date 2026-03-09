@@ -152,41 +152,43 @@ exports.savePermintaanProduksi = async (data, isUpdate = false) => {
 // ===================================
 exports.getPermintaanProduksiDataByNomor = async (nomor) => {
     try {
+        // Tentukan tipe berdasarkan awalan nomor
         const tipe = nomor.startsWith('MIO') ? 'OBAT' : 'MMT';
         const conf = TABLE_CONFIG[tipe];
         const f = conf.fields;
 
         // 1. Ambil Header
+        // Kita gunakan LEFT JOIN ke tgudang agar bisa mendapatkan Nama Gudang untuk Frontend
         const sqlHeader = `
             SELECT
-                ${f.h[0]} AS Nomor, 
-                ${f.h[2]} AS Gudang, 
-                -- Tambahkan Join ke master gudang jika perlu Nama Gudang
-                DATE_FORMAT(${f.h[1]}, '%d-%m-%Y') AS Tanggal, 
-                ${f.h[3]} AS Keterangan
-            FROM ${conf.hdr} WHERE ${f.h[0]} = ?;
+                h.${f.h[0]} AS Nomor, 
+                h.${f.h[2]} AS GudangKode, 
+                g.gdg_nama AS GudangNama,
+                DATE_FORMAT(h.${f.h[1]}, '%Y-%m-%d') AS Tanggal, 
+                h.${f.h[3]} AS Keterangan,
+                h.${f.h[4]} AS Lokasi
+            FROM ${conf.hdr} h
+            LEFT JOIN tgudang g ON h.${f.h[2]} = g.gdg_kode
+            WHERE h.${f.h[0]} = ?;
         `;
+        
         const [header] = await pool.query(sqlHeader, [nomor]);
         if (header.length === 0) return null;
 
-        // 2. Ambil Detail (SESUAIKAN DENGAN FRONTEND)
-        // Frontend butuh: Nomor, Kode, Nama_Bahan, Panjang, Lebar, Satuan, Jumlah, dll
+        // 2. Ambil Detail
         let sqlDetail = "";
         if (tipe === 'MMT') {
             sqlDetail = `
                 SELECT
                     d.${f.d[0]} AS Nomor,
-                    d.${f.d[1]} AS Kode, 
-                    b.brg_nama AS Nama_Bahan, -- Pastikan join ke tabel barang
-                    0 AS Panjang, -- Jika tidak ada di DB, default 0 agar tidak error toFixed
-                    0 AS Lebar,
-                    d.${f.d[3]} AS Satuan,
-                    d.${f.d[2]} AS Jumlah, 
-                    '' AS Operator,
-                    d.${f.d[5]} AS Nomor_SPK,
-                    d.${f.d[4]} AS Keterangan
+                    d.${f.d[1]} AS sku, 
+                    TRIM(b.brg_nama) AS namaBahan, 
+                    d.${f.d[3]} AS satuan,
+                    d.${f.d[2]} AS qtyMinta, 
+                    d.${f.d[5]} AS spk,
+                    d.${f.d[4]} AS keterangan
                 FROM ${conf.dtl} d
-                LEFT JOIN tbarang b ON d.${f.d[1]} = b.brg_kode
+                LEFT JOIN tbarang_mmt b ON d.${f.d[1]} = b.brg_kode
                 WHERE d.${f.d[0]} = ?
                 ORDER BY d.${f.d[6]};
             `;
@@ -194,15 +196,12 @@ exports.getPermintaanProduksiDataByNomor = async (nomor) => {
             sqlDetail = `
                 SELECT
                     d.${f.d[0]} AS Nomor,
-                    d.${f.d[1]} AS Kode, 
-                    o.o_nama AS Nama_Bahan,
-                    0 AS Panjang,
-                    0 AS Lebar,
-                    d.${f.d[5]} AS Satuan,
-                    d.${f.d[2]} AS Jumlah, 
-                    '' AS Operator,
-                    d.${f.d[6]} AS Nomor_SPK,
-                    d.${f.d[3]} AS Keterangan
+                    d.${f.d[1]} AS sku, 
+                    TRIM(o.o_nama) AS namaBahan,
+                    d.${f.d[5]} AS satuan,
+                    d.${f.d[2]} AS qtyMinta, 
+                    d.${f.d[6]} AS spk,
+                    d.${f.d[3]} AS keterangan
                 FROM ${conf.dtl} d
                 LEFT JOIN tobat o ON d.${f.d[1]} = o.o_kode
                 WHERE d.${f.d[0]} = ?
@@ -211,7 +210,12 @@ exports.getPermintaanProduksiDataByNomor = async (nomor) => {
         }
 
         const [details] = await pool.query(sqlDetail, [nomor]);
-        return { ...header[0], Detail: details }; // Pastikan key-nya 'Detail' (Capital D) sesuai Frontend
+        
+        // Bungkus hasil sesuai ekspektasi reactive 'formData' di Frontend
+        return { 
+            ...header[0], 
+            Details: details // Menggunakan 'Details' (Sesuai dengan onMounted di Vue Anda)
+        }; 
     } catch (error) {
         throw new Error('Gagal ambil detail: ' + error.message);
     }

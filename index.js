@@ -44,6 +44,7 @@ const lapLsTintaRoutes = require("./routes/lapLsTinta.routes");
 const returProduksiRoutes = require("./routes/returProduksi.routes");
 const penerimaanPoExtMmtRoutes =require("./routes/penerimaanPoExtMmt.routes");
 const returBeliRoutes =require("./routes/returBeli.routes");
+const poExtMmtRoutes =require("./routes/poExtMmt.routes");
 
 // Konfigurasi
 
@@ -137,7 +138,7 @@ app.use("/api/mmt/laporan-ls-tinta", lapLsTintaRoutes);
 app.use("/api/mmt/retur-produksi", returProduksiRoutes);
 app.use("/api/mmt/penerimaan-po-ext-mmt", penerimaanPoExtMmtRoutes);
 app.use("/api/mmt/retur-beli", returBeliRoutes);
-
+app.use("/api/mmt/po-ext-mmt", poExtMmtRoutes);
 
 
 
