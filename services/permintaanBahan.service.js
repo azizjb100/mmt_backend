@@ -79,7 +79,7 @@ exports.getInvoicePembelianData = async (startDate, endDate) => {
 
 exports.getPermintaanBahanData = async (startDate, endDate) => {
     try {
-        // 1. Sub-query Agregasi (Sama seperti sebelumnya)
+        // 1. Sub-query Agregasi
         const sqlAggregates = `
             SELECT
                 mbd_mb_nomor,
@@ -101,16 +101,17 @@ exports.getPermintaanBahanData = async (startDate, endDate) => {
                 DATE_FORMAT(t1.mb_tanggal, '%d-%M-%Y') AS Tanggal,
                 t1.mb_keterangan AS Keterangan,
                 
-                -- AMBIL ESTIMASI DARI PO (Gunakan Subquery Terpisah)
+                -- AMBIL ESTIMASI DARI PO
                 (SELECT DATE_FORMAT(MAX(po.po_dateline), '%Y-%m-%d') 
                  FROM tpo_mmt_dtl pod 
                  JOIN tpo_mmt_hdr po ON pod.pod_po_nomor = po.po_nomor
                  WHERE pod.pod_mb_nomor = t1.mb_nomor) AS Estimasi_Kedatangan,
 
-                -- AMBIL TANGGAL DATANG DARI PENERIMAAN
+                -- PERBAIKAN: AMBIL TANGGAL DATANG DARI PENERIMAAN (Lewat PO Nomor)
                 (SELECT DATE_FORMAT(MAX(rec.rec_tanggal), '%Y-%m-%d')
                  FROM trec_mmt_hdr rec
-                 WHERE rec.rec_memo = t1.mb_nomor) AS Tanggal_Datang,
+                 INNER JOIN tpo_mmt_dtl pod ON rec.rec_memo = pod.pod_po_nomor
+                 WHERE pod.pod_mb_nomor = t1.mb_nomor) AS Tanggal_Datang,
 
                 CASE
                     WHEN t1.mb_acc = 'Y' THEN 'Acc Manager'
@@ -147,27 +148,27 @@ exports.getPermintaanBahanData = async (startDate, endDate) => {
 
         const [masterResults] = await pool.query(sqlMaster, [startDate, endDate]);
         
-        // Sisanya (mapping detail) tetap sama dengan kode Anda yang lama
         if (masterResults.length === 0) return [];
 
         const masterNomors = masterResults.map(row => row.Nomor);
 
+        // 3. Query Detail
         const sqlDetail = `
             SELECT
-        d.mbd_mb_nomor AS Nomor,
-        d.mbd_spk_nomor AS Nomor_SPK,
-        TRIM(x.spk_nama) AS spk_nama,
-        d.mbd_brg_kode AS Kode,
-        d.mbd_acc AS Is_Acc,
-        d.mbd_qty_terima AS Jumlah_terima,
-        TRIM(b.brg_nama) AS Nama_Bahan,
-        d.mbd_qty AS Jumlah,
-        d.mbd_brg_satuan AS Satuan,
-        b.brg_panjang AS Panjang,
-        b.brg_lebar AS Lebar,        -- <--- PASTIKAN ADA KOMA DI SINI
-        b.brg_satuan_harga           -- <--- SEBELUM KOLOM BARU INI
-    FROM tmintabahan_mmt_dtl d
-    LEFT JOIN tbarang_mmt b ON d.mbd_brg_kode = b.brg_kode
+                d.mbd_mb_nomor AS Nomor,
+                d.mbd_spk_nomor AS Nomor_SPK,
+                TRIM(x.spk_nama) AS spk_nama,
+                d.mbd_brg_kode AS Kode,
+                d.mbd_acc AS Is_Acc,
+                d.mbd_qty_terima AS Jumlah_terima,
+                TRIM(b.brg_nama) AS Nama_Bahan,
+                d.mbd_qty AS Jumlah,
+                d.mbd_brg_satuan AS Satuan,
+                b.brg_panjang AS Panjang,
+                b.brg_lebar AS Lebar,
+                b.brg_satuan_harga
+            FROM tmintabahan_mmt_dtl d
+            LEFT JOIN tbarang_mmt b ON d.mbd_brg_kode = b.brg_kode
             LEFT JOIN (
                 SELECT spk_nomor, spk_nama FROM tspk
                 UNION ALL
@@ -179,6 +180,7 @@ exports.getPermintaanBahanData = async (startDate, endDate) => {
 
         const [detailResults] = await pool.query(sqlDetail, [masterNomors]);
 
+        // Mapping hasil
         const result = masterResults.map(master => ({
             ...master,
             Detail: detailResults.filter(dtl => dtl.Nomor === master.Nomor)
