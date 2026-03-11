@@ -155,7 +155,7 @@ const getTotalRollSekarang = async () => {
   `;
 
   const [rows] = await pool.query(ssql);
-  return rows[0]; // Mengembalikan object { total_roll: X, total_jenis_barang: Y }
+  return rows[0];
 };
 
 module.exports = {

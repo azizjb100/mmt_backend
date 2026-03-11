@@ -423,6 +423,9 @@ const getPOLookupData = async (keyword) => {
                     DATE_FORMAT(h.po_tanggal, '%d-%m-%Y') AS Tanggal, 
                     h.po_sup_kode AS Supplier,
                     s.sup_nama AS NamaSupplier,
+                    (SELECT GROUP_CONCAT(DISTINCT d2.pod_mb_nomor SEPARATOR ', ') 
+                     FROM tpo_mmt_dtl d2 
+                     WHERE d2.pod_po_nomor = h.po_nomor AND d2.pod_mb_nomor IS NOT NULL) AS NomorRequest,
                     (SELECT SUM(d.pod_qty * d.pod_harga) 
                      FROM tpo_mmt_dtl d 
                      WHERE d.pod_po_nomor = h.po_nomor) AS TotalHarga,
@@ -443,14 +446,14 @@ const getPOLookupData = async (keyword) => {
                 FROM tpo_mmt_hdr h
                 LEFT JOIN tsupplier s ON h.po_sup_kode = s.sup_kode
             ) AS LookupTable
-            WHERE Status IN ('OPEN', 'ONPROSES')
+            WHERE 1=1 -- <--- UBAH DI SINI (Hapus Status IN ('OPEN', 'ONPROSES'))
         `;
 
     const params = [];
     if (keyword) {
-      sql += ` AND (Nomor LIKE ? OR Supplier LIKE ? OR NamaSupplier LIKE ?)`;
+      sql += ` AND (Nomor LIKE ? OR Supplier LIKE ? OR NamaSupplier LIKE ? OR NomorRequest LIKE ?)`;
       const searchKeyword = `%${keyword}%`;
-      params.push(searchKeyword, searchKeyword, searchKeyword);
+      params.push(searchKeyword, searchKeyword, searchKeyword, searchKeyword);
     }
 
     sql += ` ORDER BY Nomor DESC LIMIT 100`;
