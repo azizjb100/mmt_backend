@@ -135,7 +135,6 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
         await conn.beginTransaction();
 
         // --- LOGIKA GABUNG OPERATOR UNIK ---
-        // Mengambil semua nama operator dari detail, filter yang kosong, lalu ambil yang unik
         const uniqueOperators = [...new Set(detailsData.map(d => (d.Operator || d.operator || '').trim()).filter(name => name !== ''))];
         const combinedOperators = uniqueOperators.join(', ');
 
@@ -149,28 +148,59 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
         }
 
         const formattedDate = format(dateToUse, 'yyyy-MM-dd');
-        // Ambil user dari payload luser_modified yang dikirim frontend
         const currentUser = headerData.luser_modified || 'SYSTEM';
+
+        // Ambil nilai tinta dari headerData (Payload yang Anda kirim tadi)
+        const inkC = headerData.lch_ink_c || 0;
+        const inkM = headerData.lch_ink_m || 0;
+        const inkY = headerData.lch_ink_y || 0;
+        const inkK = headerData.lch_ink_k || 0;
 
         if (isEditMode) {
             await conn.query(`
                 UPDATE tlhk_cetakmmt_hdr SET
-                    lch_tanggal = ?, lch_gdg_prod = ?, lch_shift = ?, 
-                    lch_operator = ?, lch_user_edit = ?, lch_date_edit = NOW()
+                    lch_tanggal = ?, 
+                    lch_gdg_prod = ?, 
+                    lch_shift = ?, 
+                    lch_operator = ?, 
+                    lch_ink_c = ?, 
+                    lch_ink_m = ?, 
+                    lch_ink_y = ?, 
+                    lch_ink_k = ?, 
+                    lch_user_edit = ?, 
+                    lch_date_edit = NOW()
                 WHERE lch_nomor = ?
-            `, [formattedDate, headerData.lch_gdg_prod, headerData.lch_shift, combinedOperators, currentUser, finalNomor]);
+            `, [
+                formattedDate, 
+                headerData.lch_gdg_prod, 
+                headerData.lch_shift, 
+                combinedOperators, 
+                inkC, inkM, inkY, inkK, // Data tinta baru
+                currentUser, 
+                finalNomor
+            ]);
             
             await conn.query(`DELETE FROM tlhk_cetakmmt_dtl WHERE lcd_lch_nomor = ?`, [finalNomor]);
         } else {
             await conn.query(`
                 INSERT INTO tlhk_cetakmmt_hdr (
                     lch_nomor, lch_tanggal, lch_gdg_prod, lch_shift, 
-                    lch_operator, lch_user_create, lch_date_create
+                    lch_operator, lch_ink_c, lch_ink_m, lch_ink_y, lch_ink_k,
+                    lch_user_create, lch_date_create
                 )
-                VALUES (?, ?, ?, ?, ?, ?, NOW())
-            `, [finalNomor, formattedDate, headerData.lch_gdg_prod, headerData.lch_shift, combinedOperators, currentUser]);
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+            `, [
+                finalNomor, 
+                formattedDate, 
+                headerData.lch_gdg_prod, 
+                headerData.lch_shift, 
+                combinedOperators, 
+                inkC, inkM, inkY, inkK, // Data tinta baru
+                currentUser
+            ]);
         }
 
+        // --- Simpan Detail (tetap sama) ---
         for (let i = 0; i < detailsData.length; i++) {
             const d = detailsData[i];
             await conn.query(`

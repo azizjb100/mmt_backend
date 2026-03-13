@@ -105,21 +105,50 @@ const deleteLhk = async (nomor) => {
     }
 };
 
+// =========================================================================
+// 1. FUNGSI GENERATE NOMOR
+// =========================================================================
+
 /**
- * Generate Nomor Otomatis (Opsional untuk Form Input)
+ * Mengambil nomor urut maksimum dari bulan dan tahun saat ini
+ * Format: MMT-LHK-T.YYMM.0001
+ * @param {Date|string} date - Tanggal untuk menentukan YYMM
+ * @returns {Promise<string>} - Nomor LHK yang baru
  */
 const generateNewNomor = async (date) => {
-    const yymm = format(new Date(date), 'yyMM');
-    const prefix = `${NOMERATOR}.${yymm}.`;
-    
-    const [rows] = await pool.query(
-        `SELECT MAX(CAST(SUBSTRING(lth_nomor, -4) AS UNSIGNED)) AS max_num 
-         FROM tlhk_tekstilmmt_hdr WHERE lth_nomor LIKE ?`, 
-        [`${prefix}%`]
-    );
+    // Pastikan input adalah objek Date yang valid
+    const dateToUse = date instanceof Date ? date : new Date(date);
 
-    const nextNum = (rows[0]?.max_num || 0) + 1;
-    return `${prefix}${String(nextNum).padStart(4, '0')}`;
+    // Ambil format YYMM (contoh: 2512 untuk Desember 2025)
+    const yymm = format(dateToUse, 'yyMM');
+    
+    // Prefix untuk pencarian di database (MMT-LHK-T.2512.%)
+    const prefixMatch = `${NOMERATOR}.${yymm}.%`;
+
+    const sqlMax = `
+        SELECT MAX(CAST(SUBSTRING_INDEX(lnomor, '.', -1) AS UNSIGNED)) AS max_num
+        FROM tlhk_mesin_hdr
+        WHERE lnomor LIKE ?
+    `;
+
+    try {
+        const [rows] = await pool.query(sqlMax, [prefixMatch]);
+        
+        // Ambil angka terakhir, jika null atau tidak ada maka mulai dari 0
+        const maxNum = (rows && rows[0].max_num) ? rows[0].max_num : 0;
+
+        // Tambah 1 untuk nomor berikutnya
+        const nextSequence = maxNum + 1;
+        
+        // Format menjadi 4 digit (0001, 0002, dst)
+        const formattedSequence = String(nextSequence).padStart(4, '0');
+
+        // Gabungkan semua komponen
+        return `${NOMERATOR}.${yymm}.${formattedSequence}`;
+    } catch (error) {
+        console.error("Error generating new nomor:", error);
+        throw new Error("Gagal generate nomor otomatis.");
+    }
 };
 
 module.exports = {

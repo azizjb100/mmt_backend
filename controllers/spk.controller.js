@@ -1,6 +1,30 @@
 // backend/src/controllers/spk.controller.js
 const spkService = require('../services/spk.service');
 
+// Mendapatkan data untuk Grid Utama (Browse)
+exports.getSpkBrowse = async (req, res) => {
+    try {
+        // req.query berisi startDate, endDate, cabang, keyword
+        const data = await spkService.getAllSpkData(req.query);
+        res.status(200).json(data); // Kirim langsung array agar sesuai dengan frontend
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// Mendapatkan detail per size (untuk Expanded Row)
+exports.getSpkDetailSize = async (req, res) => {
+    try {
+        const { nomor } = req.params;
+        const data = await spkService.getSpkDetailSize(nomor);
+        res.status(200).json(data);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// Detail tunggal untuk Print/Edit
+
 exports.getSpkLookup = async (req, res) => {
     const keyword = req.query.keyword || ''; 
     try {
