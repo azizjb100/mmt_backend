@@ -132,6 +132,21 @@ const exportLhk = async (req, res) => {
     }
 };
 
+const getOneLhk = async (req, res) => {
+    try {
+        const { nomor } = req.params;
+        const data = await lhkCetakService.getOneLhk(nomor); 
+        
+        if (!data) {
+            return res.status(404).json({ message: "Data tidak ditemukan" });
+        }
+        
+        res.json({ data: data });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
 module.exports = {
     getAllHeaders,
     getDetails,
@@ -140,7 +155,10 @@ module.exports = {
     getRekapLhk,
     getRekapCrossTab,
     getDetailRekapMesin,
-    exportLhk
+    exportLhk,
+    getOneLhk
+
+
 
 
 };

@@ -14,6 +14,7 @@ router.get('/rekap-crosstab', lhkCetakController.getRekapCrossTab);
 router.get('/rekap-detail-mesin', lhkCetakController.getDetailRekapMesin);
 
 // GET /api/mmt/lhk-cetak/details?nomor=...
+router.get('/:nomor', lhkCetakController.getOneLhk);
 router.get('/detail/:nomor', lhkCetakController.getDetails);
 
 

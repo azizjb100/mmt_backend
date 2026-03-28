@@ -441,6 +441,36 @@ const getAllDataForExport = async (startDate, endDate, mesin) => {
     return rows;
 };
 
+const getOneLhk = async (nomor) => {
+    // 1. Ambil data Header
+    const sqlHeader = `
+        SELECT 
+            lch_nomor AS Nomor, 
+            lch_tanggal AS Tanggal, 
+            lch_gdg_prod AS Gdg_Kode, 
+            lch_shift AS Shift, 
+            lch_operator AS Operator,
+            lch_ink_c AS Ink_C,
+            lch_ink_m AS Ink_M,
+            lch_ink_y AS Ink_Y,
+            lch_ink_k AS Ink_K
+        FROM tlhk_cetakmmt_hdr
+        WHERE lch_nomor = ?
+    `;
+    const [headerRows] = await pool.query(sqlHeader, [nomor]);
+    
+    if (headerRows.length === 0) return null;
+
+    // 2. Ambil data Detail (Gunakan fungsi getDetailsByNomor yang sudah Anda punya)
+    const details = await getDetailsByNomor(nomor);
+
+    // 3. Gabungkan
+    return {
+        ...headerRows[0],
+        details: details
+    };
+};
+
 module.exports = {
     getAllHeaders,
     getDetailsByNomor,
@@ -451,9 +481,7 @@ module.exports = {
     getRekapLhk,
     getExportLhkCrossTab,
     getDetailRekapMesin,
-    getAllDataForExport
-
-
-
+    getAllDataForExport,
+    getOneLhk
 
 };
