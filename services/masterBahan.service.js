@@ -18,7 +18,6 @@ const normalizeStatus = (status) => {
 
 exports.getBahanData = async ({ zdivisi = null, keyword = "" } = {}) => {
     try {
-        // Tambahkan WHERE 1=1 agar penambahan klausa "AND" berikutnya tidak error
         let sql = `
             SELECT
                 b.brg_kode AS Kode,
@@ -28,10 +27,11 @@ exports.getBahanData = async ({ zdivisi = null, keyword = "" } = {}) => {
                 b.brg_satuan AS Satuan,
                 b.brg_panjang AS Panjang,
                 b.brg_lebar AS Lebar,
-                b.brg_satuan_harga AS brg_satuan_harga
+                b.brg_satuan_harga AS brg_satuan_harga,
+                IFNULL(SUM(m.mst_stok_in - m.mst_stok_out), 0) AS Stok
             FROM tbarang_mmt b
+            LEFT JOIN tmasterstok_mmt m ON b.brg_kode = m.mst_brg_kode
             WHERE b.brg_gdg_default = 'WH-16'
-            AND 1=1
         `;
 
         const params = [];
@@ -53,7 +53,8 @@ exports.getBahanData = async ({ zdivisi = null, keyword = "" } = {}) => {
             params.push(q, q);
         }
 
-        sql += ` ORDER BY b.brg_nama`;
+        // Tambahkan GROUP BY karena kita menggunakan fungsi agregat SUM
+        sql += ` GROUP BY b.brg_kode ORDER BY b.brg_nama`;
 
         const [rows] = await pool.query(sql, params);
         return rows;

@@ -77,10 +77,13 @@ exports.getInvoicePembelianData = async (startDate, endDate) => {
     }
 };
 
-exports.getPermintaanBahanData = async (startDate, endDate) => {
+exports.getPermintaanBahanData = async (startDate, endDate, divisi) => {
     try {
-        // 1. Sub-query Agregasi
-        const sqlAggregates = `
+        let sqlMaster = "";
+        let paramsMaster = [];
+
+        // 1. Sub-query Agregasi untuk MMT (Tabel tmintabahan_mmt_dtl)
+        const sqlAggMMT = `
             SELECT
                 mbd_mb_nomor,
                 SUM(CASE WHEN mbd_acc = 'Y' THEN mbd_qty ELSE 0 END) AS Total_Diminta,
@@ -92,101 +95,116 @@ exports.getPermintaanBahanData = async (startDate, endDate) => {
             GROUP BY mbd_mb_nomor
         `;
 
-        // 2. Query Utama
-        const sqlMaster = `
+        // 2. Sub-query Agregasi untuk TOBAT (Tabel tobatmintabeli_dtl)
+        // Catatan: Jika tabel tobat belum punya qty_po/qty_terima, nilai di-set 0 dulu agar tidak error
+        const sqlAggTobat = `
             SELECT
-                t1.mb_nomor AS Nomor,
-                t1.mb_gdg_kode AS Gudang,
-                t3.gdg_nama AS Nama,
-                DATE_FORMAT(t1.mb_tanggal, '%d-%M-%Y') AS Tanggal,
-                t1.mb_keterangan AS Keterangan,
-                
-                -- AMBIL ESTIMASI DARI PO
-                (SELECT DATE_FORMAT(MAX(po.po_dateline), '%Y-%m-%d') 
-                 FROM tpo_mmt_dtl pod 
-                 JOIN tpo_mmt_hdr po ON pod.pod_po_nomor = po.po_nomor
-                 WHERE pod.pod_mb_nomor = t1.mb_nomor) AS Estimasi_Kedatangan,
-
-                -- PERBAIKAN: AMBIL TANGGAL DATANG DARI PENERIMAAN (Lewat PO Nomor)
-                (SELECT DATE_FORMAT(MAX(rec.rec_tanggal), '%Y-%m-%d')
-                 FROM trec_mmt_hdr rec
-                 INNER JOIN tpo_mmt_dtl pod ON rec.rec_memo = pod.pod_po_nomor
-                 WHERE pod.pod_mb_nomor = t1.mb_nomor) AS Tanggal_Datang,
-
-                CASE
-                    WHEN t1.mb_acc = 'Y' THEN 'Acc Manager'
-                    WHEN t1.mb_acc_req = 'Y' THEN 'Acc SPV'
-                    ELSE 'PENDING'
-                END AS Status_Acc,
-                
-                IFNULL(t2.Total_Diminta, 0) AS Total_Diminta,
-                IFNULL(t2.Total_DiPO, 0) AS Total_DiPO,
-                IFNULL(t2.Total_Diterima, 0) AS Total_Diterima,
-
-                CASE
-                    WHEN t2.Total_Baris_Detail IS NULL OR t2.Total_Baris_Detail = 0 THEN 'OPEN'
-                    WHEN t1.mb_acc = 'Y' AND IFNULL(t2.Jml_Item_Acc, 0) = 0 THEN 'CLOSED'
-                    WHEN t2.Jml_Item_Acc > 0 AND t2.Total_DiPO >= t2.Total_Diminta THEN 'CLOSED'
-                    WHEN t2.Total_DiPO > 0 THEN 'ONPROSES'
-                    ELSE 'OPEN'
-                END AS Status_PO,
-
-                CASE
-                    WHEN t2.Total_Baris_Detail IS NULL OR t2.Total_Baris_Detail = 0 THEN 'OPEN'
-                    WHEN t1.mb_acc = 'Y' AND IFNULL(t2.Jml_Item_Acc, 0) = 0 THEN 'CLOSED'
-                    WHEN t2.Jml_Item_Acc > 0 AND t2.Total_Diterima >= t2.Total_Diminta THEN 'CLOSED'
-                    WHEN t2.Total_Diterima > 0 THEN 'ONPROSES'
-                    ELSE 'OPEN'
-                END AS Status_Diterima
-
-            FROM tmintabahan_mmt_hdr t1
-            LEFT JOIN (${sqlAggregates}) t2 ON t2.mbd_mb_nomor = t1.mb_nomor
-            LEFT JOIN tgudang t3 ON t3.gdg_kode = t1.mb_gdg_kode
-            WHERE t1.mb_tanggal BETWEEN ? AND ?
-            ORDER BY t1.mb_tanggal DESC
+                mbd_nomor AS mbd_mb_nomor,
+                SUM(mbd_jumlah) AS Total_Diminta,
+                0 AS Total_DiPO, 
+                0 AS Total_Diterima,
+                COUNT(*) AS Jml_Item_Acc,
+                COUNT(*) AS Total_Baris_Detail
+            FROM tobatmintabeli_dtl
+            GROUP BY mbd_nomor
         `;
 
-        const [masterResults] = await pool.query(sqlMaster, [startDate, endDate]);
-        
+        // Kolom tambahan untuk Estimasi & Realisasi (Hanya untuk MMT, TOBAT di-nullkan)
+        const trackingColumns = `
+            (SELECT DATE_FORMAT(MAX(po.po_dateline), '%Y-%m-%d') 
+             FROM tpo_mmt_dtl pod 
+             JOIN tpo_mmt_hdr po ON pod.pod_po_nomor = po.po_nomor
+             WHERE pod.pod_mb_nomor = t1.mb_nomor) AS Estimasi_Kedatangan,
+
+            (SELECT DATE_FORMAT(MAX(rec.rec_tanggal), '%Y-%m-%d')
+             FROM trec_mmt_hdr rec
+             INNER JOIN tpo_mmt_dtl pod ON rec.rec_memo = pod.pod_po_nomor
+             WHERE pod.pod_mb_nomor = t1.mb_nomor) AS Tanggal_Datang
+        `;
+
+        if (divisi == 1) {
+            sqlMaster = `
+                SELECT
+                    t1.mb_nomor AS Nomor, t1.mb_gdg_kode AS Gudang, t3.gdg_nama AS Nama,
+                    DATE_FORMAT(t1.mb_tanggal, '%d-%m-%Y') AS Tanggal, t1.mb_keterangan AS Keterangan,
+                    'MMT' AS Source,
+                    ${trackingColumns},
+                    CASE WHEN t1.mb_acc = 'Y' THEN 'Acc Manager' WHEN t1.mb_acc_req = 'Y' THEN 'Acc SPV' ELSE 'PENDING' END AS Status_Acc,
+                    IFNULL(t2.Total_Diminta, 0) AS Total_Diminta,
+                    IFNULL(t2.Total_DiPO, 0) AS Total_DiPO,
+                    IFNULL(t2.Total_Diterima, 0) AS Total_Diterima,
+                    CASE 
+                        WHEN t2.Total_Baris_Detail IS NULL OR t2.Total_Baris_Detail = 0 THEN 'OPEN'
+                        WHEN t1.mb_acc = 'Y' AND IFNULL(t2.Jml_Item_Acc, 0) = 0 THEN 'CLOSED'
+                        WHEN t2.Jml_Item_Acc > 0 AND t2.Total_DiPO >= t2.Total_Diminta THEN 'CLOSED'
+                        WHEN t2.Total_DiPO > 0 THEN 'ONPROSES' ELSE 'OPEN'
+                    END AS Status_PO,
+                    CASE
+                        WHEN t2.Total_Baris_Detail IS NULL OR t2.Total_Baris_Detail = 0 THEN 'OPEN'
+                        WHEN t1.mb_acc = 'Y' AND IFNULL(t2.Jml_Item_Acc, 0) = 0 THEN 'CLOSED'
+                        WHEN t2.Jml_Item_Acc > 0 AND t2.Total_Diterima >= t2.Total_Diminta THEN 'CLOSED'
+                        WHEN t2.Total_Diterima > 0 THEN 'ONPROSES' ELSE 'OPEN'
+                    END AS Status_Diterima
+                FROM tmintabahan_mmt_hdr t1
+                LEFT JOIN (${sqlAggMMT}) t2 ON t2.mbd_mb_nomor = t1.mb_nomor
+                LEFT JOIN tgudang t3 ON t3.gdg_kode = t1.mb_gdg_kode
+                WHERE t1.mb_tanggal BETWEEN ? AND ?
+                ORDER BY t1.mb_tanggal DESC
+            `;
+            paramsMaster = [startDate, endDate];
+        } 
+        else if (divisi == 4) {
+            sqlMaster = `
+                SELECT
+                    t1.mb_nomor AS Nomor, t1.mb_mintake AS Gudang, 'GUDANG OBAT' AS Nama,
+                    DATE_FORMAT(t1.mb_tanggal, '%d-%m-%Y') AS Tanggal, t1.mb_ket AS Keterangan,
+                    'TOBAT' AS Source,
+                    NULL AS Estimasi_Kedatangan,
+                    NULL AS Tanggal_Datang,
+                    CASE WHEN t1.mb_status = 'CLOSE' THEN 'Acc Manager' ELSE 'PENDING' END AS Status_Acc,
+                    IFNULL(t2.Total_Diminta, 0) AS Total_Diminta,
+                    0 AS Total_DiPO, 0 AS Total_Diterima,
+                    'OPEN' AS Status_PO, 'OPEN' AS Status_Diterima
+                FROM tobatmintabeli_hdr t1
+                LEFT JOIN (${sqlAggTobat}) t2 ON t2.mbd_mb_nomor = t1.mb_nomor
+                WHERE t1.mb_tanggal BETWEEN ? AND ?
+                ORDER BY t1.mb_tanggal DESC
+            `;
+            paramsMaster = [startDate, endDate];
+        } else {
+            return [];
+        }
+
+        const [masterResults] = await pool.query(sqlMaster, paramsMaster);
         if (masterResults.length === 0) return [];
 
         const masterNomors = masterResults.map(row => row.Nomor);
 
-        // 3. Query Detail
+        // 3. Query Detail Gabungan
         const sqlDetail = `
-            SELECT
-                d.mbd_mb_nomor AS Nomor,
-                d.mbd_spk_nomor AS Nomor_SPK,
-                TRIM(x.spk_nama) AS spk_nama,
-                d.mbd_brg_kode AS Kode,
-                d.mbd_acc AS Is_Acc,
-                d.mbd_qty_terima AS Jumlah_terima,
-                TRIM(b.brg_nama) AS Nama_Bahan,
-                d.mbd_qty AS Jumlah,
-                d.mbd_brg_satuan AS Satuan,
-                b.brg_panjang AS Panjang,
-                b.brg_lebar AS Lebar,
-                b.brg_satuan_harga
-            FROM tmintabahan_mmt_dtl d
-            LEFT JOIN tbarang_mmt b ON d.mbd_brg_kode = b.brg_kode
-            LEFT JOIN (
-                SELECT spk_nomor, spk_nama FROM tspk
+            SELECT * FROM (
+                SELECT 
+                    d.mbd_mb_nomor AS Nomor, d.mbd_brg_kode AS Kode, d.mbd_qty AS Jumlah, d.mbd_brg_satuan AS Satuan,
+                    TRIM(b.brg_nama) AS Nama_Bahan, b.brg_panjang AS Panjang, b.brg_lebar AS Lebar, b.brg_satuan_harga AS Harga
+                FROM tmintabahan_mmt_dtl d
+                LEFT JOIN tbarang_mmt b ON d.mbd_brg_kode = b.brg_kode
+                WHERE d.mbd_mb_nomor IN (?)
                 UNION ALL
-                SELECT mspk_nomor, mspk_nama FROM tmemospk
-            ) x ON x.spk_nomor = d.mbd_spk_nomor
-            WHERE d.mbd_mb_nomor IN (?)
-            ORDER BY d.mbd_mb_nomor, d.mbd_nourut;
+                SELECT 
+                    d.mbd_nomor AS Nomor, d.mbd_o_kode AS Kode, d.mbd_jumlah AS Jumlah, 'PCS' AS Satuan,
+                    TRIM(t.o_nama) AS Nama_Bahan, 0 AS Panjang, 0 AS Lebar, t.o_harga AS Harga
+                FROM tobatmintabeli_dtl d
+                LEFT JOIN tobat t ON d.mbd_o_kode = t.o_kode
+                WHERE d.mbd_nomor IN (?)
+            ) AS combined_detail
         `;
 
-        const [detailResults] = await pool.query(sqlDetail, [masterNomors]);
+        const [detailResults] = await pool.query(sqlDetail, [masterNomors, masterNomors]);
 
-        // Mapping hasil
-        const result = masterResults.map(master => ({
+        return masterResults.map(master => ({
             ...master,
             Detail: detailResults.filter(dtl => dtl.Nomor === master.Nomor)
         }));
-
-        return result;
 
     } catch (error) {
         console.error("Error in getPermintaanBahanData:", error.message);
@@ -370,11 +388,20 @@ exports.deletePermintaanBahan = async (nomor) => {
 };
 
 
-exports.generateMaxKode = async (tanggal) => {
-    const NOMERATOR = 'MMT.MB';
+exports.generateMaxKode = async (tanggal, gudangKode) => {
+    // 1. Tentukan Prefix berdasarkan Gudang
+    // Jika WH-20 maka MO, selain itu MMT.MB
+    const NOMERATOR = (gudangKode === 'WH-20') ? 'MO' : 'MMT.MB';
+    
     const yyMm = format(new Date(tanggal), 'yyMM');
     const prefix = `${NOMERATOR}.${yyMm}.%`;
-    const sql = `SELECT MAX(CAST(RIGHT(mb_nomor, 4) AS UNSIGNED)) AS max_num FROM tmintabahan_mmt_hdr WHERE mb_nomor LIKE ?`;
+    
+    // 2. Cari nomor terakhir dengan prefix tersebut
+    const sql = `
+        SELECT MAX(CAST(RIGHT(mb_nomor, 4) AS UNSIGNED)) AS max_num 
+        FROM tmintabahan_mmt_hdr 
+        WHERE mb_nomor LIKE ?
+    `;
 
     const [rows] = await pool.query(sql, [prefix]);
 
@@ -388,156 +415,161 @@ exports.generateMaxKode = async (tanggal) => {
 // SAVE (Insert / Update) - saveMintaMmt
 // ===================================
 
-// backend/src/services/permintaanBahan.service.js
-
-// backend/src/services/permintaanBahan.service.js
-
-
-
 exports.savePermintaanBahan = async (data, nomorToEdit, userLogin) => {
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
 
-        const currentNomor = nomorToEdit || await exports.generateMaxKode(data.Tanggal);
         const serverTime = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+        const isUpdating = !!nomorToEdit;
+        const isWH20 = data.GudangKode === 'WH-20';
 
-        // =====================================
-        // AMBIL STATUS ACC DARI PENGAJUAN
-        // =====================================
-        let accSpv = 'N';
-        let accSpvUser = null;
+        // 1. GENERATE NOMOR
+        let currentNomor = nomorToEdit;
+        if (!isUpdating) {
+            // Menggunakan fungsi generateMaxKode yang sudah disesuaikan sebelumnya (MO untuk WH-20)
+            currentNomor = await exports.generateMaxKode(data.Tanggal, data.GudangKode);
+        }
 
+        // 2. LOGIKA PENGAJUAN (Cek ACC dari tpengajuan_permintaan_hdr)
+        let accStatus = 'N';
+        let accUser = null;
         if (data.NoPengajuan) {
-            const [rows] = await connection.query(`
-                SELECT 
-                    pp_acc_req      AS acc,
-                    pp_acc_req_user AS acc_user
-                FROM tpengajuan_permintaan_hdr
-                WHERE pp_nomor = ?
-                LIMIT 1
-            `, [data.NoPengajuan]);
-
-            if (rows.length && rows[0].acc === 'Y') {
-                accSpv = 'Y';
-                accSpvUser = rows[0].acc_user;
+            const [rows] = await connection.query(
+                `SELECT pp_acc_req, pp_acc_req_user FROM tpengajuan_permintaan_hdr WHERE pp_nomor = ? LIMIT 1`,
+                [data.NoPengajuan]
+            );
+            if (rows.length && rows[0].pp_acc_req === 'Y') {
+                accStatus = 'Y';
+                accUser = rows[0].pp_acc_req_user;
             }
         }
 
-        // =====================================
-        // UPDATE / INSERT HEADER
-        // =====================================
-        if (nomorToEdit) {
+        // 3. SEPARASI PENYIMPANAN
+        if (isWH20) {
+            // --- LOGIKA TABEL TOBAT (WH-20) ---
+            if (isUpdating) {
+                await connection.query(`
+                    UPDATE tobatmintabeli_hdr SET
+                        mb_tanggal = ?, 
+                        mb_ket = ?, 
+                        mb_status = ?, 
+                        mb_mintake = ?, 
+                        date_modified = ?, 
+                        user_modified = ?
+                    WHERE mb_nomor = ?
+                `, [
+                    data.Tanggal, 
+                    data.Keterangan, 
+                    'OPEN', // Default status sesuai gambar (CHAR 10)
+                    data.PabrikKode || '', // mb_mintake sesuai gambar (CHAR 3)
+                    serverTime, 
+                    userLogin, 
+                    currentNomor
+                ]);
 
-            const sqlUpdate = `
-    UPDATE tmintabahan_mmt_hdr SET
-        mb_gdg_kode      = ?,
-        mb_tanggal       = ?,
-        mb_to_user       = ?,
-        mb_to_cab        = ?,
-        mb_priority      = ?,
-        mb_keterangan    = ?,
-        mb_acc_req       = ?,
-        mb_acc_req_user  = ?,
-        mb_pp_nomor      = ?,     
-        date_modified    = ?,
-        user_modified    = ?
-    WHERE mb_nomor = ?
-`;
+                await connection.query('DELETE FROM tobatmintabeli_dtl WHERE mbd_nomor = ?', [currentNomor]);
+            } else {
+                await connection.query(`
+                    INSERT INTO tobatmintabeli_hdr 
+                    (mb_nomor, mb_tanggal, mb_ket, mb_status, mb_mintake, date_create, user_create) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                `, [
+                    currentNomor, 
+                    data.Tanggal, 
+                    data.Keterangan, 
+                    'OPEN', 
+                    data.PabrikKode || '', 
+                    serverTime, 
+                    userLogin
+                ]);
+            }
 
-await connection.query(sqlUpdate, [
-    data.GudangKode,
-    data.Tanggal,
-    data.Kepada,
-    data.Cabang,
-    data.Priority,
-    data.Keterangan,
-    accSpv,
-    accSpvUser,
-    data.NoPengajuan || null,   
-    serverTime,
-    userLogin,
-    currentNomor
-]);
+            // Simpan Detail Obat
+            if (Array.isArray(data.Detail) && data.Detail.length > 0) {
+                const detailValues = data.Detail
+                    .filter(d => (d.SKU || d.KodeObat)) // Hindari baris kosong
+                    .map((item, index) => [
+                        currentNomor,
+                        item.SKU || item.KodeObat,
+                        parseFloat(item.QTY || item.Jumlah) || 0, // mbd_jumlah (DOUBLE)
+                        item.KeteranganItem || item.Keterangan || '',
+                        index + 1 // mbd_nourut (INT)
+                    ]);
 
-
-            await connection.query(
-                'DELETE FROM tmintabahan_mmt_dtl WHERE mbd_mb_nomor = ?',
-                [currentNomor]
-            );
+                if (detailValues.length > 0) {
+                    await connection.query(`
+                        INSERT INTO tobatmintabeli_dtl (mbd_nomor, mbd_o_kode, mbd_jumlah, mbd_ket, mbd_nourut) 
+                        VALUES ?
+                    `, [detailValues]);
+                }
+            }
 
         } else {
+            // --- LOGIKA TABEL MMT (WH-16 / Lainnya) ---
+            if (isUpdating) {
+                await connection.query(`
+                    UPDATE tmintabahan_mmt_hdr SET
+                        mb_gdg_kode = ?, mb_tanggal = ?, mb_to_user = ?, mb_to_cab = ?,
+                        mb_priority = ?, mb_keterangan = ?, mb_acc_req = ?, mb_acc_req_user = ?,
+                        mb_pp_nomor = ?, date_modified = ?, user_modified = ?
+                    WHERE mb_nomor = ?
+                `, [
+                    data.GudangKode, data.Tanggal, data.Kepada, data.Cabang,
+                    data.Priority, data.Keterangan, accStatus, accUser,
+                    data.NoPengajuan || null, serverTime, userLogin, currentNomor
+                ]);
 
-            const sqlInsert = `
-    INSERT INTO tmintabahan_mmt_hdr 
-    (
-        mb_nomor, mb_tanggal, mb_gdg_kode, mb_to_user, 
-        mb_to_cab, mb_priority, mb_keterangan, 
-        mb_pp_nomor,            
-        date_create, user_create,
-        mb_acc_req, mb_acc_req_user
-    ) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`;
+                await connection.query('DELETE FROM tmintabahan_mmt_dtl WHERE mbd_mb_nomor = ?', [currentNomor]);
+            } else {
+                await connection.query(`
+                    INSERT INTO tmintabahan_mmt_hdr 
+                    (mb_nomor, mb_tanggal, mb_gdg_kode, mb_to_user, mb_to_cab, mb_priority, 
+                     mb_keterangan, mb_pp_nomor, date_create, user_create, mb_acc_req, mb_acc_req_user) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `, [
+                    currentNomor, data.Tanggal, data.GudangKode, data.Kepada, data.Cabang,
+                    data.Priority, data.Keterangan, data.NoPengajuan || null,
+                    serverTime, userLogin, accStatus, accUser
+                ]);
+            }
 
-await connection.query(sqlInsert, [
-    currentNomor,
-    data.Tanggal,
-    data.GudangKode,
-    data.Kepada,
-    data.Cabang,
-    data.Priority,
-    data.Keterangan,
-    data.NoPengajuan || null,   
-    serverTime,
-    userLogin,
-    accSpv,
-    accSpvUser
-]);
+            // Simpan Detail MMT
+            if (Array.isArray(data.Detail) && data.Detail.length > 0) {
+                const detailValues = data.Detail
+                    .filter(d => d.SKU && (d.QTY || d.Jumlah) > 0)
+                    .map((d, index) => [
+                        currentNomor,
+                        d.spk || d.SPK || null,
+                        d.sku || d.SKU,
+                        d.satuan || d.Satuan,
+                        parseFloat(d.qty || d.QTY || d.Jumlah),
+                        d.keterangan || d.KeteranganItem || null,
+                        index + 1,
+                        accStatus === 'Y' ? 'Y' : 'N'
+                    ]);
 
-        }
-
-        // =====================================
-        // INSERT DETAIL (IKUT STATUS HEADER)
-        // =====================================
-        if (Array.isArray(data.Detail) && data.Detail.length > 0) {
-
-            const detailValues = data.Detail.map((d, index) => [
-                currentNomor,
-                d.SPK || null,
-                d.SKU,
-                d.Satuan,
-                d.QTY,
-                d.KeteranganItem || null,
-                index + 1,
-                accSpv === 'Y' ? 'Y' : 'N'   // ✅ ikut header
-            ]);
-
-            const sqlInsertDetail = `
-                INSERT INTO tmintabahan_mmt_dtl 
-                (
-                    mbd_mb_nomor, mbd_spk_nomor, mbd_brg_kode,
-                    mbd_brg_satuan, mbd_qty, mbd_keterangan,
-                    mbd_nourut, mbd_acc
-                ) 
-                VALUES ?
-            `;
-
-            await connection.query(sqlInsertDetail, [detailValues]);
+                if (detailValues.length > 0) {
+                    await connection.query(`
+                        INSERT INTO tmintabahan_mmt_dtl 
+                        (mbd_mb_nomor, mbd_spk_nomor, mbd_brg_kode, mbd_brg_satuan, mbd_qty, mbd_keterangan, mbd_nourut, mbd_acc) 
+                        VALUES ?
+                    `, [detailValues]);
+                }
+            }
         }
 
         await connection.commit();
-        return { Nomor: currentNomor };
+        return { success: true, Nomor: currentNomor };
 
     } catch (error) {
         await connection.rollback();
-        console.error("Error in savePermintaanBahan:", error);
+        console.error("Error in savePermintaanBahan Gabungan:", error);
         throw error;
     } finally {
         connection.release();
     }
 };
-
 
 
 

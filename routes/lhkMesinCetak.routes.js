@@ -9,7 +9,7 @@ const verifyToken = require('../middleware/auth.middleware');
 // 1. Ambil semua header
 router.get('/', verifyToken, controller.getAllHeaders);
 
-router.get('/lookup', verifyToken, controller.getAllHeaders);
+router.get('/lookup', verifyToken, controller.getLookup);
 
 // 2. Lookup untuk modal (Gunakan fungsi yang sama atau berbeda)
 router.get('/lookup/:nomor', verifyToken, controller.getLookupByNomor);

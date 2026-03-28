@@ -351,10 +351,14 @@ const getPoDataForPrint = async (nomor) => {
 
 
 const getUnfulfilledMbDetail = async (mbNomor) => {
+  // Cek apakah nomor diawali MO (Gudang WH-20)
+  const isObat = mbNomor.startsWith('MO');
+
   const sql = `
     SELECT 
       req.mbd_brg_kode AS Kode,
-      b.brg_nama AS Nama_Bahan,
+      -- Jika MO ambil dari tobat (o_nama), jika tidak dari tbarang_mmt (brg_nama)
+      ${isObat ? 'TRIM(t.o_nama)' : 'TRIM(b.brg_nama)'} AS Nama_Bahan,
       req.mbd_brg_satuan AS Satuan,
       req.mbd_spk_nomor AS Nomor_SPK,
 
@@ -362,13 +366,15 @@ const getUnfulfilledMbDetail = async (mbNomor) => {
       req.mbd_qty_po AS Committed_PO_Qty,
       (req.mbd_qty - COALESCE(req.mbd_qty_po, 0)) AS Sisa_Qty_Roll,
 
-      b.brg_panjang AS Panjang,
-      b.brg_lebar   AS Lebar,
-      b.brg_satuan_harga
+      -- Untuk Obat biasanya tidak ada panjang lebar, kita set 0 atau ambil dari kolom yang sesuai
+      ${isObat ? '0' : 'b.brg_panjang'} AS Panjang,
+      ${isObat ? '0' : 'b.brg_lebar'}   AS Lebar,
+      ${isObat ? 't.o_harga' : 'b.brg_satuan_harga'} AS brg_satuan_harga
 
     FROM tmintabahan_mmt_dtl req
-    LEFT JOIN tbarang_mmt b 
-      ON req.mbd_brg_kode = b.brg_kode
+    -- Join kondisional berdasarkan jenis gudang
+    LEFT JOIN tbarang_mmt b ON req.mbd_brg_kode = b.brg_kode AND '${isObat}' = 'false'
+    LEFT JOIN tobat t ON req.mbd_brg_kode = t.o_kode AND '${isObat}' = 'true'
 
     WHERE 
       req.mbd_mb_nomor = ?
@@ -381,13 +387,13 @@ const getUnfulfilledMbDetail = async (mbNomor) => {
   const [rows] = await pool.query(sql, [mbNomor]);
 
   const [hRows] = await pool.query(
-    `SELECT mb_memo FROM tmintabahan_mmt_hdr WHERE mb_nomor = ?`,
+    `SELECT mb_keterangan FROM tmintabahan_mmt_hdr WHERE mb_nomor = ?`,
     [mbNomor]
   );
 
   return {
     Nomor: mbNomor,
-    Keterangan: hRows[0]?.mb_memo || '',
+    Keterangan: hRows[0]?.mb_keterangan || '', // Pastikan nama kolom benar (mb_keterangan/mb_memo)
     Detail: rows.map(item => {
       const panjang = parseFloat(item.Panjang) || 0;
       const lebar   = parseFloat(item.Lebar) || 0;
@@ -399,20 +405,20 @@ const getUnfulfilledMbDetail = async (mbNomor) => {
         Satuan: item.Satuan,
         Nomor_SPK: item.Nomor_SPK,
 
-        Jumlah: parseFloat(item.Sisa_Qty_Roll), // ✅ qty roll
+        Jumlah: parseFloat(item.Sisa_Qty_Roll), 
         Panjang: panjang,
         Lebar: lebar,
-        M2: m2, 
+        M2: m2 > 0 ? m2 : 0, 
         brg_satuan_harga: item.brg_satuan_harga,
 
-        Harga: 0,
+        Harga: item.brg_satuan_harga || 0, // Ambil harga master sebagai default
         Diskon: 0,
-        mb_nomor: mbNomor
+        mb_nomor: mbNomor,
+        total: parseFloat(item.Sisa_Qty_Roll) * (item.brg_satuan_harga || 0)
       };
     })
   };
 };
-
 
 const getPOLookupData = async (keyword) => {
   try {
@@ -465,8 +471,9 @@ const getPOLookupData = async (keyword) => {
   }
 };
 
-const getPODetail = async (poNomor) => {
+const getPODetail = async (poNomor) => { // <-- Namanya poNomor
   try {
+    // 1. Ambil Header
     const [hRows] = await pool.query(`
       SELECT 
         po_nomor AS Nomor, 
@@ -480,24 +487,31 @@ const getPODetail = async (poNomor) => {
       throw new Error(`Nomor PO ${poNomor} tidak ditemukan.`);
     }
 
-    const [dRows] = await pool.query(`
+    // 2. Ambil Detail
+    const [detailRows] = await pool.query(`
       SELECT 
-        D.pod_brg_kode AS SKU,
-        B.brg_nama AS Nama_Bahan,
-        D.pod_qty AS QTY_PO,
-        B.brg_satuan AS Satuan,
-        B.brg_panjang AS Panjang,
-        B.brg_lebar AS Lebar,
-        D.pod_harga AS Harga_PO,
-        (D.pod_qty * D.pod_harga) AS Subtotal
-      FROM tpo_mmt_dtl D
-      INNER JOIN tbarang_mmt B ON D.pod_brg_kode = B.brg_kode
-      WHERE D.pod_po_nomor = ?
-    `, [poNomor]);
+        d.pod_nourut AS no, d.pod_brg_kode AS kode, 
+        COALESCE(b.brg_nama, t.o_nama) AS nama,
+        d.pod_keterangan AS namaext, d.pod_brg_satuan AS satuan, 
+        d.pod_qty AS jumlah, d.pod_m2 AS m2,
+        d.pod_harga AS harga, d.pod_discpr AS diskon, d.pod_spk_nomor AS spk,
+        d.pod_mb_nomor AS mb_nomor, 
+        COALESCE(b.brg_panjang, 0) AS panjang, COALESCE(b.brg_lebar, 0) AS lebar,
+        d.pod_qty * d.pod_m2 * d.pod_harga * (1 - d.pod_discpr / 100) AS total
+      FROM tpo_mmt_dtl d
+      LEFT JOIN tbarang_mmt b ON d.pod_brg_kode = b.brg_kode
+      LEFT JOIN tobat t ON d.pod_brg_kode = t.o_kode
+      WHERE d.pod_po_nomor = ? 
+      ORDER BY d.pod_nourut
+    `, [poNomor]); // <-- Tadi di sini 'nomor' (SALAH), diubah jadi poNomor (BENAR)
 
-    return { header: hRows[0], details: dRows };
+    // 3. Return Data
+    // Tadi di sini 'dRows' (SALAH), diubah jadi detailRows (BENAR)
+    return { header: hRows[0], details: detailRows }; 
+
   } catch (error) {
-    throwDbError(`Gagal memuat detail PO ${poNomor}`, error);
+    // Pastikan fungsi throwDbError sudah didefinisikan di tempat lain
+    throw error; 
   }
 };
 

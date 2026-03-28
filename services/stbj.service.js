@@ -1,5 +1,3 @@
-// backend/src/services/stbj.service.js
-
 const pool = require('../config/db.config');
 const { format } = require('date-fns');
 
@@ -195,20 +193,14 @@ exports.deleteSTBJ = async (nomor, gdgKode) => {
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
-
-        // Logika khusus WH003: Reset link di tabel packing sebelum hapus STBJ
         if (gdgKode === 'WH003') {
             await connection.query(
                 `UPDATE retail.tpacking SET pack_nostbj = NULL WHERE pack_nostbj = ?`,
                 [nomor]
             );
         }
-
-        // Hapus detail-detail
         await connection.query(`DELETE FROM retail.tdc_stbj WHERE tsd_nomor = ?`, [nomor]);
         await connection.query(`DELETE FROM tstbj_dtl WHERE stbjd_stbj_nomor = ?`, [nomor]);
-        
-        // Hapus Header
         const [result] = await connection.query(`DELETE FROM tstbj_hdr WHERE stbj_nomor = ?`, [nomor]);
 
         await connection.commit();

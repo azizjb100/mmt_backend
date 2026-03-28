@@ -72,45 +72,46 @@ const generateLhkNomor = async (conn, tanggal) => {
 /**
  * Modifikasi finalizeBundling untuk menggunakan penomoran otomatis
  */
-const finalizeBundling = async (headerData, detailIds) => {
+const finalizeBundling = async (headerData, detailItems) => {
     const conn = await pool.getConnection();
     try {
         await conn.beginTransaction();
         const lfh_nomor = await generateLhkNomor(conn, headerData.lfh_tanggal);
         const finalHeader = { ...headerData, lfh_nomor };
         await conn.query(`INSERT INTO tlhk_finishingmmt_hdr SET ?`, [finalHeader]);
-        const [praItems] = await conn.query(
-            `SELECT * FROM tpra_lhk_finishing WHERE id IN (?) ORDER BY id ASC`, 
-            [detailIds]
-        );
 
-        if (praItems.length === 0) throw new Error("Tidak ada detail yang dipilih.");
+        // Kumpulkan semua ID asli untuk diupdate statusnya nanti
+        const allOriginalIds = [];
+        
+        const dtlValues = detailItems.map((item, index) => {
+            const kategori = item.proses_kategori.toUpperCase().replace(/\s+/g, '_');
+            
+            // Tambahkan ID ke array untuk update bundling
+            if(item.ids) {
+                allOriginalIds.push(...item.ids.split(','));
+            }
 
-        // 4. Masukkan ke dtl dengan batch insert
-const dtlValues = praItems.map((item, index) => {
-    // Normalisasi teks agar "MATA AYAM" menjadi "MATA_AYAM"
-    const kategori = item.proses_kategori.toUpperCase().replace(/\s+/g, '_');
+            return [
+                lfh_nomor,
+                item.spk_nomor,
+                kategori === 'POTONG' ? item.qty_hasil : 0,
+                kategori === 'SEAMING' ? item.qty_hasil : 0,
+                kategori === 'MATA_AYAM' ? item.qty_hasil : 0,
+                kategori === 'KOLI' ? item.qty_hasil : 0,
+                kategori === 'X_BANNER' ? item.qty_hasil : 0,
+                kategori === 'ROLLUP_BANNER' ? item.qty_hasil : 0,
+                item.qty_bs || 0,
+                index + 1
+            ];
+        });
 
-    return [
-        lfh_nomor,              // 1. lfd_lfh_nomor
-        item.spk_nomor,         // 2. lfd_spk_nomor
-        kategori === 'SEAMING' ? item.qty_hasil : 0,   // 3. lfd_j_seaming
-        kategori === 'MATA_AYAM' ? item.qty_hasil : 0, // 4. lfd_j_mataayam
-        kategori === 'KOLI' ? item.qty_hasil : 0,      // 5. lfd_j_coly (TAMBAHKAN INI)
-        item.qty_bs || 0,       // 6. lfd_j_bs
-        index + 1               // 7. lfd_no_urut
-    ];
-});
-
-const sqlDtl = `
-    INSERT INTO tlhk_finishingmmt_dtl 
-    (lfd_lfh_nomor, lfd_spk_nomor, lfd_j_seaming, lfd_j_mataayam, lfd_j_coly, lfd_j_bs, lfd_no_urut) 
-    VALUES ?
-`;
+        const sqlDtl = `INSERT INTO tlhk_finishingmmt_dtl (lfd_lfh_nomor, lfd_spk_nomor, lfd_j_potong, lfd_j_seaming, lfd_j_mataayam, lfd_j_coly, lfd_xbanner_qty, lfd_rollupbanner_qty, lfd_j_bs, lfd_no_urut) VALUES ?`;
         await conn.query(sqlDtl, [dtlValues]);
+
+        // Update semua ID asli yang terlibat
         await conn.query(
             `UPDATE tpra_lhk_finishing SET is_bundled = 1, lfh_nomor = ? WHERE id IN (?)`,
-            [lfh_nomor, detailIds]
+            [lfh_nomor, allOriginalIds]
         );
 
         await conn.commit();
@@ -122,7 +123,6 @@ const sqlDtl = `
         if (conn) conn.release();
     }
 };
-
 /**
  * Mengambil detail item LHK Finishing
  */
@@ -197,24 +197,35 @@ const savePraLhk = async (details) => {
 
         const sql = `
             INSERT INTO tpra_lhk_finishing (
-                spk_nomor, spk_nama, proses_kategori, 
-                qty_hasil, qty_bs, material_kode, 
-                tgl_input, shift_input, input_by, is_bundled
+                spk_nomor, 
+                spk_nama, 
+                proses_kategori, 
+                qty_hasil, 
+                qty_bs, 
+                jml_mata_ayam,   -- TAMBAHKAN KOLOM INI
+                jml_koli,
+                material_kode, 
+                tgl_input, 
+                shift_input, 
+                input_by, 
+                is_bundled
             ) VALUES ?
         `;
 
-        // Map data dari frontend ke format array of arrays untuk mysql2 batch insert
+        // Map data dari frontend ke format array of arrays
         const values = details.map(d => [
             d.spk_nomor,
             d.spk_nama,
             d.proses_kategori,
             d.qty_hasil || 0,
             d.qty_bs || 0,
+            d.jml_mata_ayam || 0,
+            d.jml_koli || 0,
             d.material_kode || null,
             d.tgl_input,
             d.shift_input,
             d.input_by || 'system',
-            false // is_bundled selalu false saat input baru
+            false 
         ]);
 
         await conn.query(sql, [values]);
@@ -234,34 +245,33 @@ const getUnassignedPraLhk = async (tanggal, shift, proses) => {
     try {
         let sql = `
             SELECT 
-                id, spk_nomor, spk_nama, proses_kategori, 
-                qty_hasil, qty_bs, material_kode, 
-                tgl_input, shift_input, created_at
+                GROUP_CONCAT(id) as ids, 
+                spk_nomor, 
+                spk_nama, 
+                proses_kategori, 
+                SUM(qty_hasil) as qty_hasil, 
+                SUM(qty_bs) as qty_bs, 
+                MAX(material_kode) as material_kode, 
+                tgl_input, 
+                shift_input
             FROM tpra_lhk_finishing
             WHERE is_bundled = 0
         `;
         
         const params = [];
+        if (tanggal) { sql += ` AND tgl_input = ?`; params.push(tanggal); }
+        if (shift) { sql += ` AND shift_input = ?`; params.push(shift); }
+        if (proses) { sql += ` AND proses_kategori = ?`; params.push(proses); }
 
-        // Filter Tanggal
-        if (tanggal) {
-            sql += ` AND tgl_input = ?`;
-            params.push(tanggal);
-        }
-
-        // Filter Shift
-        if (shift) {
-            sql += ` AND shift_input = ?`;
-            params.push(shift);
-        }
-
-        // --- PERBAIKAN: Tambahkan logika filter proses di sini ---
-        if (proses) {
-            sql += ` AND proses_kategori = ?`;
-            params.push(proses);
-        }
-
-        sql += ` ORDER BY created_at ASC`;
+        // PERBAIKAN: Masukkan SEMUA kolom non-agregat ke dalam GROUP BY
+        sql += ` GROUP BY 
+                    spk_nomor, 
+                    spk_nama, 
+                    proses_kategori, 
+                    tgl_input, 
+                    shift_input`;
+                    
+        sql += ` ORDER BY spk_nomor ASC`;
 
         const [rows] = await pool.query(sql, params);
         return rows;
@@ -270,7 +280,6 @@ const getUnassignedPraLhk = async (tanggal, shift, proses) => {
         throw error;
     }
 };
-
 /**
  * Menghapus data pra-lhk jika ada kesalahan input (sebelum bundling)
  */

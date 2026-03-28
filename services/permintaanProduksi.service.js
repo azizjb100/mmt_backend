@@ -1,9 +1,7 @@
-// backend/src/services/permintaanProduksi.service.js
-
 const pool = require('../config/db.config');
 const { format } = require('date-fns');
 
-// Helper untuk throw error (diasumsikan sudah didefinisikan)
+
 const throwDbError = (message, error) => { throw new Error(message + ': ' + error.message); };
 
 
@@ -42,7 +40,6 @@ const throwDbError = (message, error) => { throw new Error(message + ': ' + erro
 
 exports.getStokByBarcode = async (barcode, gudangKode) => {
     try {
-        // --- LANGKAH 1: Coba cari di tabel MMT dulu ---
         const sqlMMT = `
             SELECT 
                 m.mst_barcode AS Barcode, 
@@ -62,12 +59,12 @@ exports.getStokByBarcode = async (barcode, gudangKode) => {
 
         const [resultsMMT] = await pool.query(sqlMMT, [barcode, gudangKode]);
 
-        // Jika ketemu di MMT, langsung kembalikan datanya
+        // Jika ketemu di MMT, langsung kembalikan
         if (resultsMMT.length > 0) {
             return resultsMMT[0];
         }
 
-        // --- LANGKAH 2: Jika tidak ketemu di MMT DAN gudangnya WH-20, cari di tabel OBAT ---
+        // --- LANGKAH 2: Cari di tabel OBAT (DENGAN mst_aktif) ---
         if (gudangKode === 'WH-20') {
             const sqlObat = `
                 SELECT 
@@ -81,7 +78,9 @@ exports.getStokByBarcode = async (barcode, gudangKode) => {
                     SUM(COALESCE(m.mst_stok_in, 0) - COALESCE(m.mst_stok_out, 0)) AS Stok
                 FROM tmasterstok_obat m
                 LEFT JOIN tobat b ON m.mst_brg_kode = b.o_kode
-                WHERE m.mst_barcode = ? AND m.mst_gdg_kode = ?
+                WHERE m.mst_barcode = ? 
+                  AND m.mst_gdg_kode = ?
+                  AND m.mst_aktif = 'Y' -- Sesuai karena di OBAT kolom ini ada
                 GROUP BY m.mst_barcode, m.mst_brg_kode, b.o_nama, b.o_satuan
                 HAVING Stok > 0;
             `;
@@ -90,66 +89,82 @@ exports.getStokByBarcode = async (barcode, gudangKode) => {
             return resultsObat[0] || null;
         }
 
-        return null; // Benar-benar tidak ditemukan di manapun
+        return null; 
     } catch (error) {
-        throw new Error(`Gagal scan barcode: ${error.message}`);
+        throw new Error(`Gagal verifikasi stok barcode: ${error.message}`);
     }
 };
 
+
 exports.getPermintaanProduksiData = async (startDate, endDate, userDivisi) => {
     try {
-        // Logika penentuan gudang berdasarkan user_divisi
-        let filterDivisi = "";
-        
-        if (userDivisi == 1) {
-            // Role 1 hanya boleh melihat WH-16
-            filterDivisi = "AND mnt_gdg_kode = 'WH-16'";
-        } else if (userDivisi == 4) {
-            // Role 4 hanya boleh melihat WH-20
-            filterDivisi = "AND mnt_gdg_kode = 'WH-20'";
+        let sqlMaster = "";
+        let sqlDetail = "";
+        const divisi = Number(userDivisi);
+        const DATE_FORMAT_SQL = "DATE_FORMAT(??, '%d-%M-%Y')";
+
+        if (divisi === 4) {
+            sqlMaster = `
+                SELECT
+                    h.promin_nomor AS Nomor, 
+                    'WH-20' AS Gudang, 
+                    'Gudang Obat/Tinta' AS Nama,
+                    DATE_FORMAT(h.promin_tanggal, '%d-%M-%Y') AS Tanggal, 
+                    h.promin_ket AS Keterangan,
+                    'OBAT' AS Tipe
+                FROM tobatproduksiminta_hdr h
+                WHERE h.promin_tanggal BETWEEN ? AND ?
+                ORDER BY h.promin_tanggal DESC;
+            `;
+
+            sqlDetail = `
+                SELECT
+                    d.promind_nomor AS Nomor, d.promind_o_kode AS Kode, 
+                    TRIM(b.o_nama) AS Nama_Bahan, d.promind_jumlah AS Jumlah, b.o_satuan AS Satuan,
+                    '0' AS Nomor_SPK, d.promind_ket AS Keterangan
+                FROM tobatproduksiminta_dtl d
+                LEFT JOIN tobat b ON d.promind_o_kode = b.o_kode
+                WHERE d.promind_nomor IN (?);
+            `;
         } else {
-            // Jika admin atau role lain, bisa melihat semua WH
-            filterDivisi = "AND gdg_kode LIKE '%WH%'";
+            let filterDivisi = (divisi === 1) ? "AND mnt_gdg_kode = 'WH-16'" : "";
+            
+            sqlMaster = `
+                SELECT
+                    h.mnt_nomor AS Nomor, h.mnt_gdg_kode AS Gudang, g.gdg_nama AS Nama,
+                    DATE_FORMAT(h.mnt_tanggal, '%d-%M-%Y') AS Tanggal, 
+                    h.mnt_keterangan AS Keterangan,
+                    'MMT' AS Tipe
+                FROM tminta_mmt_hdr h
+                LEFT JOIN tgudang g ON g.gdg_kode = h.mnt_gdg_kode
+                WHERE h.mnt_tanggal BETWEEN ? AND ? ${filterDivisi}
+                ORDER BY h.mnt_tanggal DESC;
+            `;
+
+            sqlDetail = `
+                SELECT
+                    d.mntd_mnt_nomor AS Nomor, d.mntd_brg_kode AS Kode, d.mntd_barcode AS Barcode,
+                    TRIM(b.brg_nama) AS Nama_Bahan, d.mntd_qty AS Jumlah, d.mntd_brg_satuan AS Satuan,
+                    d.mntd_spk_nomor AS Nomor_SPK, d.mntd_keterangan AS Keterangan
+                FROM tminta_mmt_dtl d
+                LEFT JOIN tbarang_mmt b ON d.mntd_brg_kode = b.brg_kode
+                WHERE d.mntd_mnt_nomor IN (?);
+            `;
         }
 
-        // Query SQL Master dengan Filter Divisi
-        const sqlMaster = `
-            SELECT
-                mnt_nomor AS Nomor, mnt_gdg_kode AS Gudang, gdg_nama AS Nama,
-                DATE_FORMAT(mnt_tanggal, '%d-%M-%Y') AS Tanggal, mnt_keterangan AS Keterangan
-            FROM tminta_mmt_hdr
-            LEFT JOIN tgudang ON gdg_kode = mnt_gdg_kode
-            WHERE mnt_tanggal BETWEEN ? AND ?
-                ${filterDivisi}
-            GROUP BY mnt_nomor, mnt_gdg_kode, mnt_tanggal, mnt_keterangan
-            ORDER BY mnt_tanggal DESC;
-        `;
-
         const [masterResults] = await pool.query(sqlMaster, [startDate, endDate]);
+        if (masterResults.length === 0) return [];
+
         const masterNomors = masterResults.map(row => row.Nomor);
-        
-        if (masterNomors.length === 0) return [];
-
-        // Query Detail tetap sama (menggunakan IN masterNomors yang sudah terfilter)
-        const sqlDetail = `
-            SELECT
-                d.mntd_mnt_nomor AS Nomor, d.mntd_brg_kode AS Kode, d.mntd_barcode AS Barcode,
-                TRIM(b.brg_nama) AS Nama_Bahan, d.mntd_qty AS Jumlah, d.mntd_brg_satuan AS Satuan,
-                d.mntd_spk_nomor AS Nomor_SPK, d.mntd_keterangan AS Keterangan,
-                MAX(s.mst_panjang) AS Panjang, MAX(s.mst_lebar) AS Lebar
-            FROM tminta_mmt_dtl d
-            LEFT JOIN tbarang_mmt b ON d.mntd_brg_kode = b.brg_kode
-            LEFT JOIN tmasterstok_mmt s ON d.mntd_barcode = s.mst_barcode 
-            WHERE d.mntd_mnt_nomor IN (?)
-            GROUP BY d.mntd_mnt_nomor, d.mntd_nourut, d.mntd_brg_kode, d.mntd_barcode, b.brg_nama, d.mntd_qty, d.mntd_brg_satuan, d.mntd_spk_nomor, d.mntd_keterangan
-            ORDER BY d.mntd_mnt_nomor, d.mntd_nourut;
-        `;
-
         const [detailResults] = await pool.query(sqlDetail, [masterNomors]);
 
-        // Mapping Data (Gunakan Map untuk efisiensi)
         const dataMap = new Map();
-        masterResults.forEach(item => dataMap.set(item.Nomor, { ...item, Detail: [] }));
+        masterResults.forEach(item => {
+            // Fallback jika tanggal null agar tidak jadi 1970
+            if (!item.Tanggal) item.Tanggal = format(new Date(), 'yyyy-MM-dd');
+            dataMap.set(item.Nomor, { ...item, Detail: [] });
+        });
+
         detailResults.forEach(detail => {
             if (dataMap.has(detail.Nomor)) {
                 dataMap.get(detail.Nomor).Detail.push(detail);
@@ -159,7 +174,7 @@ exports.getPermintaanProduksiData = async (startDate, endDate, userDivisi) => {
         return Array.from(dataMap.values());
 
     } catch (error) {
-        throw new Error('Gagal mengambil data Permintaan: ' + error.message);
+        throw new Error('Gagal ambil data permintaan: ' + error.message);
     }
 };
 
@@ -234,68 +249,129 @@ exports.getNewNomor = async () => {
 };
 
 
+
 exports.savePermintaanProduksi = async (data, isUpdate = false, userLogin) => {
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
 
-        // Ambil properti langsung dari 'data' sesuai mapping di Controller
-        let { Nomor, Gudang, Tanggal, Keterangan, Details, LokasiProduksi, Permintaan } = data;
+        // Destrukturisasi properti
+        let { 
+            Nomor, Gudang, Tanggal, Keterangan, Details, 
+            LokasiProduksi, Permintaan, NomorMinta, PinUrut, StatusPin 
+        } = data;
+        const idPermintaan = NomorMinta || Permintaan || data.mnt_permintaan;
 
         const serverTime = new Date();
         const activeUser = userLogin || 'SYSTEM';
 
-        // Logika Nomor Otomatis
-        if (!isUpdate && (!Nomor || Nomor === 'AUTO')) {
-            Nomor = await exports.getNewNomor();
-        }
+        // -------------------------------------------------------
+        // JALUR 1: GUDANG WH-20 (LOGIKA OBAT / DELPHI)
+        // -------------------------------------------------------
+        if (Gudang === 'WH-20') {
+            // Validasi tambahan khusus WH-20
+            if (!idPermintaan) {
+                throw new Error("Nomor Permintaan (promin_minta) tidak boleh kosong untuk WH-20");
+            }
 
-        if (isUpdate) {
-            await connection.query(
-                `UPDATE tminta_mmt_hdr SET 
-                    mnt_gdg_kode=?, 
-                    mnt_lokasiproduksi=?, 
-                    mnt_tanggal=?, 
-                    mnt_keterangan=?, 
-                    mnt_permintaan=?, 
-                    user_modified=?, 
-                    date_modified=? 
-                WHERE mnt_nomor=?`,
-                [Gudang, LokasiProduksi, Tanggal, Keterangan, Permintaan, activeUser, serverTime, Nomor]
-            );
-            await connection.query('DELETE FROM tminta_mmt_dtl WHERE mntd_mnt_nomor = ?', [Nomor]);
+            const tahun = format(new Date(Tanggal), 'yyyy');
+            
+            // Generate Nomor Otomatis REO
+            if (!isUpdate && (!Nomor || Nomor === 'AUTO')) {
+                const [rows] = await connection.query(
+                    `SELECT IFNULL(MAX(RIGHT(promin_nomor, 5)), 0) AS jumlah 
+                     FROM tobatproduksiminta_hdr WHERE LEFT(promin_nomor, 8) = ?`, 
+                    [`REO-${tahun}`]
+                );
+                const nextNum = parseInt(rows[0].jumlah) + 1;
+                Nomor = `REO-${tahun}${nextNum.toString().padStart(5, '0')}`;
+            }
+
+            if (isUpdate) {
+                await connection.query(
+                    `UPDATE tobatproduksiminta_hdr SET 
+                        promin_tanggal=?, promin_minta=?, promin_ket=?, 
+                        user_modified=?, date_modified=? WHERE promin_nomor=?`,
+                    [Tanggal, idPermintaan, Keterangan, activeUser, serverTime, Nomor]
+                );
+                await connection.query('DELETE FROM tobatproduksiminta_dtl WHERE promind_nomor = ?', [Nomor]);
+            } else {
+                await connection.query(
+                    `INSERT INTO tobatproduksiminta_hdr 
+                        (promin_nomor, promin_tanggal, promin_minta, promin_ket, user_create, date_create) 
+                     VALUES (?, ?, ?, ?, ?, ?)`,
+                    [Nomor, Tanggal, idPermintaan, Keterangan, activeUser, serverTime]
+                );
+            }
+
+            // Simpan Detail Obat
+            if (Details && Details.length > 0) {
+                const detailValues = Details.map(d => [Nomor, d.sku, d.qty, d.keterangan || '']);
+                await connection.query(
+                    `INSERT INTO tobatproduksiminta_dtl (promind_nomor, promind_o_kode, promind_jumlah, promind_ket) VALUES ?`, 
+                    [detailValues]
+                );
+                
+                // Logic min_close (Update status di tobatminta_hdr)
+                const [reqData] = await connection.query(`SELECT SUM(mind_jumlah) as total FROM tobatminta_dtl WHERE mind_nomor=?`, [idPermintaan]);
+                const [prevData] = await connection.query(`SELECT IFNULL(SUM(d.promind_jumlah), 0) as sudah FROM tobatproduksiminta_hdr h INNER JOIN tobatproduksiminta_dtl d ON d.promind_nomor=h.promin_nomor WHERE h.promin_minta=? AND h.promin_nomor<>?`, [idPermintaan, Nomor]);
+                
+                const totalMinta = reqData[0] ? (reqData[0].total || 0) : 0;
+                const totalKumulatif = parseFloat(prevData[0].sudah) + Details.reduce((sum, d) => sum + parseFloat(d.qty || 0), 0);
+                
+                let statusClose = totalKumulatif >= totalMinta ? 1 : (totalKumulatif > 0 ? 2 : 0);
+                if (statusClose > 0) {
+                    await connection.query(`UPDATE tobatminta_hdr SET min_close=? WHERE min_nomor=?`, [statusClose, idPermintaan]);
+                }
+            }
+
+            // PIN Logic
+            if (StatusPin === 'ACC' && PinUrut) {
+                await connection.query(`UPDATE tspk_pin5 SET pin_dipakai='Y' WHERE pin_trs='REALISASI MINTA OBAT' AND pin_nomor=? AND pin_urut=?`, [Nomor, PinUrut]);
+            }
+
+        // -------------------------------------------------------
+        // JALUR 2: GUDANG WH-16 (LOGIKA MMT ASLI)
+        // -------------------------------------------------------
         } else {
-            await connection.query(
-                `INSERT INTO tminta_mmt_hdr 
-                    (mnt_nomor, mnt_gdg_kode, mnt_lokasiproduksi, mnt_tanggal, mnt_keterangan, mnt_permintaan, user_create, date_create) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                [Nomor, Gudang, LokasiProduksi, Tanggal, Keterangan, Permintaan, activeUser, serverTime]
-            );
-        }
+            if (!isUpdate && (!Nomor || Nomor === 'AUTO')) {
+                Nomor = await exports.getNewNomor(); 
+            }
 
-        // Simpan Detail
-        if (Details && Details.length > 0) {
-            const detailValues = Details.map(d => [
-                Nomor, 
-                d.nourut, 
-                d.sku, 
-                d.qty, 
-                d.satuan, 
-                null, // operator
-                d.spk || "0", 
-                d.keterangan, 
-                d.barcode
-            ]);
+            if (isUpdate) {
+                await connection.query(
+                    `UPDATE tminta_mmt_hdr SET 
+                        mnt_gdg_kode=?, mnt_lokasiproduksi=?, mnt_tanggal=?, 
+                        mnt_keterangan=?, mnt_permintaan=?, user_modified=?, date_modified=? 
+                     WHERE mnt_nomor=?`,
+                    [Gudang, LokasiProduksi, Tanggal, Keterangan, idPermintaan, activeUser, serverTime, Nomor]
+                );
+                await connection.query('DELETE FROM tminta_mmt_dtl WHERE mntd_mnt_nomor = ?', [Nomor]);
+            } else {
+                await connection.query(
+                    `INSERT INTO tminta_mmt_hdr 
+                        (mnt_nomor, mnt_gdg_kode, mnt_lokasiproduksi, mnt_tanggal, mnt_keterangan, mnt_permintaan, user_create, date_create) 
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [Nomor, Gudang, LokasiProduksi, Tanggal, Keterangan, idPermintaan, activeUser, serverTime]
+                );
+            }
 
-            await connection.query(
-                `INSERT INTO tminta_mmt_dtl 
-                (mntd_mnt_nomor, mntd_nourut, mntd_brg_kode, mntd_qty, mntd_brg_satuan, mntd_operator, mntd_spk_nomor, mntd_keterangan, mntd_barcode) 
-                VALUES ?`, [detailValues]
-            );
+            if (Details && Details.length > 0) {
+                const detailValues = Details.map((d, index) => [
+                    Nomor, d.nourut || (index + 1), d.sku, d.qty, d.satuan, null, d.spk || "0", d.keterangan, d.barcode
+                ]);
+
+                await connection.query(
+                    `INSERT INTO tminta_mmt_dtl 
+                        (mntd_mnt_nomor, mntd_nourut, mntd_brg_kode, mntd_qty, mntd_brg_satuan, mntd_operator, mntd_spk_nomor, mntd_keterangan, mntd_barcode) 
+                     VALUES ?`, [detailValues]
+                );
+            }
         }
 
         await connection.commit();
         return { success: true, nomor: Nomor };
+
     } catch (error) {
         await connection.rollback();
         throw error;

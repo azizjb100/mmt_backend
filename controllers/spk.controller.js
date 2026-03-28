@@ -68,3 +68,27 @@ exports.getSpkDetail = async (req, res) => {
         });
     }
 };
+
+
+// backend/src/controllers/spk.controller.js
+
+exports.printSpk = async (req, res) => {
+    try {
+        const { nomor } = req.params;
+        
+        // 1. Ambil data Header
+        const header = await spkService.getSpkDetailByNomor(nomor);
+        
+        // 2. Ambil data Detail Size (Penting untuk tabel di print)
+        const details = await spkService.getSpkDetailSize(nomor);
+        
+        // 3. Gabungkan dan kirim ke Frontend
+        res.json({
+            ...header,
+            details: details
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: error.message });
+    }
+};

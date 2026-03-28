@@ -198,3 +198,21 @@ exports.getSpkDetailByNomor = async (nomor) => {
         throwDbError(`Gagal memuat detail SPK ${nomor}`, error);
     }
 };
+
+exports.getSpkForPrint = async (nomor) => {
+    try {
+        // 1. Ambil Header (Gunakan fungsi yang sudah ada)
+        const header = await this.getSpkDetailByNomor(nomor);
+
+        // 2. Ambil Detail Size
+        const details = await this.getSpkDetailSize(nomor);
+
+        // 3. Gabungkan
+        return {
+            ...header,
+            details: details
+        };
+    } catch (error) {
+        throwDbError(`Gagal memproses data cetak SPK ${nomor}`, error);
+    }
+};

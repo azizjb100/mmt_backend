@@ -20,9 +20,24 @@ exports.getAllHeaders = async (req, res) => {
     }
 };
 
+exports.getLookup = async (req, res) => {
+    try {
+        // AMBIL 'search' dari req.query di sini
+        const { startDate, endDate, search } = req.query; 
+        const data = await lhkCetakService.getLookup(startDate, endDate, search || '');
+        
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ 
+            message: "Gagal mengambil data master LHK", 
+            error: error.message 
+        });
+    }
+};
+
 exports.getDetails = async (req, res) => {
   try {
-    const { nomor } = req.query; // Ambil 'nomor' dari query parameter
+    const { nomor } = req.query;
     if (!nomor) {
       return res.status(400).json({ message: 'Nomor LHK diperlukan' });
     }

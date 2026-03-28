@@ -15,4 +15,6 @@ router.get('/detail-size/:nomor', spkController.getSpkDetailSize);
 // GET /api/mmt/spk/:nomor
 router.get('/:nomor', spkController.getSpkDetail);
 
+router.get('/print/:nomor', spkController.printSpk);
+
 module.exports = router;

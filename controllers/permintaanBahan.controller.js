@@ -8,14 +8,37 @@ exports.getPermintaanBahan = async (req, res) => {
     try {
         const { startDate, endDate } = req.query;
 
-        if (!startDate || !endDate) return res.status(400).json({ message: "Tanggal wajib diisi." });
+        // 1. Validasi Input Tanggal
+        if (!startDate || !endDate) {
+            return res.status(400).json({ message: "Tanggal wajib diisi." });
+        }
 
-        const data = await permintaanBahanService.getPermintaanBahanData(startDate, endDate);
+        // 2. AMBIL DIVISI DARI USER LOGIN
+        // Pastikan middleware auth Anda menyimpan data user di req.user
+        // Sesuaikan nama propertinya (misal: kd_divisi, divisi_id, atau divisi)
+        const divisi = req.user.kd_divisi || req.user.divisi;
 
-        return res.status(200).json({ message: 'Pengambilan data transaksi berhasil.', data: data });
+        if (!divisi) {
+            return res.status(403).json({ 
+                message: "Akses ditolak. Divisi user tidak ditemukan dalam sesi login." 
+            });
+        }
+
+        // 3. KIRIM 3 PARAMETER KE SERVICE
+        const data = await permintaanBahanService.getPermintaanBahanData(startDate, endDate, divisi);
+
+        return res.status(200).json({ 
+            message: 'Pengambilan data transaksi berhasil.', 
+            divisi_aktif: divisi, // Opsional: untuk debug di frontend
+            data: data 
+        });
 
     } catch (error) {
-        return res.status(500).json({ message: "Gagal mengambil data transaksi.", error: error.message });
+        console.error("Error Controller getPermintaanBahan:", error);
+        return res.status(500).json({ 
+            message: "Gagal mengambil data transaksi.", 
+            error: error.message 
+        });
     }
 };
 

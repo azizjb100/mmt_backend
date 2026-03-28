@@ -20,7 +20,6 @@ const getAllHeaders = async (startDate, endDate, search = '') => {
     const tglMulai = format(new Date(startDate), 'yyyy-MM-dd');
     const tglSelesai = format(new Date(endDate), 'yyyy-MM-dd');
     
-    // Siapkan array parameter untuk query
     const params = [tglMulai, tglSelesai];
 
     let sql = `
@@ -36,7 +35,25 @@ const getAllHeaders = async (startDate, endDate, search = '') => {
             ROUND(IFNULL(t2.spk_panjang,0),2) AS spk_panjang,
             IFNULL(t2.spk_lebar,0) AS spk_lebar,
             IFNULL(t2.spk_jumlah,0) AS JumlahOrder,
-            x.qtytotalcetak AS TotalCetak,
+            
+            -- Ambil data dari subquery x
+            IFNULL(x.qtytotalcetak, 0) AS TotalCetak,
+            IFNULL(x.panjang_bahan_awal, 0) AS PanjangBahanAwal,
+            IFNULL(x.sisa_akhir, 0) AS SisaMeterAkhir,
+            
+            -- Logika Surplus/Minus: 
+            -- Jika sisa_akhir < 0, berarti surplus pemakaian (bahan lebih panjang dari label)
+            -- Kita tampilkan nilai positif dari minus tersebut sebagai angka surplus
+            CASE 
+                WHEN x.sisa_akhir < 0 THEN ABS(x.sisa_akhir)
+                ELSE 0 
+            END AS NilaiSurplus,
+            
+            CASE 
+                WHEN x.sisa_akhir > 0 THEN x.sisa_akhir
+                ELSE 0 
+            END AS NilaiMinus,
+
             t1.lbahan AS Kode_bahan,
             t3.brg_nama AS nama_Bahan,
             IFNULL(t1.ljumlah_kolom,0) AS Tile,
@@ -50,14 +67,20 @@ const getAllHeaders = async (startDate, endDate, search = '') => {
         LEFT JOIN (
             SELECT 
                 ld_lnomor,
-                SUM(ld_qtyCetak1 + ld_qtyCetak2 + ld_qtyCetak3 + ld_qtyCetak4 + ld_qtyCetak5 + ld_qtyCetak6 + ld_qtyCetak7) AS qtytotalcetak
+                -- Total hasil cetak semua baris
+                SUM(ld_qtyCetak1 + ld_qtyCetak2 + ld_qtyCetak3 + ld_qtyCetak4 + ld_qtyCetak5 + ld_qtyCetak6 + ld_qtyCetak7) AS qtytotalcetak,
+                -- Ambil ld_ambilbahan dari urutan pertama (asumsi panjang roll awal)
+                MAX(ld_ambilbahan) AS panjang_bahan_awal,
+                -- Ambil sisa terakhir dari baris terakhir (urut terbesar)
+                (SELECT ld_sisameter FROM tlhk_mesin_dtl d2 
+                 WHERE d2.ld_lnomor = tlhk_mesin_dtl.ld_lnomor 
+                 ORDER BY ld_urut DESC LIMIT 1) AS sisa_akhir
             FROM tlhk_mesin_dtl 
             GROUP BY ld_lnomor
         ) x ON x.ld_lnomor = t1.lnomor
         WHERE t1.ltanggal BETWEEN ? AND ?
     `;
 
-    // Jika ada input search, tambahkan filter ke SQL
     if (search) {
         sql += ` AND (t2.spk_nama LIKE ? OR t1.lnomor LIKE ? OR t1.lspk_nomor LIKE ?) `;
         const searchPattern = `%${search}%`;
@@ -71,10 +94,62 @@ const getAllHeaders = async (startDate, endDate, search = '') => {
 };
 
 
-/**
- * Mengambil data LHK Cetak berdasarkan nomor (Header & Detail)
- * Pola struktur mengikuti getInvoicePembelianByNomor
- */
+const getLookup = async (startDate, endDate, shift = '', search = '') => {
+    const tglMulai = format(new Date(startDate), 'yyyy-MM-dd');
+    const tglSelesai = format(new Date(endDate), 'yyyy-MM-dd');
+    
+    const params = [tglMulai, tglSelesai];
+
+    let sql = `
+        SELECT 
+            t1.lnomor AS Nomor, 
+            t1.lshift AS Shift, 
+            t1.ltanggal AS Tanggal, 
+            t1.lmesin AS Mesin, 
+            t1.lspk_nomor AS NomorSPK, 
+            t2.spk_nama AS NamaOrder,
+            IFNULL(t2.spk_jumlah,0) AS JumlahOrder,
+            IFNULL(x.qtytotalcetak, 0) AS TotalCetak,
+            /* RUMUS KURANG CETAK */
+            CAST(GREATEST(0, IFNULL(t2.spk_jumlah, 0) - IFNULL(all_prod.total_pernah_cetak, 0)) AS UNSIGNED) AS KurangCetak,
+            t1.loperator AS Operator
+        FROM tlhk_mesin_hdr t1
+        LEFT JOIN tspk t2 ON t2.spk_nomor = t1.lspk_nomor
+        LEFT JOIN (
+            SELECT 
+                ld_lnomor,
+                SUM(ld_qtyCetak1 + ld_qtyCetak2 + ld_qtyCetak3 + ld_qtyCetak4 + ld_qtyCetak5 + ld_qtyCetak6 + ld_qtyCetak7) AS qtytotalcetak
+            FROM tlhk_mesin_dtl 
+            GROUP BY ld_lnomor
+        ) x ON x.ld_lnomor = t1.lnomor
+        /* Subquery untuk menghitung total produksi SPK ini dari semua LHK yang pernah ada */
+        LEFT JOIN (
+            SELECT h.lspk_nomor, SUM(d.ld_qtyCetak1 + d.ld_qtyCetak2 + d.ld_qtyCetak3 + d.ld_qtyCetak4 + d.ld_qtyCetak5 + d.ld_qtyCetak6 + d.ld_qtyCetak7) as total_pernah_cetak
+            FROM tlhk_mesin_hdr h
+            JOIN tlhk_mesin_dtl d ON h.lnomor = d.ld_lnomor
+            GROUP BY h.lspk_nomor
+        ) all_prod ON all_prod.lspk_nomor = t1.lspk_nomor
+        WHERE t1.ltanggal BETWEEN ? AND ?
+    `;
+
+    if (shift) {
+        sql += ` AND t1.lshift = ? `;
+        params.push(shift);
+    }
+
+    if (search) {
+        sql += ` AND (t2.spk_nama LIKE ? OR t1.lnomor LIKE ? OR t1.lspk_nomor LIKE ?) `;
+        const searchPattern = `%${search}%`;
+        params.push(searchPattern, searchPattern, searchPattern);
+    }
+
+    sql += ` ORDER BY t1.ltanggal DESC, t1.lnomor DESC`;
+
+    const [rows] = await pool.query(sql, params);
+    return rows;
+};
+
+
 const getLookupByNomor = async (nomor) => {
     try {
         const sqlHeader = `
@@ -111,7 +186,7 @@ const getLookupByNomor = async (nomor) => {
                 s.spk_jumlah AS jumlah,
                 IFNULL(akumulasi.total_cetak, 0) AS sudahcetak,
                 d.ld_total_qtycetak AS totalcetak,
-                d.ld_luas_m2 AS m2_cetak,
+                ROUND(IFNULL(s.spk_panjang, 0) * IFNULL(s.spk_lebar, 0) * IFNULL(d.ld_total_qtycetak, 0), 2) AS m2_cetak,
                 s.spk_panjang,
                 s.spk_lebar,
                 d.ld_padding AS Padding,
@@ -154,13 +229,11 @@ const getLookupByNomor = async (nomor) => {
  */
 const getLookupByMultipleNomor = async (nomor) => {
     try {
-        // Pastikan input adalah array
+        // 1. Pastikan input adalah array
         const daftarNomor = Array.isArray(nomor) ? nomor : [nomor];
-        
         if (daftarNomor.length === 0) return null;
 
-        // Query Header (Mengambil data dasar dari LHK Mesin pertama sebagai acuan)
-        // Kita gunakan operator IN (?,?,?)
+        // 2. Query Header
         const sqlHeader = `
             SELECT 
                 t1.lmesin AS Mesin, 
@@ -179,31 +252,29 @@ const getLookupByMultipleNomor = async (nomor) => {
         
         const [headerRows] = await pool.query(sqlHeader, [daftarNomor]);
 
-        // Query Detail (Menggabungkan semua detail dari semua LHK Mesin yang dipilih)
-        // backend/services/lhkCetak.service.js
-
-const sqlDetail = `
-    SELECT 
-        d.ld_lnomor AS referensi_lhk,
-        h.lmesin AS mesin,          -- Tambahkan ini
-        h.loperator AS operator,    -- Tambahkan ini
-        h.lshift AS shift,
-        d.ld_spk_nomor AS spk_nomor,
-
-        s.spk_nama AS nama_spk,
-        s.spk_jumlah AS jumlah_order,
-        d.ld_qtyCetak1, d.ld_qtyCetak2, d.ld_qtyCetak3, 
-        d.ld_qtyCetak4, d.ld_qtyCetak5, d.ld_qtyCetak6, d.ld_qtyCetak7,
-        d.ld_total_qtycetak AS totalcetak,
-        d.ld_total_metercetak AS cetakmeter,
-        d.ld_tile AS tile,
-        d.ld_luas_m2
-    FROM tlhk_mesin_dtl d
-    INNER JOIN tlhk_mesin_hdr h ON h.lnomor = d.ld_lnomor -- Join ke Header
-    LEFT JOIN tspk s ON s.spk_nomor = d.ld_spk_nomor
-    WHERE d.ld_lnomor IN (?)
-    ORDER BY d.ld_lnomor ASC, d.ld_urut ASC
-`;
+        // 3. Query Detail (Perbaikan Koma & Penambahan Perhitungan m2)
+        const sqlDetail = `
+            SELECT 
+                d.ld_lnomor AS referensi_lhk,
+                h.lmesin AS mesin,
+                h.loperator AS operator,
+                h.lshift AS shift,
+                d.ld_spk_nomor AS spk_nomor,
+                s.spk_nama AS nama_spk,
+                s.spk_jumlah AS jumlah_order,
+                d.ld_qtyCetak1, d.ld_qtyCetak2, d.ld_qtyCetak3, 
+                d.ld_qtyCetak4, d.ld_qtyCetak5, d.ld_qtyCetak6, d.ld_qtyCetak7,
+                d.ld_total_qtycetak AS totalcetak,
+                d.ld_total_metercetak AS cetakmeter,
+                d.ld_tile AS tile,
+                -- Perhitungan m2: Panjang * Lebar * Qty (Asumsi meter)
+                ROUND(IFNULL(s.spk_panjang, 0) * IFNULL(s.spk_lebar, 0) * IFNULL(d.ld_total_qtycetak, 0), 2) AS ld_luas_m2
+            FROM tlhk_mesin_dtl d
+            INNER JOIN tlhk_mesin_hdr h ON h.lnomor = d.ld_lnomor
+            LEFT JOIN tspk s ON s.spk_nomor = d.ld_spk_nomor
+            WHERE d.ld_lnomor IN (?)
+            ORDER BY d.ld_lnomor ASC, d.ld_urut ASC
+        `;
         
         const [detailRows] = await pool.query(sqlDetail, [daftarNomor]);
 
@@ -705,39 +776,32 @@ const getDetailsByNomor = async (nomor) => {
 
         // 2. Ambil Data Detail beserta info SPK dan akumulasi produksi sebelumnya
         const sqlDetail = `
-            SELECT 
-                d.ld_urut AS urut,
-                d.ld_spk_nomor AS nomor_spk,
-                s.spk_nama AS nama_spk,
-                s.spk_jumlah AS qty_order,
-                -- Ambil total yang sudah dicetak dari LHK lain untuk SPK yang sama
-                (SELECT SUM(dx.ld_total_qtycetak) 
-                 FROM tlhk_mesin_dtl dx 
-                 WHERE dx.ld_spk_nomor = d.ld_spk_nomor 
-                 AND dx.ld_lnomor < d.ld_lnomor) AS sudah_cetak_sebelumnya,
-                d.ld_qtyCetak1 AS cetak1,
-                d.ld_qtyCetak2 AS cetak2,
-                d.ld_qtyCetak3 AS cetak3,
-                d.ld_qtyCetak4 AS cetak4,
-                d.ld_qtyCetak5 AS cetak5,
-                d.ld_qtyCetak6 AS cetak6,
-                d.ld_qtyCetak7 AS cetak7,
-                d.ld_total_qtycetak AS totalcetak,
-                d.ld_total_metercetak AS cetakmeter,
-                d.ld_ambilbahan AS ambilBahanPanjang,
-                d.ld_ambilbahan_lebar AS ambilBahanLebar,
-                d.ld_sisameter AS sisabahan,
-                d.ld_sisalebar AS sisabahanlebar,
-                d.ld_tile AS tile,
-                d.ld_luas_m2 AS luasm2,
-                d.ld_padding AS padding
-            FROM tlhk_mesin_dtl d
-            LEFT JOIN tspk s ON s.spk_nomor = d.ld_spk_nomor
-            WHERE d.ld_lnomor = ?
-            ORDER BY d.ld_urut ASC
-        `;
-        const [detailRows] = await pool.query(sqlDetail, [nomor]);
-
+    SELECT 
+        d.ld_urut AS urut,
+        d.ld_spk_nomor AS nomor_spk,
+        s.spk_nama AS nama_spk,
+        IFNULL(s.spk_jumlah, 0) AS qty_order,
+        -- Akumulasi sebelum LHK ini
+        IFNULL((SELECT SUM(dx.ld_total_qtycetak) 
+          FROM tlhk_mesin_dtl dx 
+          WHERE dx.ld_spk_nomor = d.ld_spk_nomor 
+          AND dx.ld_lnomor < d.ld_lnomor), 0) AS sudah_cetak_sebelumnya,
+        d.ld_total_qtycetak AS totalcetak,
+        -- RUMUS KURANG CETAK (SISA)
+        CAST(GREATEST(0, IFNULL(s.spk_jumlah, 0) - (
+            IFNULL((SELECT SUM(dx.ld_total_qtycetak) 
+                    FROM tlhk_mesin_dtl dx 
+                    WHERE dx.ld_spk_nomor = d.ld_spk_nomor 
+                    AND dx.ld_lnomor < d.ld_lnomor), 0) + d.ld_total_qtycetak
+        )) AS UNSIGNED) AS kurang_cetak,
+        d.ld_total_metercetak AS cetakmeter,
+        d.ld_tile AS tile
+    FROM tlhk_mesin_dtl d
+    LEFT JOIN tspk s ON s.spk_nomor = d.ld_spk_nomor
+    WHERE d.ld_lnomor = ?
+    ORDER BY d.ld_urut ASC
+`;
+const [detailRows] = await pool.query(sqlDetail, [nomor]);
         return {
             header: headerRows[0],
             details: detailRows
@@ -751,6 +815,7 @@ const getDetailsByNomor = async (nomor) => {
 
 module.exports = {
     getAllHeaders,
+    getLookup,
     getLookupByNomor,
     generateNewNomor,
     getLookupByMultipleNomor,

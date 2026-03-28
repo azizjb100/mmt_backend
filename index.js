@@ -46,7 +46,9 @@ const penerimaanPoExtMmtRoutes =require("./routes/penerimaanPoExtMmt.routes");
 const returBeliRoutes =require("./routes/returBeli.routes");
 const poExtMmtRoutes =require("./routes/poExtMmt.routes");
 const stbjRoutes =require("./routes/stbj.routes");
-const lapPemakaianBahanRoutes =require("./routes/lapPemakaianBahan.routes")
+const lapPemakaianBahanRoutes =require("./routes/lapPemakaianBahan.routes");
+const mutasiGudangRoutes =require("./routes/mutasiGudang.routes");
+
 
 
 // Konfigurasi
@@ -144,6 +146,7 @@ app.use("/api/mmt/retur-beli", returBeliRoutes);
 app.use("/api/mmt/po-ext-mmt", poExtMmtRoutes);
 app.use("/api/mmt/stbj", stbjRoutes);
 app.use("/api/mmt/lap-pemakaian-bahan", lapPemakaianBahanRoutes);
+app.use("/api/mmt/mutasi-gudang", mutasiGudangRoutes);
 
 
 

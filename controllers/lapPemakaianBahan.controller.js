@@ -11,7 +11,6 @@ exports.getProductionWaste = async (req, res) => {
 
         const data = await reportService.getFullProductionReport(startDate, endDate, mesin);
 
-        // Kalkulasi Total untuk Baris Bawah (Summary)
         if (data.length > 0) {
             const summary = data.reduce((acc, row) => {
                 acc.hasilLuas += Number(row.hasilLuas || 0);
@@ -19,8 +18,6 @@ exports.getProductionWaste = async (req, res) => {
                 acc.wasteTotal += Number(row.wasteBsP || 0); // Contoh logic waste
                 return acc;
             }, { isTotal: true, namaOrder: 'GRAND TOTAL', hasilLuas: 0, ambilLuas: 0, wasteTotal: 0 });
-
-            // Hitung persentase waste global
             summary.totalWastePersen = summary.ambilLuas > 0 
                 ? ((summary.wasteTotal / summary.ambilLuas) * 100).toFixed(2) 
                 : 0;
