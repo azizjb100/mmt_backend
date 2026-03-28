@@ -38,19 +38,23 @@ const getDetails = async (req, res) => {
 
 const saveLhk = async (req, res) => {
     try {
-        const { header, details } = req.body;
-        const { nomor } = req.params; // Ada jika mode EDIT
+        const { header, details, existingNomor } = req.body;
+        const nomorLhk = existingNomor || req.params.nomor; 
 
         if (!header || !details) {
             return res.status(400).json({ message: "Data Header dan Detail harus diisi" });
         }
-
-        const result = await lhkCetakService.saveLhk(header, details, nomor);
+        const result = await lhkCetakService.saveLhk(header, details, nomorLhk);
+        
         res.status(200).json({
-            message: nomor ? "Data berhasil diperbarui" : "Data berhasil disimpan",
-            data: result
+            data: { 
+                success: true, 
+                nomor: result.nomor 
+            },
+            message: nomorLhk ? "Data berhasil diperbarui" : "Data berhasil disimpan"
         });
     } catch (error) {
+        console.error("Controller Save Error:", error);
         res.status(500).json({ message: "Gagal menyimpan data", error: error.message });
     }
 };

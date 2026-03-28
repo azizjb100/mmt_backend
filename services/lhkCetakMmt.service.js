@@ -128,8 +128,8 @@ const generateNewNomor = async (date) => {
 
 const saveLhk = async (headerData, detailsData, existingNomor) => {
     const conn = await pool.getConnection();
-    let isEditMode = !!existingNomor;
-    let finalNomor = existingNomor;
+    let isEditMode = existingNomor && existingNomor !== 'AUTO' && existingNomor !== '';
+    let finalNomor = isEditMode ? existingNomor : null;
 
     try {
         await conn.beginTransaction();
@@ -167,8 +167,8 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
                     lch_ink_m = ?, 
                     lch_ink_y = ?, 
                     lch_ink_k = ?, 
-                    lch_user_edit = ?, 
-                    lch_date_edit = NOW()
+                    lch_user_modified = ?, 
+                    lch_date_modified = NOW()
                 WHERE lch_nomor = ?
             `, [
                 formattedDate, 
