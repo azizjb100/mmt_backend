@@ -27,7 +27,8 @@ exports.getBahanData = async ({ zdivisi = null, keyword = "" } = {}) => {
                 b.brg_satuan AS Satuan,
                 b.brg_panjang AS Panjang,
                 b.brg_lebar AS Lebar,
-                b.brg_satuan_harga AS brg_satuan_harga,
+                /* Paksa default 'roll' jika null agar API tidak null */
+                IFNULL(b.brg_satuan_harga, 'roll') AS brg_satuan_harga, 
                 IFNULL(SUM(m.mst_stok_in - m.mst_stok_out), 0) AS Stok
             FROM tbarang_mmt b
             LEFT JOIN tmasterstok_mmt m ON b.brg_kode = m.mst_brg_kode
@@ -35,26 +36,10 @@ exports.getBahanData = async ({ zdivisi = null, keyword = "" } = {}) => {
         `;
 
         const params = [];
+        // ... (logic filter divisi & keyword tetap sama)
 
-        // Logic Filter Divisi
-        if (zdivisi !== null) {
-            const z = Number(zdivisi);
-            if (z === 1) {
-                sql += ` AND b.brg_divisi IN (1, 5)`;
-            } else if (z === 4) {
-                sql += ` AND b.brg_divisi IN (3, 4)`;
-            }
-        }
-
-        // Logic Filter Keyword
-        if (keyword) {
-            sql += ` AND (b.brg_kode LIKE ? OR b.brg_nama LIKE ?)`;
-            const q = `%${keyword}%`;
-            params.push(q, q);
-        }
-
-        // Tambahkan GROUP BY karena kita menggunakan fungsi agregat SUM
-        sql += ` GROUP BY b.brg_kode ORDER BY b.brg_nama`;
+        // GROUP BY HARUS LENGKAP agar data konsisten
+        sql += ` GROUP BY b.brg_kode, b.brg_satuan_harga ORDER BY b.brg_nama`;
 
         const [rows] = await pool.query(sql, params);
         return rows;

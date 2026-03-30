@@ -5,7 +5,7 @@ const verifyToken = require("../middleware/auth.middleware");
 
 // List
 router.get("/", bahanController.getMasterBahan);
-router.get("/mmt", bahanController.getMasterBahan); // alias existing consumer
+router.get("/mmt", bahanController.getMasterBahan); 
 
 // Lookup / static endpoints
 router.get("/mmt/produksi", bahanController.lookupBahanProduksiMMt);
