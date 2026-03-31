@@ -76,22 +76,49 @@ const finalizeBundling = async (headerData, detailItems) => {
     const conn = await pool.getConnection();
     try {
         await conn.beginTransaction();
+        
+        // 1. Generate Nomor LHK
         const lfh_nomor = await generateLhkNomor(conn, headerData.lfh_tanggal);
-        const finalHeader = { ...headerData, lfh_nomor };
+
+        // 2. Insert Header (Bersihkan field temporary dari frontend)
+        const { lfh_total_ma, lfh_total_koli, ...headerToInsert } = headerData;
+        const finalHeader = { ...headerToInsert, lfh_nomor };
         await conn.query(`INSERT INTO tlhk_finishingmmt_hdr SET ?`, [finalHeader]);
 
-        // Kumpulkan semua ID asli untuk diupdate statusnya nanti
         const allOriginalIds = [];
         
-        const dtlValues = detailItems.map((item, index) => {
-            const kategori = item.proses_kategori.toUpperCase().replace(/\s+/g, '_');
+        // 3. Loop Detail untuk Insert & Potong Stok
+        for (const [index, item] of detailItems.entries()) {
+            const kategori = (item.proses_kategori || '').toUpperCase().replace(/\s+/g, '_');
             
-            // Tambahkan ID ke array untuk update bundling
-            if(item.ids) {
-                allOriginalIds.push(...item.ids.split(','));
+            // Kumpulkan ID untuk update status bundling
+            if(item.ids) allOriginalIds.push(...item.ids.split(','));
+            else if (item.id) allOriginalIds.push(item.id);
+
+            // Tentukan jumlah pemakaian bahan
+            let qtyPakai = 0;
+            if (kategori === 'MATA_AYAM') qtyPakai = item.jml_mata_ayam;
+            if (kategori === 'KOLI') qtyPakai = item.jml_koli;
+
+            // --- LOGIKA POTONG STOK (INSERT KE tmasterstok_mmt) ---
+            if (qtyPakai > 0 && item.material_kode) {
+                const dataStokOut = {
+                    mst_brg_kode: item.material_kode,
+                    mst_gdg_kode: 'GPM',
+                    mst_barcode: '-',
+                    mst_stok_in: 0,
+                    mst_stok_out: qtyPakai, // Mengurangi stok melalui kolom ini
+                    mst_spk_nomor: item.spk_nomor,
+                    mst_noreferensi: lfh_nomor,
+                    mst_tanggal: headerData.lfh_tanggal,
+                    date_create: new Date()
+                };
+                
+                await conn.query(`INSERT INTO tmasterstok_mmt SET ?`, [dataStokOut]);
             }
 
-            return [
+            // 4. Insert ke Detail LHK
+            const dtlRow = [
                 lfh_nomor,
                 item.spk_nomor,
                 kategori === 'POTONG' ? item.qty_hasil : 0,
@@ -101,23 +128,33 @@ const finalizeBundling = async (headerData, detailItems) => {
                 kategori === 'X_BANNER' ? item.qty_hasil : 0,
                 kategori === 'ROLLUP_BANNER' ? item.qty_hasil : 0,
                 item.qty_bs || 0,
-                index + 1
+                index + 1,
+                kategori === 'MATA_AYAM' ? (item.jml_mata_ayam || 0) : 0,
+                kategori === 'KOLI' ? (item.jml_koli || 0) : 0 
             ];
-        });
 
-        const sqlDtl = `INSERT INTO tlhk_finishingmmt_dtl (lfd_lfh_nomor, lfd_spk_nomor, lfd_j_potong, lfd_j_seaming, lfd_j_mataayam, lfd_j_coly, lfd_xbanner_qty, lfd_rollupbanner_qty, lfd_j_bs, lfd_no_urut) VALUES ?`;
-        await conn.query(sqlDtl, [dtlValues]);
+            const sqlDtl = `INSERT INTO tlhk_finishingmmt_dtl (
+                lfd_lfh_nomor, lfd_spk_nomor, lfd_j_potong, lfd_j_seaming, 
+                lfd_j_mataayam, lfd_j_coly, lfd_xbanner_qty, lfd_rollupbanner_qty, 
+                lfd_j_bs, lfd_no_urut, lfd_mataayam_qty, lfd_karung_qty
+            ) VALUES (?)`;
+            
+            await conn.query(sqlDtl, [dtlRow]);
+        }
 
-        // Update semua ID asli yang terlibat
-        await conn.query(
-            `UPDATE tpra_lhk_finishing SET is_bundled = 1, lfh_nomor = ? WHERE id IN (?)`,
-            [lfh_nomor, allOriginalIds]
-        );
+        // 5. Update status di tabel Pra-LHK
+        if (allOriginalIds.length > 0) {
+            await conn.query(
+                `UPDATE tpra_lhk_finishing SET is_bundled = 1, lfh_nomor = ? WHERE id IN (?)`,
+                [lfh_nomor, allOriginalIds]
+            );
+        }
 
         await conn.commit();
         return { success: true, nomor: lfh_nomor };
     } catch (error) {
         if (conn) await conn.rollback();
+        console.error("Error Finalize Finishing:", error);
         throw error;
     } finally {
         if (conn) conn.release();
@@ -251,7 +288,9 @@ const getUnassignedPraLhk = async (tanggal, shift, proses) => {
                 proses_kategori, 
                 SUM(qty_hasil) as qty_hasil, 
                 SUM(qty_bs) as qty_bs, 
-                MAX(material_kode) as material_kode, 
+                MAX(material_kode) as material_kode,
+                SUM(jml_mata_ayam) as jml_mata_ayam, -- TAMBAHKAN INI
+                SUM(jml_koli) as jml_koli, 
                 tgl_input, 
                 shift_input
             FROM tpra_lhk_finishing
