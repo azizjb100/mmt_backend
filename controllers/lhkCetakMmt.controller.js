@@ -38,13 +38,18 @@ const getDetails = async (req, res) => {
 
 const saveLhk = async (req, res) => {
     try {
-        const { header, details, existingNomor } = req.body;
+        // 1. Tambahkan 'inkData' di sini agar diambil dari body request
+        const { header, details, inkData, existingNomor } = req.body; 
+        
         const nomorLhk = existingNomor || req.params.nomor; 
 
         if (!header || !details) {
             return res.status(400).json({ message: "Data Header dan Detail harus diisi" });
         }
-        const result = await lhkCetakService.saveLhk(header, details, nomorLhk);
+
+        // 2. Kirim 'inkData' ke service sebagai parameter ke-3
+        // Urutannya harus sesuai dengan definisi di Service: (header, details, inkData, nomorLhk)
+        const result = await lhkCetakService.saveLhk(header, details, inkData, nomorLhk);
         
         res.status(200).json({
             data: { 
@@ -136,18 +141,29 @@ const exportLhk = async (req, res) => {
     }
 };
 
+
 const getOneLhk = async (req, res) => {
     try {
         const { nomor } = req.params;
         const data = await lhkCetakService.getOneLhk(nomor); 
         
         if (!data) {
-            return res.status(404).json({ message: "Data tidak ditemukan" });
+            return res.status(404).json({ 
+                success: false, 
+                message: "Data rekap tidak ditemukan" 
+            });
         }
         
-        res.json({ data: data });
+
+        res.json({ 
+            success: true,
+            data: data 
+        });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        res.status(500).json({ 
+            success: false, 
+            message: error.message 
+        });
     }
 };
 

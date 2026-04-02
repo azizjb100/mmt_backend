@@ -59,6 +59,21 @@ const getAllHeaders = async (startDate, endDate, mesin) => {
     return rows;
 };
 
+const getInksByNomor = async (nomor) => {
+    const sqlInk = `
+        SELECT 
+            lci_msn_kode AS Msn_Kode,
+            lci_c AS Ink_C,
+            lci_m AS Ink_M,
+            lci_y AS Ink_Y,
+            lci_k AS Ink_K
+        FROM tlhk_cetakmmt_ink
+        WHERE lci_lch_nomor = ?
+    `;
+    const [rows] = await pool.query(sqlInk, [nomor]);
+    return rows;
+};
+
 // Tambahkan parameter mesin
 const getDetailsByNomor = async (nomor, mesin) => {
     let params = [nomor];
@@ -126,23 +141,24 @@ const generateNewNomor = async (date) => {
 // 3. FUNGSI SIMPAN (SAVE/UPDATE)
 // =========================================================================
 
-const saveLhk = async (headerData, detailsData, existingNomor) => {
+
+const saveLhk = async (headerData, detailsData, inkData, existingNomor) => {
     const conn = await pool.getConnection();
+    
+    // Tentukan apakah ini mode Edit atau Baru
     let isEditMode = existingNomor && existingNomor !== 'AUTO' && existingNomor !== '';
     let finalNomor = isEditMode ? existingNomor : null;
 
     try {
         await conn.beginTransaction();
 
-        // --- LOGIKA GABUNG OPERATOR UNIK ---
-        const uniqueOperators = [...new Set(detailsData.map(d => (d.Operator || d.operator || '').trim()).filter(name => name !== ''))];
-        const combinedOperators = uniqueOperators.join(', ');
-
+        // 1. PENGELOLAAN TANGGAL & OPERATOR
         const rawDate = headerData.lch_tanggal; 
         const dateToUse = (rawDate && !isNaN(new Date(rawDate).getTime())) 
             ? new Date(rawDate) 
             : new Date();
 
+        // Generate nomor baru jika bukan mode edit
         if (!isEditMode) {
             finalNomor = await generateNewNomor(dateToUse);
         }
@@ -150,12 +166,11 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
         const formattedDate = format(dateToUse, 'yyyy-MM-dd');
         const currentUser = headerData.luser_modified || 'SYSTEM';
 
-        // Ambil nilai tinta dari headerData (Payload yang Anda kirim tadi)
-        const inkC = headerData.lch_ink_c || 0;
-        const inkM = headerData.lch_ink_m || 0;
-        const inkY = headerData.lch_ink_y || 0;
-        const inkK = headerData.lch_ink_k || 0;
+        // Ambil operator unik dari detail pengerjaan untuk disimpan di header (opsional)
+        const uniqueOperators = [...new Set(detailsData.map(d => (d.operator || '').trim()).filter(name => name !== ''))];
+        const combinedOperators = uniqueOperators.join(', ');
 
+        // 2. SIMPAN / UPDATE HEADER (tlhk_cetakmmt_hdr)
         if (isEditMode) {
             await conn.query(`
                 UPDATE tlhk_cetakmmt_hdr SET
@@ -163,10 +178,6 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
                     lch_gdg_prod = ?, 
                     lch_shift = ?, 
                     lch_operator = ?, 
-                    lch_ink_c = ?, 
-                    lch_ink_m = ?, 
-                    lch_ink_y = ?, 
-                    lch_ink_k = ?, 
                     lch_user_modified = ?, 
                     lch_date_modified = NOW()
                 WHERE lch_nomor = ?
@@ -175,56 +186,86 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
                 headerData.lch_gdg_prod, 
                 headerData.lch_shift, 
                 combinedOperators, 
-                inkC, inkM, inkY, inkK, // Data tinta baru
                 currentUser, 
                 finalNomor
             ]);
             
+            // Hapus detail lama sebelum insert yang baru (Re-insert strategy)
             await conn.query(`DELETE FROM tlhk_cetakmmt_dtl WHERE lcd_lch_nomor = ?`, [finalNomor]);
+            await conn.query(`DELETE FROM tlhk_cetakmmt_ink WHERE lci_lch_nomor = ?`, [finalNomor]);
         } else {
             await conn.query(`
                 INSERT INTO tlhk_cetakmmt_hdr (
                     lch_nomor, lch_tanggal, lch_gdg_prod, lch_shift, 
-                    lch_operator, lch_ink_c, lch_ink_m, lch_ink_y, lch_ink_k,
-                    lch_user_create, lch_date_create
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+                    lch_operator, lch_user_create, lch_date_create
+                ) VALUES (?, ?, ?, ?, ?, ?, NOW())
             `, [
                 finalNomor, 
                 formattedDate, 
                 headerData.lch_gdg_prod, 
                 headerData.lch_shift, 
                 combinedOperators, 
-                inkC, inkM, inkY, inkK, // Data tinta baru
                 currentUser
             ]);
         }
 
-        // --- Simpan Detail (tetap sama) ---
-        for (let i = 0; i < detailsData.length; i++) {
-            const d = detailsData[i];
-            await conn.query(`
-                INSERT INTO tlhk_cetakmmt_dtl (
-                    lcd_lch_nomor, lcd_no_urut, lcd_lnomor, lcd_spk_nomor, 
-                    lcd_qty_Cetak, lcd_jns_mesin, lcd_loperator, lcd_lshift
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            `, [
-                finalNomor, 
-                i + 1, 
-                d.Nomor_lhk_mesin || d.lhkmesin, 
-                d.Nomor_SPK || d.spk_nomor, 
-                d.Jml_Cetak || d.jumlah_cetak, 
-                d.Mesin || d.mesin, 
-                d.Operator || d.operator, 
-                d.Shift || d.shift
-            ]);
+        // 3. SIMPAN DETAIL PENGERJAAN SPK (tlhk_cetakmmt_dtl)
+       for (let i = 0; i < detailsData.length; i++) {
+    const d = detailsData[i];
+    
+    // Ambil nilai mesin, pastikan mencakup semua kemungkinan nama key dari frontend
+    const mesinToSave = d.msn_kode || d.mesin || d.Mesin;
+
+    await conn.query(`
+        INSERT INTO tlhk_cetakmmt_dtl (
+            lcd_lch_nomor, 
+            lcd_no_urut, 
+            lcd_spk_nomor, 
+            lcd_qty_Cetak, 
+            lcd_jns_mesin, 
+            lcd_loperator
+        ) VALUES (?, ?, ?, ?, ?, ?)
+    `, [
+        finalNomor, 
+        i + 1, 
+        d.spk_nomor || d.Nomor_SPK, 
+        d.jumlah_cetak || d.Jml_Cetak || 0, 
+        mesinToSave, // Gunakan variabel yang sudah divalidasi di atas
+        d.operator || d.Operator
+    ]);
+}
+
+        // 4. SIMPAN DETAIL PEMAKAIAN TINTA PER MESIN (tlhk_cetakmmt_ink)
+        // inkData diharapkan berisi: [{ msn_kode: 'MSN01', c: 0.5, m: 0.2, y: 0, k: 0.1 }, ...]
+        if (inkData && inkData.length > 0) {
+            for (const ink of inkData) {
+                // Hanya simpan jika ada nilai tinta (menghindari baris sampah/kosong)
+                const totalInk = parseFloat(ink.c || 0) + parseFloat(ink.m || 0) + parseFloat(ink.y || 0) + parseFloat(ink.k || 0);
+                
+                if (totalInk > 0) {
+                    await conn.query(`
+                        INSERT INTO tlhk_cetakmmt_ink (
+                            lci_lch_nomor, lci_msn_kode, 
+                            lci_c, lci_m, lci_y, lci_k
+                        ) VALUES (?, ?, ?, ?, ?, ?)
+                    `, [
+                        finalNomor, 
+                        ink.msn_kode, 
+                        ink.c || 0, 
+                        ink.m || 0, 
+                        ink.y || 0, 
+                        ink.k || 0
+                    ]);
+                }
+            }
         }
 
         await conn.commit();
         return { success: true, nomor: finalNomor };
+
     } catch (err) {
         await conn.rollback();
-        console.error("Detail Error Simpan:", err);
+        console.error("Gagal Simpan LHK:", err);
         throw err;
     } finally {
         conn.release();
@@ -446,14 +487,10 @@ const getOneLhk = async (nomor) => {
     const sqlHeader = `
         SELECT 
             lch_nomor AS Nomor, 
-            lch_tanggal AS Tanggal, 
+            DATE_FORMAT(lch_tanggal, '%Y-%m-%d') AS Tanggal, 
             lch_gdg_prod AS Gdg_Kode, 
             lch_shift AS Shift, 
-            lch_operator AS Operator,
-            lch_ink_c AS Ink_C,
-            lch_ink_m AS Ink_M,
-            lch_ink_y AS Ink_Y,
-            lch_ink_k AS Ink_K
+            lch_operator AS Operator
         FROM tlhk_cetakmmt_hdr
         WHERE lch_nomor = ?
     `;
@@ -461,19 +498,24 @@ const getOneLhk = async (nomor) => {
     
     if (headerRows.length === 0) return null;
 
-    // 2. Ambil data Detail (Gunakan fungsi getDetailsByNomor yang sudah Anda punya)
+    // 2. Ambil data Detail SPK (Gunakan fungsi yang sudah ada)
     const details = await getDetailsByNomor(nomor);
 
-    // 3. Gabungkan
+    // 3. Ambil data Detail Pemakaian Tinta (Fungsi baru)
+    const inks = await getInksByNomor(nomor);
+
+    // 4. Gabungkan semua data
     return {
         ...headerRows[0],
-        details: details
+        details: details,
+        inks: inks // Ini yang akan ditangkap oleh inkDetails.value di Vue
     };
 };
 
 module.exports = {
     getAllHeaders,
     getDetailsByNomor,
+    getInksByNomor,
     generateNewNomor,
     saveLhk,
     deleteLhk,
@@ -483,5 +525,4 @@ module.exports = {
     getDetailRekapMesin,
     getAllDataForExport,
     getOneLhk
-
 };
