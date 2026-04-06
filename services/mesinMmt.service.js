@@ -87,8 +87,6 @@ exports.getLookupMesin = async (keyword = "") => {
         const sql = `
             SELECT msn_kode AS Kode, msn_nama AS Nama 
             FROM tmesin_mmt
-            WHERE msn_kode LIKE ? OR msn_nama LIKE ?
-            ORDER BY msn_kode ASC
         `;
         const q = `%${keyword}%`;
         const [rows] = await pool.query(sql, [q, q]);

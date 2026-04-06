@@ -77,7 +77,7 @@ exports.getInvoicePembelianData = async (startDate, endDate) => {
     }
 };
 
-exports.getPermintaanBahanData = async (startDate, endDate, divisi) => {
+exports.getPermintaanBahanData = async (startDate, endDate, divisi, userManager) => {
     try {
         let sqlMaster = "";
         let paramsMaster = [];
@@ -122,7 +122,7 @@ exports.getPermintaanBahanData = async (startDate, endDate, divisi) => {
              WHERE pod.pod_mb_nomor = t1.mb_nomor) AS Tanggal_Datang
         `;
 
-        if (divisi == 1) {
+        if (divisi == 1 || (userManager == 1 && divisi != 4)) {
             sqlMaster = `
                 SELECT
                     t1.mb_nomor AS Nomor, t1.mb_gdg_kode AS Gudang, t3.gdg_nama AS Nama,
@@ -153,6 +153,7 @@ exports.getPermintaanBahanData = async (startDate, endDate, divisi) => {
             `;
             paramsMaster = [startDate, endDate];
         } 
+        // Jika divisi = 4, tetap masuk ke data TOBAT
         else if (divisi == 4) {
             sqlMaster = `
                 SELECT

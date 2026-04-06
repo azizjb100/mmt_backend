@@ -3,33 +3,38 @@
 const permintaanBahanService = require('../services/permintaanBahan.service');
 const format = require('date-fns/format');
 
-// 1. READ ALL (GET /)
+
 exports.getPermintaanBahan = async (req, res) => {
     try {
         const { startDate, endDate } = req.query;
+        console.log("ISI REQ.USER DARI TOKEN:", req.user);
 
-        // 1. Validasi Input Tanggal
         if (!startDate || !endDate) {
             return res.status(400).json({ message: "Tanggal wajib diisi." });
         }
+        const divisi = req.user.divisi; 
+        const userManager = req.user.user_manager || 0;
 
-        // 2. AMBIL DIVISI DARI USER LOGIN
-        // Pastikan middleware auth Anda menyimpan data user di req.user
-        // Sesuaikan nama propertinya (misal: kd_divisi, divisi_id, atau divisi)
-        const divisi = req.user.kd_divisi || req.user.divisi;
-
-        if (!divisi) {
+        if (divisi === undefined || divisi === null) {
             return res.status(403).json({ 
-                message: "Akses ditolak. Divisi user tidak ditemukan dalam sesi login." 
+                message: "Akses ditolak. Divisi user tidak ditemukan dalam sesi login.",
+                debug_payload: req.user // Kirim balik ke client untuk cek isinya
             });
         }
 
-        // 3. KIRIM 3 PARAMETER KE SERVICE
-        const data = await permintaanBahanService.getPermintaanBahanData(startDate, endDate, divisi);
+        // 3. KIRIM 4 PARAMETER KE SERVICE
+        // Parameter: (startDate, endDate, divisi, userManager)
+        const data = await permintaanBahanService.getPermintaanBahanData(
+            startDate, 
+            endDate, 
+            divisi, 
+            userManager
+        );
 
         return res.status(200).json({ 
             message: 'Pengambilan data transaksi berhasil.', 
-            divisi_aktif: divisi, // Opsional: untuk debug di frontend
+            divisi_aktif: divisi, 
+            is_manager: userManager === 1, // Info tambahan untuk frontend
             data: data 
         });
 

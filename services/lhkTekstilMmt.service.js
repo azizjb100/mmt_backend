@@ -151,9 +151,93 @@ const generateNewNomor = async (date) => {
     }
 };
 
+const saveLhk = async (data) => {
+    const { header, details } = data;
+    const conn = await pool.getConnection();
+
+    try {
+        await conn.beginTransaction();
+
+        let nomorLhk = header.nomor;
+        const isNew = (!nomorLhk || nomorLhk === 'AUTO');
+
+        // 1. Tentukan Nomor (Generate jika baru)
+        if (isNew) {
+            nomorLhk = await generateNewNomor(header.tanggal);
+        }
+
+        if (isNew) {
+            // INSERT HEADER BARU
+            const sqlInsHeader = `
+                INSERT INTO tlhk_tekstilmmt_hdr (
+                    lth_nomor, lth_tanggal, lth_shift, lth_gdg_prod, 
+                    lth_user, lth_tgl_input, lth_status, lth_brg_kode
+                ) VALUES (?, ?, ?, ?, ?, NOW(), ?, ?)
+            `;
+            await conn.query(sqlInsHeader, [
+                nomorLhk, header.tanggal, header.shift || 1, 
+                header.gdgKode, header.user || 'SYSTEM', 
+                header.lstatus || 'DRAFT', header.brg_kode
+            ]);
+        } else {
+            // UPDATE HEADER EKSISTING
+            const sqlUpdHeader = `
+                UPDATE tlhk_tekstilmmt_hdr SET 
+                    lth_tanggal = ?, lth_shift = ?, lth_gdg_prod = ?, 
+                    lth_status = ?, lth_brg_kode = ?
+                WHERE lth_nomor = ?
+            `;
+            await conn.query(sqlUpdHeader, [
+                header.tanggal, header.shift || 1, header.gdgKode, 
+                header.lstatus || 'DRAFT', header.brg_kode, nomorLhk
+            ]);
+
+            // Hapus detail lama agar bisa digantikan dengan yang baru (Re-insert logic)
+            await conn.query('DELETE FROM tlhk_tekstilmmt_dtl WHERE ltd_lth_nomor = ?', [nomorLhk]);
+        }
+
+        // 2. SIMPAN DETAIL (Sama untuk Baru maupun Edit)
+        const sqlDetail = `
+            INSERT INTO tlhk_tekstilmmt_dtl (
+                ltd_lth_nomor, ltd_no_urut, ltd_jns_mesin, ltd_spk_nomor, 
+                ltd_qty_Cetak, ltd_brg_kode, ltd_panjang_pakai, ltd_lebar_pakai
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+
+        for (let i = 0; i < details.length; i++) {
+            const d = details[i];
+            // Kalkulasi panjang total per baris (P. Per Pcs * Qty)
+            const panjangTotal = Number(d.panjang_per_pcs) * Number(d.jumlah_cetak);
+
+            await conn.query(sqlDetail, [
+                nomorLhk,
+                i + 1,
+                d.mesin,
+                d.nomor_spk,
+                d.jumlah_cetak,
+                header.brg_kode, // Kode bahan dari media yang di-scan
+                panjangTotal,    // Hasil inputan panjang per pcs * qty
+                d.lebar_spk
+            ]);
+        }
+
+        await conn.commit();
+        return { success: true, nomor: nomorLhk, message: isNew ? 'Data dibuat' : 'Data diperbarui' };
+
+    } catch (error) {
+        await conn.rollback();
+        console.error("Error pada saveLhk:", error);
+        throw error;
+    } finally {
+        conn.release();
+    }
+};
+
 module.exports = {
     getAllHeaders,
     getDetailsByNomor,
     deleteLhk,
-    generateNewNomor
+    generateNewNomor,
+    saveLhk
+
 };
