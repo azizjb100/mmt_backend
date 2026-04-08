@@ -3,6 +3,8 @@ const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const fs = require("fs");
 const path = require("path");
+const clientCertAuth = require("./middleware/clientCertAuth");
+
 require("dotenv").config();
 
 const authRoutes = require("./routes/auth.routes");
@@ -49,6 +51,7 @@ const stbjRoutes =require("./routes/stbj.routes");
 const lapPemakaianBahanRoutes =require("./routes/lapPemakaianBahan.routes");
 const mutasiGudangRoutes =require("./routes/mutasiGudang.routes");
 const searchBarcodeRoutes =require("./routes/searchBarcode.routes");
+
 
 
 
@@ -103,52 +106,52 @@ requiredDirs.forEach((dir) => {
     }
 });
 
-app.use("/api/auth", authRoutes);
-app.use("/api/mmt/lhk-cetak", lhkMesinCetakRoutes);
-app.use("/api/mmt/lhk-finishing", lhkFinishingRoutes);
-app.use("/api/mmt/laporan-stbj", stbjMmtRoutes);
-app.use("/api/mmt/laporan-ls-bahan-utama", lapLsBahanUtamaRoutes);
-app.use("/api/mmt/laporan-ls-bahan-penolong", lapLsBahanPenolongRoutes);
-app.use("/api/mmt/laporan-spk-mmt", lapSpkMmtRoutes);
-app.use("/api/mmt/monitoring/laporan-lmkp", lapLmkpMmtRoutes);
-app.use("/api/mmt/monitoring-cetak", lapMonCetakRoutes);
-app.use("/api/mmt/permintaan-bahan", permintaanBahanRoutes);
-app.use("/api/mmt/penerimaan-bahan", penerimaanBahanRoutes);
-app.use("/api/mmt/permintaan-produksi", permintaanProduksiRoutes);
-app.use("/api/supplier", supplierRoutes);
+app.use("/api/auth", clientCertAuth, authRoutes);
+app.use("/api/mmt/lhk-cetak", clientCertAuth, lhkMesinCetakRoutes);
+app.use("/api/mmt/lhk-finishing", clientCertAuth, lhkFinishingRoutes);
+app.use("/api/mmt/laporan-stbj", clientCertAuth, stbjMmtRoutes);
+app.use("/api/mmt/laporan-ls-bahan-utama", clientCertAuth, lapLsBahanUtamaRoutes);
+app.use("/api/mmt/laporan-ls-bahan-penolong", clientCertAuth, lapLsBahanPenolongRoutes);
+app.use("/api/mmt/laporan-spk-mmt", clientCertAuth, lapSpkMmtRoutes);
+app.use("/api/mmt/monitoring/laporan-lmkp", clientCertAuth, lapLmkpMmtRoutes);
+app.use("/api/mmt/monitoring-cetak", clientCertAuth, lapMonCetakRoutes);
+app.use("/api/mmt/permintaan-bahan", clientCertAuth, permintaanBahanRoutes);
+app.use("/api/mmt/penerimaan-bahan", clientCertAuth, penerimaanBahanRoutes);
+app.use("/api/mmt/permintaan-produksi", clientCertAuth, permintaanProduksiRoutes);
+app.use("/api/supplier", clientCertAuth, supplierRoutes);
 
-app.use("/api/mmt/koreksi-stok", koreksiStokMmtRoutes);
-app.use("/api/mmt/po-paperprint", poPaperprintRoutes);
-app.use("/api/mmt/operator", operatorRoutes);
-app.use("/api/mmt/spk", spkRoutes);
-app.use("/api/mmt/po-bahan-mmt", poBahanMmtRoutes);
-app.use("/api/mmt/lookup", lookupGdgMesinRoutes);
-app.use("/api/mmt/stok-gudang", stokGudangMmtRoutes);
-app.use("/api/mmt/recreate-barcode", recreateBarcodeRoutes);
-app.use("/api/mmt/request-pinjam", mmtPinjamRoutes);
-app.use("/api/mmt/lookup-pabrik", lookupPabrikRoutes);
-app.use("/api/mmt/invoice", invoicePembelianRoutes);
-app.use("/api/mmt/customer", customerRoutes);
-app.use("/api/mmt/pengajuan-permintaan", pengajuanPermintaanRoutes);
-app.use("/api/mmt/permintaan-produksi-bahan", permintaanProduksiBahanRoutes);
-app.use("/api/mmt/planning-produksi", planningProduksiRoutes);
-app.use("/api/mmt/lhk-tekstil-mmt", lhkTekstilMmtRoutes);
-app.use("/api/mmt/lhk-cetak-mmt", lhkCetakMmtRoutes);
-app.use("/api/mmt/stok-opname", stokOpnameRoutes);
-app.use("/api/mmt/pelunasan-pembelian", pelunasanPembelianRoutes);
-app.use("/api/mmt/mesin", mesinMmtRoutes);
-app.use("/api/master/bahan/obat", masterObatRoutes);
-app.use("/api/master/bahan", masterBahanRoutes);
-app.use("/api/mmt/master-obatt", masterObatRoutes);
-app.use("/api/mmt/laporan-ls-tinta", lapLsTintaRoutes);
-app.use("/api/mmt/retur-produksi", returProduksiRoutes);
-app.use("/api/mmt/penerimaan-po-ext-mmt", penerimaanPoExtMmtRoutes);
-app.use("/api/mmt/retur-beli", returBeliRoutes);
-app.use("/api/mmt/po-ext-mmt", poExtMmtRoutes);
-app.use("/api/mmt/stbj", stbjRoutes);
-app.use("/api/mmt/lap-pemakaian-bahan", lapPemakaianBahanRoutes);
-app.use("/api/mmt/mutasi-gudang", mutasiGudangRoutes);
-app.use("/api/mmt/search-barcode", searchBarcodeRoutes);
+app.use("/api/mmt/koreksi-stok", clientCertAuth, koreksiStokMmtRoutes);
+app.use("/api/mmt/po-paperprint", clientCertAuth, poPaperprintRoutes);
+app.use("/api/mmt/operator", clientCertAuth, operatorRoutes);
+app.use("/api/mmt/spk", clientCertAuth, spkRoutes);
+app.use("/api/mmt/po-bahan-mmt", clientCertAuth, poBahanMmtRoutes);
+app.use("/api/mmt/lookup", clientCertAuth, lookupGdgMesinRoutes);
+app.use("/api/mmt/stok-gudang", clientCertAuth, stokGudangMmtRoutes);
+app.use("/api/mmt/recreate-barcode", clientCertAuth, recreateBarcodeRoutes);
+app.use("/api/mmt/request-pinjam", clientCertAuth, mmtPinjamRoutes);
+app.use("/api/mmt/lookup-pabrik", clientCertAuth, lookupPabrikRoutes);
+app.use("/api/mmt/invoice", clientCertAuth, invoicePembelianRoutes);
+app.use("/api/mmt/customer", clientCertAuth, customerRoutes);
+app.use("/api/mmt/pengajuan-permintaan", clientCertAuth, pengajuanPermintaanRoutes);
+app.use("/api/mmt/permintaan-produksi-bahan", clientCertAuth, permintaanProduksiBahanRoutes);
+app.use("/api/mmt/planning-produksi", clientCertAuth, planningProduksiRoutes);
+app.use("/api/mmt/lhk-tekstil-mmt", clientCertAuth, lhkTekstilMmtRoutes);
+app.use("/api/mmt/lhk-cetak-mmt", clientCertAuth, lhkCetakMmtRoutes);
+app.use("/api/mmt/stok-opname", clientCertAuth, stokOpnameRoutes);
+app.use("/api/mmt/pelunasan-pembelian", clientCertAuth, pelunasanPembelianRoutes);
+app.use("/api/mmt/mesin", clientCertAuth, mesinMmtRoutes);
+app.use("/api/master/bahan/obat", clientCertAuth, masterObatRoutes);
+app.use("/api/master/bahan", clientCertAuth, masterBahanRoutes);
+app.use("/api/mmt/master-obatt", clientCertAuth, masterObatRoutes);
+app.use("/api/mmt/laporan-ls-tinta", clientCertAuth, lapLsTintaRoutes);
+app.use("/api/mmt/retur-produksi", clientCertAuth, returProduksiRoutes);
+app.use("/api/mmt/penerimaan-po-ext-mmt", clientCertAuth, penerimaanPoExtMmtRoutes);
+app.use("/api/mmt/retur-beli", clientCertAuth, returBeliRoutes);
+app.use("/api/mmt/po-ext-mmt", clientCertAuth, poExtMmtRoutes);
+app.use("/api/mmt/stbj", clientCertAuth, stbjRoutes);
+app.use("/api/mmt/lap-pemakaian-bahan", clientCertAuth, lapPemakaianBahanRoutes);
+app.use("/api/mmt/mutasi-gudang", clientCertAuth, mutasiGudangRoutes);
+app.use("/api/mmt/search-barcode", clientCertAuth, searchBarcodeRoutes);
 
 
 

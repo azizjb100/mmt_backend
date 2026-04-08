@@ -81,7 +81,6 @@ const getMesinCetakLookup = async () => {
     const sql = `
         SELECT msn_kode AS Kode, msn_nama AS Nama, msn_note AS Keterangan
         FROM tmesin_mmt
-        WHERE msn_jenis = 'C'
         ORDER BY msn_kode
     `;
     const result = await executeQuery(sql);

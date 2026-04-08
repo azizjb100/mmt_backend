@@ -8,21 +8,16 @@ const NOMERATOR = 'MMT-LHK-C';
 // =========================================================================
 
 const getAllHeaders = async (startDate, endDate, mesin) => {
-    // 1. Format tanggal untuk MySQL
     const tglMulai = format(new Date(startDate), 'yyyy-MM-dd');
     const tglSelesai = format(new Date(endDate), 'yyyy-MM-dd');
 
     let params = [tglMulai, tglSelesai];
     let mesinFilterSql = "";
 
-    // 2. Logika filter mesin (jika ada)
     if (mesin) {
-        // Jika mesin dikirim sebagai string "MT01,MT02", ubah jadi array
         const mesinArray = Array.isArray(mesin) ? mesin : mesin.split(',').filter(m => m.trim() !== '');
         
         if (mesinArray.length > 0) {
-            // Menggunakan EXISTS agar satu Nomor LHK hanya muncul satu kali (DISTINCT secara implisit)
-            // meskipun memiliki banyak baris detail yang cocok
             mesinFilterSql = `
                 AND EXISTS (
                     SELECT 1 FROM tlhk_cetakmmt_dtl dtl 
@@ -44,10 +39,10 @@ const getAllHeaders = async (startDate, endDate, mesin) => {
             lch_operator AS Operator,
             (SELECT IF(COUNT(*) > COUNT(IF(LENGTH(lcd_brg_kode)>0, 1, NULL)), 'N','Y') 
              FROM tlhk_cetakmmt_dtl WHERE lcd_lch_nomor = lch_nomor) AS Lengkap,
-            (SELECT SUM(lcd_qty_Cetak * IFNULL(spk_panjang,0) * IFNULL(spk_lebar,0)) 
-             FROM tlhk_cetakmmt_dtl 
-             LEFT JOIN tspk ON (spk_nomor = lcd_spk_nomor)
-             WHERE lcd_lch_nomor = lch_nomor) AS cetak_meter
+            (SELECT ROUND(SUM(lcd_qty_Cetak * IFNULL(spk_panjang,0) * IFNULL(spk_lebar,0)), 1)
+ FROM tlhk_cetakmmt_dtl 
+ LEFT JOIN tspk ON (spk_nomor = lcd_spk_nomor)
+ WHERE lcd_lch_nomor = lch_nomor) AS cetak_meter
         FROM tlhk_cetakmmt_hdr h
         LEFT JOIN tGUDANG g ON (g.gdg_kode = h.lch_gdg_prod)
         WHERE h.lch_tanggal BETWEEN ? AND ?

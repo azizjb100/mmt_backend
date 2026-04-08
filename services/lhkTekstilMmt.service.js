@@ -115,35 +115,25 @@ const deleteLhk = async (nomor) => {
  * @param {Date|string} date - Tanggal untuk menentukan YYMM
  * @returns {Promise<string>} - Nomor LHK yang baru
  */
-const generateNewNomor = async (date) => {
-    // Pastikan input adalah objek Date yang valid
+const generateNewNomor = async (date, connection = null) => {
+    const db = connection || pool; // Bisa menerima connection dari transaction
     const dateToUse = date instanceof Date ? date : new Date(date);
-
-    // Ambil format YYMM (contoh: 2512 untuk Desember 2025)
     const yymm = format(dateToUse, 'yyMM');
-    
-    // Prefix untuk pencarian di database (MMT-LHK-T.2512.%)
     const prefixMatch = `${NOMERATOR}.${yymm}.%`;
 
+    // PERBAIKAN: Nama tabel harus tlhk_tekstilmmt_hdr dan kolom lth_nomor
     const sqlMax = `
-        SELECT MAX(CAST(SUBSTRING_INDEX(lnomor, '.', -1) AS UNSIGNED)) AS max_num
-        FROM tlhk_mesin_hdr
-        WHERE lnomor LIKE ?
+        SELECT MAX(CAST(SUBSTRING_INDEX(lth_nomor, '.', -1) AS UNSIGNED)) AS max_num
+        FROM tlhk_tekstilmmt_hdr
+        WHERE lth_nomor LIKE ?
     `;
 
     try {
-        const [rows] = await pool.query(sqlMax, [prefixMatch]);
-        
-        // Ambil angka terakhir, jika null atau tidak ada maka mulai dari 0
+        const [rows] = await db.query(sqlMax, [prefixMatch]);
         const maxNum = (rows && rows[0].max_num) ? rows[0].max_num : 0;
-
-        // Tambah 1 untuk nomor berikutnya
         const nextSequence = maxNum + 1;
-        
-        // Format menjadi 4 digit (0001, 0002, dst)
         const formattedSequence = String(nextSequence).padStart(4, '0');
 
-        // Gabungkan semua komponen
         return `${NOMERATOR}.${yymm}.${formattedSequence}`;
     } catch (error) {
         console.error("Error generating new nomor:", error);
@@ -159,28 +149,34 @@ const saveLhk = async (data) => {
         await conn.beginTransaction();
 
         let nomorLhk = header.nomor;
-        const isNew = (!nomorLhk || nomorLhk === 'AUTO');
+        let isActuallyNew = false;
 
-        // 1. Tentukan Nomor (Generate jika baru)
-        if (isNew) {
-            nomorLhk = await generateNewNomor(header.tanggal);
+        // Cek apakah nomor baru atau edit
+        if (!nomorLhk || nomorLhk === 'AUTO') {
+            nomorLhk = await generateNewNomor(header.tanggal, conn); // Kirim conn agar konsisten dalam transaksi
+            isActuallyNew = true;
+        } else {
+            const [rows] = await conn.query('SELECT lth_nomor FROM tlhk_tekstilmmt_hdr WHERE lth_nomor = ?', [nomorLhk]);
+            isActuallyNew = (rows.length === 0);
         }
 
-        if (isNew) {
-            // INSERT HEADER BARU
+        if (isActuallyNew) {
             const sqlInsHeader = `
                 INSERT INTO tlhk_tekstilmmt_hdr (
                     lth_nomor, lth_tanggal, lth_shift, lth_gdg_prod, 
-                    lth_user, lth_tgl_input, lth_status, lth_brg_kode
-                ) VALUES (?, ?, ?, ?, ?, NOW(), ?, ?)
+                    lth_user_create, lth_date_create, lth_brg_kode
+                ) VALUES (?, ?, ?, ?, ?, NOW(), ?)
             `;
             await conn.query(sqlInsHeader, [
-                nomorLhk, header.tanggal, header.shift || 1, 
-                header.gdgKode, header.user || 'SYSTEM', 
-                header.lstatus || 'DRAFT', header.brg_kode
+                nomorLhk, 
+                header.tanggal, 
+                header.shift || 1, 
+                header.gdgKode, 
+                header.user || 'SYSTEM', 
+                header.brg_kode,
+                header.lstatus || 'DRAFT'
             ]);
         } else {
-            // UPDATE HEADER EKSISTING
             const sqlUpdHeader = `
                 UPDATE tlhk_tekstilmmt_hdr SET 
                     lth_tanggal = ?, lth_shift = ?, lth_gdg_prod = ?, 
@@ -188,45 +184,51 @@ const saveLhk = async (data) => {
                 WHERE lth_nomor = ?
             `;
             await conn.query(sqlUpdHeader, [
-                header.tanggal, header.shift || 1, header.gdgKode, 
-                header.lstatus || 'DRAFT', header.brg_kode, nomorLhk
+                header.tanggal, 
+                header.shift || 1, 
+                header.gdgKode, 
+                header.lstatus || 'DRAFT', 
+                header.brg_kode, 
+                nomorLhk
             ]);
 
-            // Hapus detail lama agar bisa digantikan dengan yang baru (Re-insert logic)
+            // Hapus detail lama
             await conn.query('DELETE FROM tlhk_tekstilmmt_dtl WHERE ltd_lth_nomor = ?', [nomorLhk]);
         }
 
-        // 2. SIMPAN DETAIL (Sama untuk Baru maupun Edit)
-        const sqlDetail = `
-            INSERT INTO tlhk_tekstilmmt_dtl (
-                ltd_lth_nomor, ltd_no_urut, ltd_jns_mesin, ltd_spk_nomor, 
-                ltd_qty_Cetak, ltd_brg_kode, ltd_panjang_pakai, ltd_lebar_pakai
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `;
-
-        for (let i = 0; i < details.length; i++) {
-            const d = details[i];
-            // Kalkulasi panjang total per baris (P. Per Pcs * Qty)
-            const panjangTotal = Number(d.panjang_per_pcs) * Number(d.jumlah_cetak);
-
-            await conn.query(sqlDetail, [
+        // Simpan Detail menggunakan Bulk Insert
+        if (details && details.length > 0) {
+            const sqlDetail = `
+                INSERT INTO tlhk_tekstilmmt_dtl (
+                    ltd_lth_nomor, ltd_no_urut, ltd_jns_mesin, ltd_spk_nomor, 
+                    ltd_qty_Cetak, ltd_brg_kode, ltd_panjang_pakai, ltd_lebar_pakai
+                ) VALUES ?
+            `;
+            
+            const values = details.map((d, i) => [
                 nomorLhk,
                 i + 1,
                 d.mesin,
                 d.nomor_spk,
                 d.jumlah_cetak,
-                header.brg_kode, // Kode bahan dari media yang di-scan
-                panjangTotal,    // Hasil inputan panjang per pcs * qty
-                d.lebar_spk
+                header.brg_kode,
+                // Pastikan perhitungan angka aman (handle null/undefined)
+                (Number(d.panjang_per_pcs) || 0) * (Number(d.jumlah_cetak) || 0),
+                d.lebar_spk || 0
             ]);
+
+            await conn.query(sqlDetail, [values]);
         }
 
         await conn.commit();
-        return { success: true, nomor: nomorLhk, message: isNew ? 'Data dibuat' : 'Data diperbarui' };
+        return { success: true, nomor: nomorLhk, message: isActuallyNew ? 'Data dibuat' : 'Data diperbarui' };
 
     } catch (error) {
         await conn.rollback();
         console.error("Error pada saveLhk:", error);
+        if (error.code === 'ER_DUP_ENTRY') {
+            throw new Error(`Gagal Simpan: Nomor ${nomorLhk} sudah ada. Silakan coba lagi.`);
+        }
         throw error;
     } finally {
         conn.release();
