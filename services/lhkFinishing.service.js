@@ -10,8 +10,6 @@ const getAllHeaders = async (startDate, endDate) => {
     try {
         const tglMulai = format(new Date(startDate), 'yyyy-MM-dd');
         const tglSelesai = format(new Date(endDate), 'yyyy-MM-dd');
-
-        // Menggunakan LEFT JOIN + GROUP BY jauh lebih cepat daripada Subquery per baris
         const sql = `
             SELECT 
                 t1.lfh_nomor AS Nomor, 
@@ -77,73 +75,120 @@ const finalizeBundling = async (headerData, detailItems) => {
     try {
         await conn.beginTransaction();
         
-        // 1. Generate Nomor LHK
-        const lfh_nomor = await generateLhkNomor(conn, headerData.lfh_tanggal);
+        const tglLhk = headerData.lfh_tanggal;
+        let lfh_nomor = '';
 
-        // 2. Insert Header (Bersihkan field temporary dari frontend)
-        const { lfh_total_ma, lfh_total_koli, ...headerToInsert } = headerData;
-        const finalHeader = { ...headerToInsert, lfh_nomor };
-        await conn.query(`INSERT INTO tlhk_finishingmmt_hdr SET ?`, [finalHeader]);
+        // 1. CEK ATAU BUAT HEADER (1 Hari 1 Nomor)
+        const [existingHdr] = await conn.query(
+            `SELECT lfh_nomor FROM tlhk_finishingmmt_hdr WHERE lfh_tanggal = ? LIMIT 1`,
+            [tglLhk]
+        );
+
+        if (existingHdr.length > 0) {
+            lfh_nomor = existingHdr[0].lfh_nomor;
+        } else {
+            lfh_nomor = await generateLhkNomor(conn, tglLhk);
+            // Destructuring untuk menghapus field temporary dari frontend
+            const { lfh_total_ma, lfh_total_koli, ...headerToInsert } = headerData;
+            const finalHeader = { ...headerToInsert, lfh_nomor };
+            await conn.query(`INSERT INTO tlhk_finishingmmt_hdr SET ?`, [finalHeader]);
+        }
 
         const allOriginalIds = [];
-        
-        // 3. Loop Detail untuk Insert & Potong Stok
-        for (const [index, item] of detailItems.entries()) {
+
+        // 2. LOOP DETAIL ITEMS
+        for (const item of detailItems) {
             const kategori = (item.proses_kategori || '').toUpperCase().replace(/\s+/g, '_');
             
-            // Kumpulkan ID untuk update status bundling
-            if(item.ids) allOriginalIds.push(...item.ids.split(','));
-            else if (item.id) allOriginalIds.push(item.id);
+            // Kumpulkan ID Pra-LHK untuk update status bundling nanti
+            if (item.ids) {
+                allOriginalIds.push(...String(item.ids).split(','));
+            } else if (item.id) {
+                allOriginalIds.push(item.id);
+            }
 
-            // Tentukan jumlah pemakaian bahan
-            let qtyPakai = 0;
-            if (kategori === 'MATA_AYAM') qtyPakai = item.jml_mata_ayam;
-            if (kategori === 'KOLI') qtyPakai = item.jml_koli;
+            // Tentukan kolom mana yang akan diupdate berdasarkan kategori proses
+            let kolomTarget = '';
+            if (kategori === 'POTONG') kolomTarget = 'lfd_j_potong';
+            else if (kategori === 'SEAMING') kolomTarget = 'lfd_j_seaming';
+            else if (kategori === 'MATA_AYAM') kolomTarget = 'lfd_j_mataayam';
+            else if (kategori === 'KOLI') kolomTarget = 'lfd_j_coly';
+            else if (kategori === 'X_BANNER') kolomTarget = 'lfd_xbanner_qty';
+            else if (kategori === 'ROLLUP_BANNER') kolomTarget = 'lfd_rollupbanner_qty';
 
-            // --- LOGIKA POTONG STOK (INSERT KE tmasterstok_mmt) ---
-            if (qtyPakai > 0 && item.material_kode) {
+            const qtyHasil = Number(item.qty_hasil) || 0;
+            const qtyBs = Number(item.qty_bs) || 0;
+            const qtyMa = kategori === 'MATA_AYAM' ? (Number(item.jml_mata_ayam) || 0) : 0;
+            const qtyKr = kategori === 'KOLI' ? (Number(item.jml_koli) || 0) : 0;
+
+            // 3. CEK APAKAH SPK INI SUDAH ADA DI DETAIL LHK TERSEBUT (Logika Global/Merge)
+            const [existingDtl] = await conn.query(
+                `SELECT lfd_spk_nomor FROM tlhk_finishingmmt_dtl 
+                 WHERE lfd_lfh_nomor = ? AND lfd_spk_nomor = ?`,
+                [lfh_nomor, item.spk_nomor]
+            );
+
+            if (existingDtl.length > 0) {
+                // --- JIKA SUDAH ADA: UPDATE (TAMBAHKAN NILAINYA) ---
+                const sqlUpdate = `
+                    UPDATE tlhk_finishingmmt_dtl 
+                    SET ${kolomTarget} = ${kolomTarget} + ?,
+                        lfd_j_bs = lfd_j_bs + ?,
+                        lfd_mataayam_qty = lfd_mataayam_qty + ?,
+                        lfd_karung_qty = lfd_karung_qty + ?
+                    WHERE lfd_lfh_nomor = ? AND lfd_spk_nomor = ?
+                `;
+                await conn.query(sqlUpdate, [qtyHasil, qtyBs, qtyMa, qtyKr, lfh_nomor, item.spk_nomor]);
+            } else {
+                // --- JIKA BELUM ADA: INSERT BARU ---
+                const [lastSeq] = await conn.query(
+                    `SELECT MAX(lfd_no_urut) as last_urut FROM tlhk_finishingmmt_dtl WHERE lfd_lfh_nomor = ?`,
+                    [lfh_nomor]
+                );
+                const nextUrut = (lastSeq[0].last_urut || 0) + 1;
+
+                const sqlInsert = `
+                    INSERT INTO tlhk_finishingmmt_dtl (
+                        lfd_lfh_nomor, lfd_spk_nomor, lfd_j_potong, lfd_j_seaming, 
+                        lfd_j_mataayam, lfd_j_coly, lfd_xbanner_qty, lfd_rollupbanner_qty, 
+                        lfd_j_bs, lfd_no_urut, lfd_mataayam_qty, lfd_karung_qty
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `;
+                
+                const values = [
+                    lfh_nomor, item.spk_nomor,
+                    kategori === 'POTONG' ? qtyHasil : 0,
+                    kategori === 'SEAMING' ? qtyHasil : 0,
+                    kategori === 'MATA_AYAM' ? qtyHasil : 0,
+                    kategori === 'KOLI' ? qtyHasil : 0,
+                    kategori === 'X_BANNER' ? qtyHasil : 0,
+                    kategori === 'ROLLUP_BANNER' ? qtyHasil : 0,
+                    qtyBs, nextUrut, qtyMa, qtyKr
+                ];
+                await conn.query(sqlInsert, values);
+            }
+
+            // 4. LOGIKA POTONG STOK (DIPERBAIKI)
+            let qtyPakaiStok = (kategori === 'MATA_AYAM') ? qtyMa : (kategori === 'KOLI' ? qtyKr : 0);
+            if (qtyPakaiStok > 0 && item.material_kode) {
                 const dataStokOut = {
                     mst_brg_kode: item.material_kode,
                     mst_gdg_kode: 'GPM',
-                    mst_barcode: '-',
-                    mst_stok_in: 0,
-                    mst_stok_out: qtyPakai, // Mengurangi stok melalui kolom ini
+                    mst_barcode: '-',      // Wajib diisi jika NOT NULL
+                    mst_stok_in: 0,        // Wajib diisi jika NOT NULL
+                    mst_stok_out: qtyPakaiStok,
                     mst_spk_nomor: item.spk_nomor,
                     mst_noreferensi: lfh_nomor,
-                    mst_tanggal: headerData.lfh_tanggal,
+                    mst_tanggal: tglLhk,
                     date_create: new Date()
                 };
-                
                 await conn.query(`INSERT INTO tmasterstok_mmt SET ?`, [dataStokOut]);
             }
-
-            // 4. Insert ke Detail LHK
-            const dtlRow = [
-                lfh_nomor,
-                item.spk_nomor,
-                kategori === 'POTONG' ? item.qty_hasil : 0,
-                kategori === 'SEAMING' ? item.qty_hasil : 0,
-                kategori === 'MATA_AYAM' ? item.qty_hasil : 0,
-                kategori === 'KOLI' ? item.qty_hasil : 0,
-                kategori === 'X_BANNER' ? item.qty_hasil : 0,
-                kategori === 'ROLLUP_BANNER' ? item.qty_hasil : 0,
-                item.qty_bs || 0,
-                index + 1,
-                kategori === 'MATA_AYAM' ? (item.jml_mata_ayam || 0) : 0,
-                kategori === 'KOLI' ? (item.jml_koli || 0) : 0 
-            ];
-
-            const sqlDtl = `INSERT INTO tlhk_finishingmmt_dtl (
-                lfd_lfh_nomor, lfd_spk_nomor, lfd_j_potong, lfd_j_seaming, 
-                lfd_j_mataayam, lfd_j_coly, lfd_xbanner_qty, lfd_rollupbanner_qty, 
-                lfd_j_bs, lfd_no_urut, lfd_mataayam_qty, lfd_karung_qty
-            ) VALUES (?)`;
-            
-            await conn.query(sqlDtl, [dtlRow]);
         }
 
-        // 5. Update status di tabel Pra-LHK
+        // 5. UPDATE STATUS DI TABEL PRA-LHK (DIPERBAIKI)
         if (allOriginalIds.length > 0) {
+            // mysql2 menggunakan [Array] untuk klausa IN (?)
             await conn.query(
                 `UPDATE tpra_lhk_finishing SET is_bundled = 1, lfh_nomor = ? WHERE id IN (?)`,
                 [lfh_nomor, allOriginalIds]
@@ -332,6 +377,41 @@ const deletePraLhk = async (id) => {
     }
 };
 
+const getPendingPotong = async (targetProses) => {
+    try {
+        // Query yang lebih sederhana namun tetap akurat
+        const sql = `
+            SELECT 
+                p.spk_nomor, 
+                p.spk_nama, 
+                p.qty_hasil, 
+                s.spk_panjang as panjang,
+                s.spk_lebar as lebar,
+                s.spk_jumlah as qty_order
+            FROM tpra_lhk_finishing p
+            LEFT JOIN (
+                SELECT spk_nomor, spk_panjang, spk_lebar, spk_jumlah FROM tspk
+                UNION ALL
+                SELECT mspk_nomor, mspk_panjang, mspk_lebar, mspk_jumlah FROM tmemospk
+            ) s ON p.spk_nomor = s.spk_nomor
+            WHERE p.proses_kategori = 'POTONG' 
+            AND p.is_bundled = 0 
+            AND NOT EXISTS (
+                SELECT 1 FROM tpra_lhk_finishing p2 
+                WHERE p2.spk_nomor = p.spk_nomor 
+                AND p2.proses_kategori = ? 
+                AND p2.is_bundled = 0
+            )
+        `;
+        
+        const [rows] = await pool.query(sql, [targetProses]);
+        return rows;
+    } catch (error) {
+        console.error("Error getPendingPotong:", error);
+        throw error;
+    }
+};
+
 
 module.exports = {
     getAllHeaders,
@@ -340,7 +420,8 @@ module.exports = {
     savePraLhk,
     getUnassignedPraLhk,
     deletePraLhk,
-    finalizeBundling
+    finalizeBundling,
+    getPendingPotong
 
 
 };

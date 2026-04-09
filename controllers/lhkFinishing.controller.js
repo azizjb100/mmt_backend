@@ -51,9 +51,23 @@ const deleteHeader = async (req, res) => {
     }
 };
 
+const getPendingPotong = async (req, res) => {
+    try {
+        const { targetProses } = req.query; // Misal: SEAMING, MATA_AYAM
+        if (!targetProses) {
+            return res.status(400).json({ success: false, message: "Parameter targetProses diperlukan." });
+        }
+        const rows = await service.getPendingPotong(targetProses);
+        res.json({ success: true, data: rows });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 module.exports = {
     getAllHeaders,
     getDetails,
     processFinalize,
-    deleteHeader
+    deleteHeader,
+    getPendingPotong
 };
