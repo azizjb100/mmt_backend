@@ -70,7 +70,7 @@ const generateLhkNomor = async (conn, tanggal) => {
 /**
  * Modifikasi finalizeBundling untuk menggunakan penomoran otomatis
  */
-const finalizeBundling = async (headerData, detailItems) => {
+const finalizeBundling = async (headerData, detailItems, userLogin) => {
     const conn = await pool.getConnection();
     try {
         await conn.beginTransaction();
@@ -272,7 +272,8 @@ const deleteLhk = async (nomor) => {
     }
 };
 
-const savePraLhk = async (details) => {
+
+const savePraLhk = async (details, userLogin) => {
     const conn = await pool.getConnection();
     try {
         await conn.beginTransaction();
@@ -284,7 +285,7 @@ const savePraLhk = async (details) => {
                 proses_kategori, 
                 qty_hasil, 
                 qty_bs, 
-                jml_mata_ayam,   -- TAMBAHKAN KOLOM INI
+                jml_mata_ayam,
                 jml_koli,
                 material_kode, 
                 tgl_input, 
@@ -306,11 +307,14 @@ const savePraLhk = async (details) => {
             d.material_kode || null,
             d.tgl_input,
             d.shift_input,
-            d.input_by || 'system',
+            userLogin, // Menggunakan variabel userLogin dari parameter fungsi
             false 
         ]);
 
-        await conn.query(sql, [values]);
+        if (values.length > 0) {
+            await conn.query(sql, [values]);
+        }
+        
         await conn.commit();
         
         return { success: true, message: `${details.length} data berhasil disimpan ke Pra-LHK` };

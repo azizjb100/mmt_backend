@@ -3,9 +3,19 @@ const service = require('../services/lhkFinishing.service');
 const saveDraft = async (req, res) => {
     try {
         const { details } = req.body;
-        const result = await service.savePraLhk(details);
-        res.status(201).json(result);
+
+        /**
+         * 1. Cek req.user.kdUser (hasil decode JWT dari middleware auth)
+         * 2. Jika middleware tidak ada/gagal, ambil dari payload frontend
+         * 3. Terakhir gunakan 'SYSTEM'
+         */
+        const userLogin = req.user?.kdUser || details[0]?.input_by || 'SYSTEM';
+
+        // Panggil service
+        const result = await service.savePraLhk(details, userLogin);
+        res.json(result);
     } catch (error) {
+        console.error("Controller Error:", error);
         res.status(500).json({ success: false, message: error.message });
     }
 };

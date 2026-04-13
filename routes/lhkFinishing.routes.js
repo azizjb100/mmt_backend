@@ -2,29 +2,30 @@ const express = require('express');
 const router = express.Router();
 const lhkController = require('../controllers/lhkFinishing.controller');
 const praController = require('../controllers/praLhkFinishing.controller');
+const verifyToken = require('../middleware/auth.middleware');
 
 // ==========================================
 // 1. ENDPOINT PRA-LHK (tpra_lhk_finishing)
 // ==========================================
 
-router.post('/pra', praController.saveDraft);
-router.get('/pra/unassigned', praController.getUnassigned);
-router.delete('/pra/:id', praController.deleteDraft);
+router.post('/pra', verifyToken, praController.saveDraft);
+router.get('/pra/unassigned', verifyToken, praController.getUnassigned);
+router.delete('/pra/:id', verifyToken, praController.deleteDraft);
 
 /**
  * NEW: Ambil data SPK yang sudah dipotong tapi belum diproses di tahap selanjutnya.
  * GET /api/mmt/lhk-finishing/pra/pending-potong?targetProses=SEAMING
  */
-router.get('/pra/pending-potong', lhkController.getPendingPotong);
+router.get('/pra/pending-potong', verifyToken, lhkController.getPendingPotong);
 
 
 // ==========================================
 // 2. ENDPOINT LHK FINAL (Laporan Resmi)
 // ==========================================
 
-router.get('/', lhkController.getAllHeaders);
-router.get('/details', lhkController.getDetails);
-router.post('/finalize', lhkController.processFinalize);
-router.delete('/:nomor', lhkController.deleteHeader);
+router.get('/', verifyToken, lhkController.getAllHeaders);
+router.get('/details', verifyToken, lhkController.getDetails);
+router.post('/finalize', verifyToken, lhkController.processFinalize);
+router.delete('/:nomor', verifyToken, lhkController.deleteHeader);
 
 module.exports = router;
