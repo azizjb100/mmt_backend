@@ -103,54 +103,72 @@ exports.getNewNomorSTBJ = async (tahun) => {
 /**
  * SIMPAN DATA STBJ (Logika simpandata di Delphi)
  */
+// Pastikan library date-fns diimport di bagian atas file
+
 exports.saveSTBJ = async (payload, isUpdate = false, userLogin) => {
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
 
-        let { Nomor, Tanggal, Keterangan, Gudang, GudangProduksi, Items, DetailDC } = payload;
-        const serverTime = new Date();
-        const activeUser = userLogin || 'SYSTEM';
+        const { header, details } = payload;
+        
+        let Nomor = header.stbj_nomor;
+        const Tanggal = header.stbj_tanggal;
+        const Keterangan = header.stbj_keterangan;
+        const Gudang = header.stbj_gdg_kode;
+        const GudangProduksi = header.stbj_gdgp_kode;
 
-        // 1. Logika Nomor Baru
-        if (!isUpdate) {
-            const tahun = format(new Date(Tanggal), 'yyyy');
+        const serverTime = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+        const validTanggal = Tanggal ? format(new Date(Tanggal), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd');
+        
+        // userLogin diambil dari parameter fungsi yang dikirim oleh controller
+        const activeUser = userLogin; 
+
+        if (!isUpdate || Nomor === 'AUTO') {
+            const tahun = format(new Date(validTanggal), 'yyyy');
             Nomor = await exports.getNewNomorSTBJ(tahun);
         }
 
-        // 2. Insert/Update Header
-        if (isUpdate) {
+        if (isUpdate && Nomor !== 'AUTO') {
             await connection.query(
                 `UPDATE tstbj_hdr SET 
                     stbj_tanggal=?, stbj_keterangan=?, stbj_gdg_kode=?, 
                     stbj_gdgp_kode=?, date_modified=?, user_modified=? 
                  WHERE stbj_nomor=?`,
-                [Tanggal, Keterangan, Gudang, GudangProduksi, serverTime, activeUser, Nomor]
+                [validTanggal, Keterangan, Gudang, GudangProduksi, serverTime, activeUser, Nomor]
             );
-            // Hapus detail lama untuk replace
             await connection.query(`DELETE FROM tstbj_dtl WHERE stbjd_stbj_nomor = ?`, [Nomor]);
-            await connection.query(`DELETE FROM retail.tdc_stbj WHERE tsd_nomor = ?`, [Nomor]);
         } else {
+            // INSERT BARU
             await connection.query(
                 `INSERT INTO tstbj_hdr 
                     (stbj_nomor, stbj_tanggal, stbj_keterangan, stbj_gdg_kode, stbj_gdgp_kode, date_create, user_create) 
                  VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                [Nomor, Tanggal, Keterangan, Gudang, GudangProduksi, serverTime, activeUser]
+                [Nomor, validTanggal, Keterangan, Gudang, GudangProduksi, serverTime, activeUser]
             );
         }
 
-        // 3. Simpan Detail Utama (tstbj_dtl)
-        if (Items && Items.length > 0) {
-            for (const item of Items) {
-                if (item.nama && item.jumlah > 0) {
+        // 3. Simpan Detail Utama (Looping menggunakan 'details' dari payload)
+        if (details && details.length > 0) {
+            for (const item of details) {
+                // Pastikan menggunakan nama field sesuai payload (spk, qty, koli, keterangan)
+                if (item.spk && Number(item.qty) > 0) {
                     await connection.query(
                         `INSERT INTO tstbj_dtl 
                             (stbjd_stbj_nomor, stbjd_spk_nomor, stbjd_size, stbjd_jumlah, stbjd_koli, stbjd_keterangan, stbjd_packing) 
                          VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                        [Nomor, item.kode, item.size, item.jumlah, item.koli, item.ket, item.packing || ""]
+                        [
+                            Nomor, 
+                            item.spk, 
+                            item.size || "", 
+                            Number(item.qty), 
+                            Number(item.koli || 0), 
+                            item.keterangan || "", 
+                            item.packing || ""
+                        ]
                     );
 
-                    // Logika khusus WH003: Update link ke tabel packing retail
+                    // Update link packing jika ada
                     if (Gudang === 'WH003' && item.packing) {
                         await connection.query(
                             `UPDATE retail.tpacking SET pack_nostbj = ? WHERE pack_nomor = ?`,
@@ -161,28 +179,13 @@ exports.saveSTBJ = async (payload, isUpdate = false, userLogin) => {
             }
         }
 
-        // 4. Simpan Detail DC Kaosan (retail.tdc_stbj)
-        if (Gudang === 'WH003' && DetailDC && DetailDC.length > 0) {
-            const dcValues = DetailDC.filter(dc => dc.nama && dc.jumlah > 0).map(dc => [
-                Nomor, dc.packing || "", dc.spk, dc.kode, dc.size, dc.jumlah
-            ]);
-
-            if (dcValues.length > 0) {
-                await connection.query(
-                    `INSERT INTO retail.tdc_stbj 
-                        (tsd_nomor, tsd_packing, tsd_spk_nomor, tsd_kode, tsd_ukuran, tsd_jumlah) 
-                     VALUES ?`, [dcValues]
-                );
-            }
-        }
-
         await connection.commit();
         return { success: true, nomor: Nomor };
     } catch (error) {
-        await connection.rollback();
-        throwDbError('Gagal menyimpan transaksi STBJ', error);
+        if (connection) await connection.rollback();
+        throw error;
     } finally {
-        connection.release();
+        if (connection) connection.release();
     }
 };
 

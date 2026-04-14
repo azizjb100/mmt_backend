@@ -3,20 +3,22 @@
 const express = require('express');
 const router = express.Router();
 const stbjController = require('../controllers/stbj.controller');
+const verifyToken = require('../middleware/auth.middleware');
+
 // const auth = require('../middleware/auth'); // Aktifkan jika ada sistem login
 // Route untuk Browse (Master)
-router.get('/', stbjController.browseSTBJ);
+router.get('/', verifyToken, stbjController.browseSTBJ);
 
 // Route untuk Detail (Sub-grid)
-router.get('/browse/detail/:nomor', stbjController.getDetail);
+router.get('/browse/detail', verifyToken, stbjController.getDetail);
 
 // Route untuk Simpan Baru
-router.post('/', stbjController.createSTBJ);
+router.post('/', verifyToken, stbjController.createSTBJ);
 
 // Route untuk Update (Edit)
-router.put('/:nomor', stbjController.updateSTBJ);
+router.put('/:nomor', verifyToken, stbjController.updateSTBJ);
 
 // Route untuk Hapus
-router.delete('/:nomor', stbjController.deleteSTBJ);
+router.delete('/:nomor', verifyToken, stbjController.deleteSTBJ);
 
 module.exports = router;

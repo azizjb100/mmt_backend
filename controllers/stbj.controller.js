@@ -15,7 +15,14 @@ exports.browseSTBJ = async (req, res) => {
 
 exports.getDetail = async (req, res) => {
     try {
-        const { nomor } = req.params;
+        // SEBELUMNYA: const { nomor } = req.params;
+        // SESUDAH:
+        const { nomor } = req.query; 
+
+        if (!nomor) {
+            return res.status(400).json({ message: "Parameter nomor diperlukan" });
+        }
+
         const data = await stbjService.getDetailSTBJ(nomor);
         res.json(data);
     } catch (error) {
@@ -25,7 +32,10 @@ exports.getDetail = async (req, res) => {
 
 exports.createSTBJ = async (req, res) => {
     try {
-        const userLogin = req.user?.username || 'ADMIN'; // Asumsi ada middleware auth
+        // PERBAIKAN: Sesuaikan .kdUser atau .username sesuai isi token Anda
+        // Berdasarkan skema login Anda sebelumnya, biasanya menggunakan kdUser
+        const userLogin = req.user?.kdUser || req.user?.username || 'ADMIN'; 
+        
         const result = await stbjService.saveSTBJ(req.body, false, userLogin);
         res.status(201).json(result);
     } catch (error) {
@@ -35,7 +45,8 @@ exports.createSTBJ = async (req, res) => {
 
 exports.updateSTBJ = async (req, res) => {
     try {
-        const userLogin = req.user?.username || 'ADMIN';
+        const userLogin = req.user?.kdUser || req.user?.username || 'ADMIN';
+        
         const result = await stbjService.saveSTBJ(req.body, true, userLogin);
         res.json(result);
     } catch (error) {

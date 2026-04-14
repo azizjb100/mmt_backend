@@ -24,7 +24,9 @@ const processFinalize = async (req, res) => {
     try {
         const { headerData, details } = req.body; 
 
-        // Validasi sederhana agar tidak error .map() di service
+        // 1. Ambil user dari token (Sama seperti pola STBJ Anda)
+        const userLogin = req.user?.kdUser || req.user?.username || 'ADMIN';
+
         if (!details || !Array.isArray(details)) {
             return res.status(400).json({ 
                 success: false, 
@@ -32,8 +34,9 @@ const processFinalize = async (req, res) => {
             });
         }
 
-        // Kirim 'details' ke service
-        const result = await service.finalizeBundling(headerData, details);
+        // 2. PERBAIKAN: Tambahkan userLogin sebagai argumen ke-3
+        const result = await service.finalizeBundling(headerData, details, userLogin);
+        
         res.json(result);
     } catch (error) {
         console.error("Error in processFinalize:", error);

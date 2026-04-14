@@ -88,9 +88,17 @@ const finalizeBundling = async (headerData, detailItems, userLogin) => {
             lfh_nomor = existingHdr[0].lfh_nomor;
         } else {
             lfh_nomor = await generateLhkNomor(conn, tglLhk);
+            
             // Destructuring untuk menghapus field temporary dari frontend
             const { lfh_total_ma, lfh_total_koli, ...headerToInsert } = headerData;
-            const finalHeader = { ...headerToInsert, lfh_nomor };
+
+            // PERBAIKAN: Masukkan lfh_nomor dan lfh_user_create secara eksplisit
+            const finalHeader = { 
+                ...headerToInsert, 
+                lfh_nomor: lfh_nomor,
+                lfh_user_create: userLogin || headerData.lfh_user_create || 'ADMIN' 
+            };
+
             await conn.query(`INSERT INTO tlhk_finishingmmt_hdr SET ?`, [finalHeader]);
         }
 
@@ -121,7 +129,7 @@ const finalizeBundling = async (headerData, detailItems, userLogin) => {
             const qtyMa = kategori === 'MATA_AYAM' ? (Number(item.jml_mata_ayam) || 0) : 0;
             const qtyKr = kategori === 'KOLI' ? (Number(item.jml_koli) || 0) : 0;
 
-            // 3. CEK APAKAH SPK INI SUDAH ADA DI DETAIL LHK TERSEBUT (Logika Global/Merge)
+            // 3. CEK APAKAH SPK INI SUDAH ADA DI DETAIL LHK TERSEBUT
             const [existingDtl] = await conn.query(
                 `SELECT lfd_spk_nomor FROM tlhk_finishingmmt_dtl 
                  WHERE lfd_lfh_nomor = ? AND lfd_spk_nomor = ?`,
@@ -129,7 +137,7 @@ const finalizeBundling = async (headerData, detailItems, userLogin) => {
             );
 
             if (existingDtl.length > 0) {
-                // --- JIKA SUDAH ADA: UPDATE (TAMBAHKAN NILAINYA) ---
+                // --- JIKA SUDAH ADA: UPDATE ---
                 const sqlUpdate = `
                     UPDATE tlhk_finishingmmt_dtl 
                     SET ${kolomTarget} = ${kolomTarget} + ?,
@@ -168,14 +176,14 @@ const finalizeBundling = async (headerData, detailItems, userLogin) => {
                 await conn.query(sqlInsert, values);
             }
 
-            // 4. LOGIKA POTONG STOK (DIPERBAIKI)
+            // 4. LOGIKA POTONG STOK
             let qtyPakaiStok = (kategori === 'MATA_AYAM') ? qtyMa : (kategori === 'KOLI' ? qtyKr : 0);
             if (qtyPakaiStok > 0 && item.material_kode) {
                 const dataStokOut = {
                     mst_brg_kode: item.material_kode,
                     mst_gdg_kode: 'GPM',
-                    mst_barcode: '-',      // Wajib diisi jika NOT NULL
-                    mst_stok_in: 0,        // Wajib diisi jika NOT NULL
+                    mst_barcode: '-',
+                    mst_stok_in: 0,
                     mst_stok_out: qtyPakaiStok,
                     mst_spk_nomor: item.spk_nomor,
                     mst_noreferensi: lfh_nomor,
@@ -186,9 +194,8 @@ const finalizeBundling = async (headerData, detailItems, userLogin) => {
             }
         }
 
-        // 5. UPDATE STATUS DI TABEL PRA-LHK (DIPERBAIKI)
+        // 5. UPDATE STATUS DI TABEL PRA-LHK
         if (allOriginalIds.length > 0) {
-            // mysql2 menggunakan [Array] untuk klausa IN (?)
             await conn.query(
                 `UPDATE tpra_lhk_finishing SET is_bundled = 1, lfh_nomor = ? WHERE id IN (?)`,
                 [lfh_nomor, allOriginalIds]
