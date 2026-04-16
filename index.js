@@ -52,6 +52,7 @@ const lapPemakaianBahanRoutes =require("./routes/lapPemakaianBahan.routes");
 const mutasiGudangRoutes =require("./routes/mutasiGudang.routes");
 const searchBarcodeRoutes =require("./routes/searchBarcode.routes");
 const jadwalKirimRoutes = require("./routes/jadwalKirim.routes");
+const lapMonFinishingRoutes = require("./routes/lapMonFinishing.routes");
 
 
 
@@ -115,6 +116,7 @@ app.use("/api/mmt/laporan-ls-bahan-utama", clientCertAuth, lapLsBahanUtamaRoutes
 app.use("/api/mmt/laporan-ls-bahan-penolong", clientCertAuth, lapLsBahanPenolongRoutes);
 app.use("/api/mmt/laporan-spk-mmt", clientCertAuth, lapSpkMmtRoutes);
 app.use("/api/mmt/monitoring/laporan-lmkp", clientCertAuth, lapLmkpMmtRoutes);
+app.use("/api/mmt/monitoring-finishing", clientCertAuth, lapMonFinishingRoutes);
 app.use("/api/mmt/monitoring-cetak", clientCertAuth, lapMonCetakRoutes);
 app.use("/api/mmt/permintaan-bahan", clientCertAuth, permintaanBahanRoutes);
 app.use("/api/mmt/penerimaan-bahan", clientCertAuth, penerimaanBahanRoutes);
@@ -154,6 +156,7 @@ app.use("/api/mmt/lap-pemakaian-bahan", clientCertAuth, lapPemakaianBahanRoutes)
 app.use("/api/mmt/mutasi-gudang", clientCertAuth, mutasiGudangRoutes);
 app.use("/api/mmt/search-barcode", clientCertAuth, searchBarcodeRoutes);
 app.use("/api/mmt/jadwal-kirim", clientCertAuth, jadwalKirimRoutes);
+
 
 
 

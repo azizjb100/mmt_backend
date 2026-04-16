@@ -204,12 +204,15 @@ const saveLhk = async (headerData, detailsData, inkData, existingNomor) => {
             ]);
         }
 
-        // 3. SIMPAN DETAIL PENGERJAAN SPK (tlhk_cetakmmt_dtl)
-       for (let i = 0; i < detailsData.length; i++) {
+ // 3. SIMPAN DETAIL PENGERJAAN SPK (tlhk_cetakmmt_dtl)
+for (let i = 0; i < detailsData.length; i++) {
     const d = detailsData[i];
     
-    // Ambil nilai mesin, pastikan mencakup semua kemungkinan nama key dari frontend
+    // Ambil nilai mesin
     const mesinToSave = d.msn_kode || d.mesin || d.Mesin;
+    
+    // Ambil shift dari detail (lcd_lshift) atau payload level atas (shift)
+    const shiftToSave = d.lcd_lshift || d.shift || headerData.lch_shift;
 
     await conn.query(`
         INSERT INTO tlhk_cetakmmt_dtl (
@@ -218,18 +221,21 @@ const saveLhk = async (headerData, detailsData, inkData, existingNomor) => {
             lcd_spk_nomor, 
             lcd_qty_Cetak, 
             lcd_jns_mesin, 
-            lcd_loperator
-        ) VALUES (?, ?, ?, ?, ?, ?)
+            lcd_loperator,
+            lcd_lnomor,   -- Akan diisi lhkmesin
+            lcd_lshift    -- Shift detail
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `, [
-        finalNomor, 
-        i + 1, 
+        finalNomor,                   // Nomor Header (misal: LHK/2026/0001)
+        i + 1,                        // No Urut
         d.spk_nomor || d.Nomor_SPK, 
-        d.jumlah_cetak || d.Jml_Cetak || 0, 
-        mesinToSave, // Gunakan variabel yang sudah divalidasi di atas
-        d.operator || d.Operator
+        d.jumlah_cetak || 0, 
+        mesinToSave, 
+        d.operator || '',
+        d.lhkmesin || d.lcd_lnomor,   // PENTING: Mengambil lhkmesin sesuai permintaan
+        shiftToSave
     ]);
 }
-
         // 4. SIMPAN DETAIL PEMAKAIAN TINTA PER MESIN (tlhk_cetakmmt_ink)
         // inkData diharapkan berisi: [{ msn_kode: 'MSN01', c: 0.5, m: 0.2, y: 0, k: 0.1 }, ...]
         if (inkData && inkData.length > 0) {
