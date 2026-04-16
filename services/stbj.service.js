@@ -17,13 +17,17 @@ exports.getBrowseSTBJ = async (startDate, endDate, gdgKode) => {
         const sqlMaster = `
             SELECT 
                 stbj_nomor AS Nomor, 
-                stbj_tanggal AS Tanggal,
+                /* --- PERBAIKAN DI SINI --- */
+                DATE_FORMAT(h.stbj_tanggal, '%Y-%m-%d') AS Tanggal,
+                /* ------------------------- */
                 stbj_keterangan AS Keterangan, 
                 stbj_gdg_kode AS GudangKode, 
                 g.gdg_nama AS Gudang, 
                 p.gdgp_nama AS Dari,
                 IFNULL(ts.ts_nomor, "") AS NomorTerima, 
-                ts.ts_tanggal AS TglTerima,
+                /* --- PERBAIKAN JUGA UNTUK TGL TERIMA --- */
+                DATE_FORMAT(ts.ts_tanggal, '%Y-%m-%d') AS TglTerima,
+                /* --------------------------------------- */
                 IFNULL((
                     SELECT 
                         IF(pin_acc='' AND pin_dipakai='', 'WAIT',
