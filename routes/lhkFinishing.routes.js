@@ -26,6 +26,14 @@ router.get('/pra/pending-potong', verifyToken, lhkController.getPendingPotong);
 router.get('/', verifyToken, lhkController.getAllHeaders);
 router.get('/details', verifyToken, lhkController.getDetails);
 router.post('/finalize', verifyToken, lhkController.processFinalize);
+
+/**
+ * ENDPOINT ACC (Finalisasi & Verifikasi Supervisor)
+ * POST /api/mmt/lhk-finishing/acc
+ * Digunakan untuk simpan perubahan detail sekaligus mengisi kolom lfh_acc
+ */
+router.post('/acc', verifyToken, lhkController.handleAcc); // <--- Tambahkan ini
+
 router.delete('/:nomor', verifyToken, lhkController.deleteHeader);
 
 module.exports = router;

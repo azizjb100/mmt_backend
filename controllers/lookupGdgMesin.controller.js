@@ -8,7 +8,12 @@ const lookupService = require('../services/lookupGdgMesin.service');
  */
 const getGudangLookup = async (req, res) => {
     try {
-        const data = await lookupService.getGudangLookup();
+        // 1. AMBIL parameter dari query string URL
+        // req.query akan berisi { mode: 'jadi', divisi: '1' } sesuai kiriman Vue
+        const { mode, divisi } = req.query;
+
+        // 2. KIRIM parameter tersebut ke fungsi service
+        const data = await lookupService.getGudangLookup(mode, divisi);
 
         res.status(200).json({
             success: true,

@@ -51,6 +51,7 @@ const stbjRoutes =require("./routes/stbj.routes");
 const lapPemakaianBahanRoutes =require("./routes/lapPemakaianBahan.routes");
 const mutasiGudangRoutes =require("./routes/mutasiGudang.routes");
 const searchBarcodeRoutes =require("./routes/searchBarcode.routes");
+const jadwalKirimRoutes = require("./routes/jadwalKirim.routes");
 
 
 
@@ -152,6 +153,7 @@ app.use("/api/mmt/stbj", clientCertAuth, stbjRoutes);
 app.use("/api/mmt/lap-pemakaian-bahan", clientCertAuth, lapPemakaianBahanRoutes);
 app.use("/api/mmt/mutasi-gudang", clientCertAuth, mutasiGudangRoutes);
 app.use("/api/mmt/search-barcode", clientCertAuth, searchBarcodeRoutes);
+app.use("/api/mmt/jadwal-kirim", clientCertAuth, jadwalKirimRoutes);
 
 
 

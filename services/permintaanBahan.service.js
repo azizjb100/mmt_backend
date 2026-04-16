@@ -96,7 +96,6 @@ exports.getPermintaanBahanData = async (startDate, endDate, divisi, userManager)
         `;
 
         // 2. Sub-query Agregasi untuk TOBAT (Tabel tobatmintabeli_dtl)
-        // Catatan: Jika tabel tobat belum punya qty_po/qty_terima, nilai di-set 0 dulu agar tidak error
         const sqlAggTobat = `
             SELECT
                 mbd_nomor AS mbd_mb_nomor,
@@ -109,7 +108,7 @@ exports.getPermintaanBahanData = async (startDate, endDate, divisi, userManager)
             GROUP BY mbd_nomor
         `;
 
-        // Kolom tambahan untuk Estimasi & Realisasi (Hanya untuk MMT, TOBAT di-nullkan)
+        // Kolom tambahan untuk Estimasi & Realisasi
         const trackingColumns = `
             (SELECT DATE_FORMAT(MAX(po.po_dateline), '%Y-%m-%d') 
              FROM tpo_mmt_dtl pod 
@@ -153,7 +152,6 @@ exports.getPermintaanBahanData = async (startDate, endDate, divisi, userManager)
             `;
             paramsMaster = [startDate, endDate];
         } 
-        // Jika divisi = 4, tetap masuk ke data TOBAT
         else if (divisi == 4) {
             sqlMaster = `
                 SELECT
@@ -181,19 +179,37 @@ exports.getPermintaanBahanData = async (startDate, endDate, divisi, userManager)
 
         const masterNomors = masterResults.map(row => row.Nomor);
 
-        // 3. Query Detail Gabungan
+        // 3. Query Detail Gabungan (PERBAIKAN: Menambahkan kolom Total_Diterima & Is_Acc)
         const sqlDetail = `
             SELECT * FROM (
                 SELECT 
-                    d.mbd_mb_nomor AS Nomor, d.mbd_brg_kode AS Kode, d.mbd_qty AS Jumlah, d.mbd_brg_satuan AS Satuan,
-                    TRIM(b.brg_nama) AS Nama_Bahan, b.brg_panjang AS Panjang, b.brg_lebar AS Lebar, b.brg_satuan_harga AS Harga
+                    d.mbd_mb_nomor AS Nomor, 
+                    d.mbd_brg_kode AS Kode, 
+                    d.mbd_qty AS Jumlah, 
+                    d.mbd_qty_terima AS Total_Diterima, 
+                    d.mbd_brg_satuan AS Satuan,
+                    TRIM(b.brg_nama) AS Nama_Bahan, 
+                    b.brg_panjang AS Panjang, 
+                    b.brg_lebar AS Lebar, 
+                    b.brg_satuan_harga AS Harga,
+                    d.mbd_acc AS Is_Acc
                 FROM tmintabahan_mmt_dtl d
                 LEFT JOIN tbarang_mmt b ON d.mbd_brg_kode = b.brg_kode
                 WHERE d.mbd_mb_nomor IN (?)
+                
                 UNION ALL
+                
                 SELECT 
-                    d.mbd_nomor AS Nomor, d.mbd_o_kode AS Kode, d.mbd_jumlah AS Jumlah, 'PCS' AS Satuan,
-                    TRIM(t.o_nama) AS Nama_Bahan, 0 AS Panjang, 0 AS Lebar, t.o_harga AS Harga
+                    d.mbd_nomor AS Nomor, 
+                    d.mbd_o_kode AS Kode, 
+                    d.mbd_jumlah AS Jumlah, 
+                    0 AS Total_Diterima, 
+                    'PCS' AS Satuan,
+                    TRIM(t.o_nama) AS Nama_Bahan, 
+                    0 AS Panjang, 
+                    0 AS Lebar, 
+                    t.o_harga AS Harga,
+                    'Y' AS Is_Acc
                 FROM tobatmintabeli_dtl d
                 LEFT JOIN tobat t ON d.mbd_o_kode = t.o_kode
                 WHERE d.mbd_nomor IN (?)

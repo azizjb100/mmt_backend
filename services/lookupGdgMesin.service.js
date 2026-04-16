@@ -41,21 +41,39 @@ const executeQuery = async (sql, params = []) => {
 // LOGIKA BUSINESS LOOKUP
 // -----------------------------------------------------------
 
-
 /**
- * Mengambil daftar semua gudang untuk lookup.
+ * Mengambil daftar gudang dengan mode tertentu
+ * @param {string} mode - 'all' untuk semua, 'jadi' untuk filter divisi
+ * @param {string|number} divisi - Nilai zdivisi user
  */
-const getGudangLookup = async () => {
+const getGudangLookup = async (mode, divisi) => {
+    let whereClause = "";
+    let params = [];
+
+    if (mode === 'jadi') {
+        // Logika Delphi: Filter berdasarkan zdivisi
+        if (divisi == '1') {
+            whereClause = "WHERE gdg_jadi = 1";
+        } else if (divisi == '4') {
+            whereClause = "WHERE gdg_jadi = 4";
+        } else {
+            whereClause = "WHERE gdg_jadi <> 0";
+        }
+    } else {
+        // Mode 'all': Tampilkan semua tanpa filter gdg_jadi
+        whereClause = ""; 
+    }
+
     const sql = `
         SELECT gdg_kode AS Kode, gdg_nama AS Nama 
         FROM tgudang
-        ORDER BY gdg_kode
+        ${whereClause}
+        ORDER BY gdg_nama
     `;
-    // Panggil executeQuery yang sudah terhubung ke database
-    const result = await executeQuery(sql); 
+    
+    const result = await executeQuery(sql, params); 
     return result;
 };
-
 /**
  * Mengambil detail gudang berdasarkan kode (untuk event blur).
  * @param {string} kodeGudang

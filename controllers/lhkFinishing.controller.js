@@ -10,11 +10,29 @@ const getAllHeaders = async (req, res) => {
     }
 };
 
+// const getDetails = async (req, res) => {
+//     try {
+//         const { nomor } = req.query;
+//         const rows = await service.getDetailsByNomor(nomor);
+//         res.json({ success: true, data: rows });
+//     } catch (error) {
+//         res.status(500).json({ success: false, message: error.message });
+//     }
+// };
+
 const getDetails = async (req, res) => {
     try {
-        const { nomor } = req.query;
-        const rows = await service.getDetailsByNomor(nomor);
-        res.json({ success: true, data: rows });
+        const { nomor } = req.query; // atau req.params sesuai route
+        if (!nomor) {
+            return res.status(400).json({ success: false, message: "Nomor LHK diperlukan" });
+        }
+
+        const data = await service.getLhkFinishingByNomor(nomor);
+        
+        res.json({
+            success: true,
+            data: data // Ini sekarang berisi { Nomor, Tanggal, ..., Detail: [...] }
+        });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -67,10 +85,23 @@ const getPendingPotong = async (req, res) => {
     }
 };
 
+const handleAcc = async (req, res) => {
+    try {
+        const { nomor, details } = req.body;
+        const userLogin = req.user.kdUser; // Ambil dari token JWT auth
+
+        const result = await service.approveAcc(nomor, details, userLogin);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 module.exports = {
     getAllHeaders,
     getDetails,
     processFinalize,
     deleteHeader,
-    getPendingPotong
+    getPendingPotong,
+    handleAcc
 };
