@@ -13,8 +13,7 @@ router.get('/pra/unassigned', verifyToken, praController.getUnassigned);
 router.delete('/pra/:id', verifyToken, praController.deleteDraft);
 
 /**
- * NEW: Ambil data SPK yang sudah dipotong tapi belum diproses di tahap selanjutnya.
- * GET /api/mmt/lhk-finishing/pra/pending-potong?targetProses=SEAMING
+ * Ambil data SPK yang sudah dipotong tapi belum diproses di tahap selanjutnya.
  */
 router.get('/pra/pending-potong', verifyToken, lhkController.getPendingPotong);
 
@@ -28,12 +27,19 @@ router.get('/details', verifyToken, lhkController.getDetails);
 router.post('/finalize', verifyToken, lhkController.processFinalize);
 
 /**
- * ENDPOINT ACC (Finalisasi & Verifikasi Supervisor)
- * POST /api/mmt/lhk-finishing/acc
- * Digunakan untuk simpan perubahan detail sekaligus mengisi kolom lfh_acc
+ * ENDPOINT UPDATE (Hanya simpan perubahan, tanpa status ACC)
+ * POST /api/mmt/lhk-finishing/update
+ * Diubah ke POST agar sinkron dengan api.post di frontend Vue kamu
  */
-router.post('/acc', verifyToken, lhkController.handleAcc); // <--- Tambahkan ini
+router.post('/update', verifyToken, lhkController.updateLhk); 
+
+/**
+ * ENDPOINT ACC (Simpan perubahan + Isi kolom lfh_acc)
+ * POST /api/mmt/lhk-finishing/acc
+ */
+router.post('/acc', verifyToken, lhkController.handleAcc); 
 
 router.delete('/:nomor', verifyToken, lhkController.deleteHeader);
+
 
 module.exports = router;

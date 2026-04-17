@@ -69,3 +69,38 @@ exports.deleteSTBJ = async (req, res) => {
         res.status(500).json({ message: error.message });
     }
 };
+
+exports.getSTBJByNomor = async (req, res) => {
+    try {
+        const { nomor } = req.params;
+        if (!nomor) {
+            return res.status(400).json({ message: "Nomor STBJ harus diisi" });
+        }
+
+        const data = await stbjService.getSTBJByNomor(nomor);
+        res.json(data);
+    } catch (error) {
+        // Jika error berasal dari "tidak ditemukan" yang kita buat di service
+        if (error.message.includes('tidak ditemukan')) {
+            return res.status(404).json({ message: error.message });
+        }
+        res.status(500).json({ message: error.message });
+    }
+};
+
+exports.updateSTBJ = async (req, res) => {
+    try {
+        const { nomor } = req.params; // Ambil nomor dari URL
+        const userLogin = req.user?.kdUser || req.user?.username || 'ADMIN';
+        
+        // Pastikan payload memiliki nomor yang benar sebelum dikirim ke service
+        const payload = req.body;
+        if (!payload.header) payload.header = {};
+        payload.header.stbj_nomor = nomor;
+
+        const result = await stbjService.saveSTBJ(payload, true, userLogin);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};

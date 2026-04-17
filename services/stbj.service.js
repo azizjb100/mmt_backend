@@ -219,3 +219,65 @@ exports.deleteSTBJ = async (nomor, gdgKode) => {
         connection.release();
     }
 };
+
+/**
+ * GET DATA STBJ BY NOMOR (Untuk Loading Data Edit)
+ */
+exports.getSTBJByNomor = async (nomor) => {
+    try {
+        // 1. Ambil Data Header
+        const sqlHeader = `
+            SELECT 
+                h.stbj_nomor AS Nomor, 
+                DATE_FORMAT(h.stbj_tanggal, '%Y-%m-%d') AS Tanggal,
+                h.stbj_keterangan AS Keterangan, 
+                h.stbj_gdg_kode AS Gudang_Kode, 
+                g.gdg_nama AS Gudang_Nama, 
+                h.stbj_gdgp_kode AS Gudang_Produksi_Kode,
+                p.gdgp_nama AS Gudang_Produksi_Nama,
+                h.user_create AS User_Create,
+                h.date_create AS Date_Create
+            FROM tstbj_hdr h
+            LEFT JOIN tgudang g ON g.gdg_kode = h.stbj_gdg_kode
+            LEFT JOIN tgudangproduksi p ON p.gdgp_kode = h.stbj_gdgp_kode
+            WHERE h.stbj_nomor = ?;
+        `;
+        
+        const [headerResults] = await pool.query(sqlHeader, [nomor]);
+
+        if (headerResults.length === 0) {
+            throw new Error(`Transaksi STBJ dengan nomor ${nomor} tidak ditemukan.`);
+        }
+
+        const headerData = headerResults[0];
+
+        // 2. Ambil Data Detail
+        const sqlDetail = `
+            SELECT 
+                stbjd_spk_nomor AS spk, 
+                IFNULL(s.spk_nama, i.spgi_nama) AS nama_spk, 
+                s.spk_ukuran AS ukuran, 
+                stbjd_size AS size,
+                stbjd_jumlah AS qty, 
+                stbjd_koli AS koli, 
+                stbjd_keterangan AS keterangan,
+                stbjd_packing AS packing
+            FROM tstbj_dtl d
+            LEFT JOIN tspk s ON s.spk_nomor = d.stbjd_spk_nomor
+            LEFT JOIN tspk_gudangitem i ON i.spgi_spk = d.stbjd_spk_nomor
+            WHERE d.stbjd_stbj_nomor = ?
+            ORDER BY d.stbjd_spk_nomor ASC;
+        `;
+        
+        const [detailResults] = await pool.query(sqlDetail, [nomor]);
+
+        // 3. Gabungkan Header dan Detail dalam satu objek
+        return {
+            ...headerData,
+            details: detailResults
+        };
+
+    } catch (error) {
+        throwDbError(`Gagal mengambil data STBJ (${nomor})`, error);
+    }
+};

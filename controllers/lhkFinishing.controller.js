@@ -97,11 +97,33 @@ const handleAcc = async (req, res) => {
     }
 };
 
+const updateLhk = async (req, res) => {
+    try {
+        // Ambil nomor dan details dari body
+        const { nomor, details } = req.body;
+        const userLogin = req.user.username || 'ADMIN';
+
+        // Validasi simpel
+        if (!nomor) {
+            return res.status(400).json({ success: false, message: "Nomor LHK tidak ditemukan dalam request" });
+        }
+
+        const result = await service.updateLhk(nomor, details, userLogin);
+        res.json(result);
+    } catch (error) {
+        console.error("Controller Update Error:", error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+
+
 module.exports = {
     getAllHeaders,
     getDetails,
     processFinalize,
     deleteHeader,
     getPendingPotong,
-    handleAcc
+    handleAcc,
+    updateLhk
 };

@@ -15,6 +15,8 @@ router.get('/browse/detail', verifyToken, stbjController.getDetail);
 // Route untuk Simpan Baru
 router.post('/', verifyToken, stbjController.createSTBJ);
 
+router.get('/:nomor', verifyToken, stbjController.getSTBJByNomor);
+
 // Route untuk Update (Edit)
 router.put('/:nomor', verifyToken, stbjController.updateSTBJ);
 

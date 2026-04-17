@@ -550,6 +550,56 @@ const approveAcc = async (nomor, detailItems, userLogin) => {
     }
 };
 
+const updateLhk = async (nomor, detailItems, userLogin) => {
+    const conn = await pool.getConnection();
+    try {
+        await conn.beginTransaction();
+
+        // LOGGING UNTUK DEBUG (Opsional, hapus jika sudah jalan)
+        console.log("Updating Nomor:", nomor);
+
+        // 1. Hapus detail lama
+        await conn.query(`DELETE FROM tlhk_finishingmmt_dtl WHERE lfd_lfh_nomor = ?`, [nomor]);
+
+        // 2. Siapkan data baru
+        // Pastikan variabel 'nomor' (parameter fungsi) digunakan di index pertama [nomor, ...]
+        const detailValues = detailItems.map((d, index) => [
+            nomor, // <--- INI HARUS TERISI
+            d.spk_nomor,
+            Number(d.j_potong) || 0,
+            Number(d.j_seaming) || 0,
+            Number(d.j_mataayam) || 0,
+            Number(d.j_coly) || 0,
+            Number(d.j_bs) || 0,
+            index + 1,
+            Number(d.mata_ayam_qty) || 0,
+            Number(d.xbanner_qty) || 0,
+            Number(d.plastik_qty) || 0,
+            Number(d.karung_qty) || 0,
+            Number(d.rollupbanner_qty) || 0
+        ]);
+
+        if (detailValues.length > 0) {
+            const sqlInsertDtl = `
+                INSERT INTO tlhk_finishingmmt_dtl (
+                    lfd_lfh_nomor, lfd_spk_nomor, lfd_j_potong, lfd_j_seaming, 
+                    lfd_j_mataayam, lfd_j_coly, lfd_j_bs, 
+                    lfd_no_urut, lfd_mataayam_qty, lfd_xbanner_qty, lfd_plastik_qty, lfd_karung_qty, lfd_rollupbanner_qty
+                ) VALUES ?
+            `;
+            await conn.query(sqlInsertDtl, [detailValues]);
+        }
+
+        await conn.commit();
+        return { success: true, message: `LHK ${nomor} berhasil diupdate.` };
+    } catch (error) {
+        if (conn) await conn.rollback();
+        throw error;
+    } finally {
+        if (conn) conn.release();
+    }
+};
+
 module.exports = {
     getAllHeaders,
     getDetailsByNomor,
@@ -560,5 +610,6 @@ module.exports = {
     finalizeBundling,
     getPendingPotong,
     getLhkFinishingByNomor,
-    approveAcc
+    approveAcc,
+    updateLhk
 };

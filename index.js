@@ -53,6 +53,7 @@ const mutasiGudangRoutes =require("./routes/mutasiGudang.routes");
 const searchBarcodeRoutes =require("./routes/searchBarcode.routes");
 const jadwalKirimRoutes = require("./routes/jadwalKirim.routes");
 const lapMonFinishingRoutes = require("./routes/lapMonFinishing.routes");
+const lapMonTekstilRoutes = require("./routes/lapMonTekstil.route");
 
 
 
@@ -118,6 +119,7 @@ app.use("/api/mmt/laporan-spk-mmt", clientCertAuth, lapSpkMmtRoutes);
 app.use("/api/mmt/monitoring/laporan-lmkp", clientCertAuth, lapLmkpMmtRoutes);
 app.use("/api/mmt/monitoring-finishing", clientCertAuth, lapMonFinishingRoutes);
 app.use("/api/mmt/monitoring-cetak", clientCertAuth, lapMonCetakRoutes);
+app.use("/api/mmt/monitoring-tekstil", clientCertAuth, lapMonTekstilRoutes);
 app.use("/api/mmt/permintaan-bahan", clientCertAuth, permintaanBahanRoutes);
 app.use("/api/mmt/penerimaan-bahan", clientCertAuth, penerimaanBahanRoutes);
 app.use("/api/mmt/permintaan-produksi", clientCertAuth, permintaanProduksiRoutes);
