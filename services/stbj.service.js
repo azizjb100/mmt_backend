@@ -45,7 +45,7 @@ exports.getBrowseSTBJ = async (startDate, endDate, gdgKode) => {
             LEFT JOIN retail.tdc_stbj_hdr ts ON ts.ts_stbj = h.stbj_nomor
             WHERE h.stbj_tanggal >= ? AND h.stbj_tanggal <= ?
               AND h.stbj_gdg_kode LIKE ?
-            ORDER BY h.date_create ASC;
+            ORDER BY h.date_create DESC;
         `;
 
         const [rows] = await pool.query(sqlMaster, [startDate, endDate, `%${gdgKode}%`]);
