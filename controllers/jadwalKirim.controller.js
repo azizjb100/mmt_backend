@@ -3,13 +3,16 @@ const jadwalService = require('../services/jadwalKirim.service');
 
 exports.browseJadwal = async (req, res) => {
   try {
-    const { startDate, endDate, cab } = req.query;
+    // Ambil 'gudang' dari req.query, bukan 'cab'
+    const { startDate, endDate, gudang } = req.query;
 
     if (!startDate || !endDate) {
       return res.status(400).json({ message: "Periode tanggal harus diisi." });
     }
 
-    const data = await jadwalService.getJadwalKirimData(startDate, endDate, cab);
+    // Kirim variabel gudang ke service
+    const data = await jadwalService.getJadwalKirimData(startDate, endDate, gudang);
+    
     return res.status(200).json(data);
   } catch (error) {
     return res.status(500).json({ message: error.message });

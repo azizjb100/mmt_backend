@@ -5,6 +5,7 @@ const pool = require('../config/db.config');
  * Mengambil data Jadwal Kirim (Master) 
  * Sesuai logika SQLMaster di ufrmBrowseJadwalKirim2
  */
+
 const getJadwalKirimData = async (startDate, endDate, gudang) => {
   let params = [startDate, endDate];
   
@@ -13,7 +14,8 @@ const getJadwalKirimData = async (startDate, endDate, gudang) => {
       a.Nomor_Kirim AS Nomor, 
       a.Gudang, 
       gdg.gdg_nama AS Nama_Gudang, 
-      a.Tanggal,
+      /* PERBAIKAN: Format tanggal ke string YYYY-MM-DD agar tidak terkonversi ke UTC oleh Node.js */
+      DATE_FORMAT(a.Tanggal, '%Y-%m-%d') AS Tanggal,
       a.spk_nomor AS No_SPK, 
       b.spk_nama AS Nama_Spk, 
       b.spk_ukuran AS Ukuran,
@@ -27,26 +29,31 @@ const getJadwalKirimData = async (startDate, endDate, gudang) => {
       a.usr_create 
     FROM tjadwalkirim a 
     LEFT JOIN (
+      /* Pastikan kolom select pada UNION ALL konsisten */
       SELECT spk_nomor, spk_nama, spk_ukuran, spk_kain FROM tspk WHERE spk_aktif = 'Y'
       UNION ALL 
       SELECT mspk_nomor, mspk_nama, mspk_ukuran, mspk_kain FROM tmemospk
     ) b ON b.spk_nomor = a.spk_nomor
     LEFT JOIN tgudang gdg ON gdg.gdg_kode = a.gudang 
-    WHERE a.tanggal >= ? AND a.tanggal <= ?
+    WHERE a.Tanggal >= ? AND a.Tanggal <= ?
   `;
 
-  // Filter Gudang (edtgudang.Text)
+  // Filter Gudang (LIKE match)
   if (gudang) {
-    sql += ` AND a.gudang LIKE ?`;
+    sql += ` AND a.Gudang LIKE ?`;
     params.push(`%${gudang}%`);
   }
+
+  // Tambahkan pengurutan agar data terbaru muncul di atas
+  sql += ` ORDER BY a.Tanggal DESC, a.Nomor_Kirim DESC`;
 
   try {
     const [rows] = await pool.query(sql, params);
     return rows;
   } catch (error) {
-    console.error("Database Master Error:", error);
-    throw new Error("Gagal mengambil data Jadwal Kirim");
+    // Memberikan informasi error yang lebih detail untuk debugging
+    console.error("Database Master Error:", error.message);
+    throw new Error("Gagal mengambil data Jadwal Kirim: " + error.message);
   }
 };
 
