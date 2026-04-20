@@ -499,6 +499,9 @@ exports.getRecDetailForInvoice = async (recNomor) => {
                 d.recd_brg_kode AS Kode,
                 b.brg_nama AS Nama_Barang,
                 d.recd_brg_satuan AS Satuan,
+                b.brg_satuan_harga AS Satuan_Harga,
+                b.brg_panjang AS Panjang,
+                b.brg_lebar AS Lebar,
                 d.recd_qty_terima AS Qty,
                 -- Ambil harga dari PO, jika tidak ada baru ambil dari recd_harga
                 COALESCE(po.pod_harga, d.recd_harga, 0) AS Harga_Beli,
