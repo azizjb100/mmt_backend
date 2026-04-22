@@ -18,11 +18,11 @@ exports.generateMaxKode = async (perushKode, tanggalInput) => {
     const yearMonth = format(tanggal, 'yyMM'); // Hasil: 2602
     
     // Prefix yang diinginkan: INVP/KP/2602
-    const prefix = `INVP/KP/${yearMonth}`;
+    const prefix = `INVP.KP.${yearMonth}`;
     
     // Query untuk mencari nomor terakhir dengan prefix tersebut
     const sql = `
-        SELECT MAX(CAST(SUBSTRING_INDEX(invp_nomor, '/', -1) AS UNSIGNED)) AS max_num
+        SELECT MAX(CAST(SUBSTRING_INDEX(invp_nomor, '.', -1) AS UNSIGNED)) AS max_num
         FROM tinvp_hdr
         WHERE invp_nomor LIKE ?
     `;
@@ -37,7 +37,7 @@ exports.generateMaxKode = async (perushKode, tanggalInput) => {
     const padded = String(nextNum).padStart(4, '0');
 
     // Hasil Akhir: INVP/KP/2602/0001
-    return `${prefix}/${padded}`;
+    return `${prefix}.${padded}`;
 };
 
 // ===================================
@@ -99,45 +99,61 @@ exports.getInvoicePembelianByNomor = async (nomor) => {
 // ===================================
 exports.getInvoicePembelianData = async (startDate, endDate) => {
     try {
-        // 1. Query Header
+        // 1. Query Header dengan Subquery Perhitungan Total yang Akurat
         const sqlMaster = `
-            SELECT
+            SELECT 
                 h.invp_nomor AS Nomor,
                 DATE_FORMAT(h.invp_tanggal,'%d-%m-%Y') AS Tanggal,
                 s.sup_nama AS Supplier,
                 h.invp_status AS Status,
-                IFNULL(SUM(d.invpd_jumlah * d.invpd_harga), 0) AS Total
+                (
+                    SELECT IFNULL(SUM(
+                        CASE 
+                            WHEN b2.brg_satuan_harga = 'M2' THEN (d2.invpd_jumlah * (b2.brg_panjang * b2.brg_lebar) * d2.invpd_harga)
+                            ELSE (d2.invpd_jumlah * d2.invpd_harga)
+                        END
+                    ), 0)
+                    FROM tinvp_dtl d2 
+                    INNER JOIN tbarang_mmt b2 ON b2.brg_kode = d2.invpd_brg_kode
+                    WHERE d2.invpd_inv_nomor = h.invp_nomor
+                ) AS Total
             FROM tinvp_hdr h
             LEFT JOIN tsupplier s ON s.sup_kode = h.invp_sup_kode
-            LEFT JOIN tinvp_dtl d ON d.invpd_inv_nomor = h.invp_nomor
             WHERE h.invp_tanggal BETWEEN ? AND ?
-            GROUP BY h.invp_nomor, h.invp_tanggal, s.sup_nama, h.invp_status
             ORDER BY h.invp_tanggal DESC
         `;
+        
         const [masterResults] = await pool.query(sqlMaster, [startDate, endDate]);
         
         if (masterResults.length === 0) return [];
 
         const masterNomors = masterResults.map(row => row.Nomor);
 
-        // 2. Query Detail (Batch fetching untuk semua nomor yang ada di list)
+        // 2. Query Detail dengan JOIN ke tbarang_mmt
         const sqlDetail = `
-            SELECT
-                invpd_inv_nomor AS Nomor,
-                invpd_nourut AS NoUrut,
-                invpd_brg_kode AS Kode,
-                invpd_brg_nama AS Nama,
-                invpd_satuan AS Satuan,
-                invpd_jumlah AS Jumlah,
-                invpd_harga AS Harga,
-                (invpd_jumlah * invpd_harga) AS SubTotal
-            FROM tinvp_dtl
-            WHERE invpd_inv_nomor IN (?)
-            ORDER BY invpd_inv_nomor, invpd_nourut
+            SELECT 
+                d.invpd_inv_nomor AS Nomor,
+                d.invpd_nourut AS NoUrut,
+                d.invpd_brg_kode AS Kode,
+                d.invpd_brg_nama AS Nama,
+                d.invpd_satuan AS Satuan,
+                b.brg_satuan_harga AS SatuanHarga,
+                (b.brg_panjang * b.brg_lebar) AS M2,
+                d.invpd_jumlah AS Jumlah,
+                d.invpd_harga AS Harga,
+                CASE 
+                    WHEN b.brg_satuan_harga = 'M2' THEN (d.invpd_jumlah * (b.brg_panjang * b.brg_lebar) * d.invpd_harga)
+                    ELSE (d.invpd_jumlah * d.invpd_harga)
+                END AS SubTotal
+            FROM tinvp_dtl d
+            INNER JOIN tbarang_mmt b ON b.brg_kode = d.invpd_brg_kode
+            WHERE d.invpd_inv_nomor IN (?)
+            ORDER BY d.invpd_inv_nomor, d.invpd_nourut
         `;
+        
         const [detailResults] = await pool.query(sqlDetail, [masterNomors]);
 
-        // 3. Mapping Detail ke Header (Data Map)
+        // 3. Mapping Detail ke Header
         const dataMap = new Map();
         masterResults.forEach(item => {
             dataMap.set(item.Nomor, { ...item, Detail: [] });
@@ -280,24 +296,64 @@ exports.saveInvoicePembelian = async (data, nomorToEdit, userLogin) => {
 // ===================================
 // PRINT
 // ===================================
+// backend/src/services/invoicePembelian.service.js
+
 exports.getInvoicePembelianForPrint = async (nomor) => {
     try {
-        const data = await exports.getInvoicePembelianByNomor(nomor);
-        const subTotal = data.Detail.reduce((sum, d) => sum + (d.Total || 0), 0);
-        const totalNet = subTotal - (data.Diskon || 0);
-        const ppnAmount = data.IsPPN ? totalNet * ((data.PPN || 0) / 100) : 0;
+        // Query Header lengkap dengan data Supplier
+        const sqlHeader = `
+            SELECT
+                h.invp_nomor AS Nomor,
+                h.invp_tanggal AS Tanggal,
+                h.invp_tanggal_tempo AS JatuhTempo,
+                h.invp_keterangan AS Keterangan,
+                s.sup_nama AS SupplierNama,
+                s.sup_alamat AS SupplierAlamat,
+                h.invp_sts_ppn AS IsPPN,
+                h.invp_ppn AS PPNRate
+            FROM tinvp_hdr h
+            LEFT JOIN tsupplier s ON s.sup_kode = h.invp_sup_kode
+            WHERE h.invp_nomor = ?
+        `;
+        const [headerRows] = await pool.query(sqlHeader, [nomor]);
+        if (headerRows.length === 0) throw new Error("Data tidak ditemukan");
+
+        // Query Detail dengan Join ke tbarang_mmt untuk kalkulasi M2
+        const sqlDetail = `
+            SELECT
+                d.invpd_brg_nama AS Nama,
+                d.invpd_satuan AS Satuan,
+                d.invpd_jumlah AS Qty,
+                d.invpd_harga AS Harga,
+                b.brg_satuan_harga AS SatuanHarga,
+                (b.brg_panjang * b.brg_lebar) AS LuasM2,
+                CASE 
+                    WHEN b.brg_satuan_harga = 'M2' THEN (d.invpd_jumlah * (b.brg_panjang * b.brg_lebar) * d.invpd_harga)
+                    ELSE (d.invpd_jumlah * d.invpd_harga)
+                END AS SubTotalItem
+            FROM tinvp_dtl d
+            INNER JOIN tbarang_mmt b ON b.brg_kode = d.invpd_brg_kode
+            WHERE d.invpd_inv_nomor = ?
+            ORDER BY d.invpd_nourut
+        `;
+        const [detailRows] = await pool.query(sqlDetail, [nomor]);
+
+        const subTotal = detailRows.reduce((sum, item) => sum + item.SubTotalItem, 0);
+        const ppnAmount = headerRows[0].IsPPN ? subTotal * (headerRows[0].PPNRate / 100) : 0;
 
         return {
             Header: {
-                ...data,
+                ...headerRows[0],
+                TanggalFormat: format(new Date(headerRows[0].Tanggal), 'dd MMMM yyyy'),
                 SubTotal: subTotal,
                 PpnAmount: ppnAmount,
-                GrandTotal: totalNet + ppnAmount,
-                TanggalFormat: format(new Date(data.Tanggal), 'dd/MM/yyyy')
+                GrandTotal: subTotal + ppnAmount
             },
-            Detail: data.Detail
+            Detail: detailRows
         };
     } catch (error) {
-        throwDbError('Gagal menyiapkan data cetak Invoice Pembelian', error);
+        throwDbError('Gagal menyiapkan data cetak', error);
     }
 };
+
+
