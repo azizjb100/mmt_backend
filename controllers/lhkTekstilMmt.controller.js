@@ -41,7 +41,49 @@ const handleSaveLhk = async (req, res) => {
         });
     }
 };
+const getLhkFullData = async (req, res) => {
+    try {
+        const { nomor } = req.params;
+        const data = await lhkService.getLhkByNomor(nomor);
+        
+        if (!data) {
+            return res.status(404).json({ success: false, message: "Data tidak ditemukan." });
+        }
+        
+        // Sesuaikan struktur response agar sesuai dengan frontend (res.data.data)
+        res.json({ success: true, data: data });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+const getLhkLookup = async (req, res) => {
+    try {
+        // Ambil dari req.query untuk method GET
+        const { tanggal, shift } = req.query; 
+        
+        console.log("Filter diterima:", { tanggal, shift }); // Cek di terminal backend
+
+        const data = await lhkService.getLookupLhkTekstil(tanggal, shift);
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+const handleSaveApproval = async (req, res) => {
+    try {
+        // req.body berisi { header: {...}, details: [...] }
+        const result = await lhkService.saveApproval(req.body);
+        res.status(201).json(result);
+    } catch (error) {
+        res.status(500).json({ 
+            success: false, 
+            message: "Gagal memproses approval: " + error.message 
+        });
+    }
+};
 
 module.exports = { getLhkList, getLhkDetails, removeLhk,
-    handleSaveLhk 
+    handleSaveLhk, getLhkFullData, getLhkLookup, handleSaveApproval
  };
