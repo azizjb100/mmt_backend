@@ -457,7 +457,7 @@ exports.lookupPermintaanProduksi = async (search = '', userDivisi) => {
                     h.mnt_status AS Status
                 FROM tpermintaan_prod_hdr h
                 WHERE (h.mnt_nomor LIKE ? OR h.mnt_keterangan LIKE ?)
-                AND h.mnt_gdg_kode = 'WH-16'
+                AND h.mnt_gdg_kode IN ('WH-16', 'WH-BP') -- Hanya tampilkan untuk gudang 16 dan BP
                 ORDER BY h.mnt_tanggal DESC 
                 LIMIT 50;
             `;

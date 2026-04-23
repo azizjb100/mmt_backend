@@ -127,10 +127,7 @@ exports.getPermintaanProduksiData = async (startDate, endDate, userDivisi) => {
                 WHERE d.promind_nomor IN (?);
             `;
         } else {
-            let filterDivisi = "";
-    if (divisi === 1) {
-        filterDivisi = "AND mnt_gdg_kode IN ('WH-16', 'WH-BP')";
-    }
+            let filterDivisi = (divisi === 1) ? "AND mnt_gdg_kode = 'WH-16'" : "";
             
             sqlMaster = `
                 SELECT
