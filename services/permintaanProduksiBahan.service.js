@@ -176,17 +176,19 @@ exports.getPermintaanProduksiDataByNomor = async (nomor) => {
         if (header.length === 0) return null;
 
         // 2. Ambil Detail
-        let sqlDetail = "";
+       let sqlDetail = "";
         if (tipe === 'MMT') {
             sqlDetail = `
                 SELECT
                     d.${f.d[0]} AS Nomor,
-                    d.${f.d[1]} AS sku, 
-                    TRIM(b.brg_nama) AS namaBahan, 
-                    d.${f.d[3]} AS satuan,
-                    d.${f.d[2]} AS qtyMinta, 
-                    d.${f.d[5]} AS spk,
-                    d.${f.d[4]} AS keterangan
+                    d.${f.d[1]} AS Kode, 
+                    TRIM(b.brg_nama) AS Nama_Bahan, 
+                    d.${f.d[3]} AS Satuan,
+                    d.${f.d[2]} AS Jumlah, 
+                    0 AS Panjang, -- Tambahkan default jika kolom tidak ada
+                    0 AS Lebar,
+                    d.${f.d[5]} AS Nomor_SPK,
+                    d.${f.d[4]} AS Keterangan
                 FROM ${conf.dtl} d
                 LEFT JOIN tbarang_mmt b ON d.${f.d[1]} = b.brg_kode
                 WHERE d.${f.d[0]} = ?
@@ -196,19 +198,20 @@ exports.getPermintaanProduksiDataByNomor = async (nomor) => {
             sqlDetail = `
                 SELECT
                     d.${f.d[0]} AS Nomor,
-                    d.${f.d[1]} AS sku, 
-                    TRIM(o.o_nama) AS namaBahan,
-                    d.${f.d[5]} AS satuan,
-                    d.${f.d[2]} AS qtyMinta, 
-                    d.${f.d[6]} AS spk,
-                    d.${f.d[3]} AS keterangan
+                    d.${f.d[1]} AS Kode, 
+                    TRIM(o.o_nama) AS Nama_Bahan,
+                    d.${f.d[5]} AS Satuan,
+                    d.${f.d[2]} AS Jumlah, 
+                    0 AS Panjang,
+                    0 AS Lebar,
+                    d.${f.d[6]} AS Nomor_SPK,
+                    d.${f.d[3]} AS Keterangan
                 FROM ${conf.dtl} d
                 LEFT JOIN tobat o ON d.${f.d[1]} = o.o_kode
                 WHERE d.${f.d[0]} = ?
                 ORDER BY d.${f.d[4]};
             `;
         }
-
         const [details] = await pool.query(sqlDetail, [nomor]);
         
         // Bungkus hasil sesuai ekspektasi reactive 'formData' di Frontend

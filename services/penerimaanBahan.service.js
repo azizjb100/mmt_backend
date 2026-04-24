@@ -403,11 +403,12 @@ exports.getBarcodesByNomor = async (nomor) => {
             SELECT 
                 s.mst_brg_kode AS kode, 
                 s.mst_barcode AS barcode,
-                b.brg_nama AS namaBahan
+                b.brg_nama AS namaBahan,
+                s.mst_stok_in AS qty -- Tambahkan qty agar item non-roll terlihat jumlahnya
             FROM tmasterstok_mmt s
             JOIN tbarang_mmt b ON s.mst_brg_kode = b.brg_kode
             WHERE s.mst_noreferensi = ?
-              AND UPPER(b.brg_satuan) = 'ROLL'
+            /* Filter ROLL dihapus agar item non-roll (barcode '-') tetap muncul */
             ORDER BY s.mst_barcode ASC
         `;
         const [rows] = await pool.query(sql, [nomor]);
