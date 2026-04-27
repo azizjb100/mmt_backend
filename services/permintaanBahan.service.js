@@ -211,7 +211,7 @@ exports.getPermintaanBahanData = async (startDate, endDate, divisi, userManager)
                     t.o_harga AS Harga,
                     'Y' AS Is_Acc
                 FROM tobatmintabeli_dtl d
-                LEFT JOIN tobat t ON d.mbd_o_kode = t.o_kode
+                LEFT JOIN tgarmen_brg t ON d.mbd_o_kode = t.o_kode
                 WHERE d.mbd_nomor IN (?)
             ) AS combined_detail
         `;
