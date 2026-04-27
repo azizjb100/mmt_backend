@@ -205,13 +205,13 @@ exports.getPermintaanBahanData = async (startDate, endDate, divisi, userManager)
                     d.mbd_jumlah AS Jumlah, 
                     0 AS Total_Diterima, 
                     'PCS' AS Satuan,
-                    TRIM(t.o_nama) AS Nama_Bahan, 
+                    TRIM(t.brg_nama) AS Nama_Bahan, 
                     0 AS Panjang, 
                     0 AS Lebar, 
-                    t.o_harga AS Harga,
+                    t.brg_harga AS Harga,
                     'Y' AS Is_Acc
                 FROM tobatmintabeli_dtl d
-                LEFT JOIN tgarmen_brg t ON d.mbd_o_kode = t.o_kode
+                LEFT JOIN tgarmen_brg t ON d.mbd_o_kode = t.brg_kode
                 WHERE d.mbd_nomor IN (?)
             ) AS combined_detail
         `;
