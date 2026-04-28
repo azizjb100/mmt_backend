@@ -259,7 +259,12 @@ const getLookupLhkTekstil = async (tanggal, shift) => {
             DATE_FORMAT(h.lth_tanggal, '%d-%m-%Y') AS Tanggal, 
             h.lth_shift AS Shift,
             h.lth_barcode AS Barcode,
+            h.lth_brg_kode AS Kode_Bahan, -- TAMBAHKAN INI
             b.brg_nama AS Nama_Bahan,
+            -- Tambahkan kolom lain jika ada di table header atau join ke detail jika perlu
+            -- Misal asumsi satu LHK header mewakili satu mesin/spk:
+            (SELECT ltd_jns_mesin FROM tlhk_mesintekstil_dtl WHERE ltd_lth_nomor = h.lth_nomor LIMIT 1) AS Mesin,
+            (SELECT ltd_spk_nomor FROM tlhk_mesintekstil_dtl WHERE ltd_lth_nomor = h.lth_nomor LIMIT 1) AS No_SPK,
             (SELECT SUM(ltd_panjang_pakai) FROM tlhk_mesintekstil_dtl WHERE ltd_lth_nomor = h.lth_nomor) AS Total_Meter
         FROM tlhk_mesintekstil_hdr h
         LEFT JOIN tbarang_mmt b ON h.lth_brg_kode = b.brg_kode

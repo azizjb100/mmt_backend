@@ -357,8 +357,8 @@ const getUnfulfilledMbDetail = async (mbNomor) => {
   const sql = `
     SELECT 
       req.mbd_brg_kode AS Kode,
-      -- Jika MO ambil dari tobat (o_nama), jika tidak dari tbarang_mmt (brg_nama)
-      ${isObat ? 'TRIM(t.o_nama)' : 'TRIM(b.brg_nama)'} AS Nama_Bahan,
+      -- Jika MO ambil dari tgarmen_brg (brg_nama), jika tidak dari tbarang_mmt (brg_nama)
+      ${isObat ? 'TRIM(t.brg_nama)' : 'TRIM(b.brg_nama)'} AS Nama_Bahan,
       req.mbd_brg_satuan AS Satuan,
       req.mbd_spk_nomor AS Nomor_SPK,
 
@@ -369,12 +369,12 @@ const getUnfulfilledMbDetail = async (mbNomor) => {
       -- Untuk Obat biasanya tidak ada panjang lebar, kita set 0 atau ambil dari kolom yang sesuai
       ${isObat ? '0' : 'b.brg_panjang'} AS Panjang,
       ${isObat ? '0' : 'b.brg_lebar'}   AS Lebar,
-      ${isObat ? 't.o_harga' : 'b.brg_satuan_harga'} AS brg_satuan_harga
+      ${isObat ? 't.brg_harga' : 'b.brg_satuan_harga'} AS brg_satuan_harga
 
     FROM tmintabahan_mmt_dtl req
     -- Join kondisional berdasarkan jenis gudang
     LEFT JOIN tbarang_mmt b ON req.mbd_brg_kode = b.brg_kode AND '${isObat}' = 'false'
-    LEFT JOIN tobat t ON req.mbd_brg_kode = t.o_kode AND '${isObat}' = 'true'
+    LEFT JOIN tgarmen_brg t ON req.mbd_brg_kode = t.brg_kode AND '${isObat}' = 'true'
 
     WHERE 
       req.mbd_mb_nomor = ?
@@ -491,7 +491,7 @@ const getPODetail = async (poNomor) => { // <-- Namanya poNomor
     const [detailRows] = await pool.query(`
       SELECT 
         d.pod_nourut AS no, d.pod_brg_kode AS kode, 
-        COALESCE(b.brg_nama, t.o_nama) AS nama,
+        COALESCE(b.brg_nama, t.brg_nama) AS nama,
         d.pod_keterangan AS namaext, d.pod_brg_satuan AS satuan, 
         d.pod_qty AS jumlah, d.pod_m2 AS m2,
         d.pod_harga AS harga, d.pod_discpr AS diskon, d.pod_spk_nomor AS spk,
@@ -500,7 +500,7 @@ const getPODetail = async (poNomor) => { // <-- Namanya poNomor
         d.pod_qty * d.pod_m2 * d.pod_harga * (1 - d.pod_discpr / 100) AS total
       FROM tpo_mmt_dtl d
       LEFT JOIN tbarang_mmt b ON d.pod_brg_kode = b.brg_kode
-      LEFT JOIN tobat t ON d.pod_brg_kode = t.o_kode
+      LEFT JOIN tgarmen_brg t ON d.pod_brg_kode = t.brg_kode
       WHERE d.pod_po_nomor = ? 
       ORDER BY d.pod_nourut
     `, [poNomor]); // <-- Tadi di sini 'nomor' (SALAH), diubah jadi poNomor (BENAR)
