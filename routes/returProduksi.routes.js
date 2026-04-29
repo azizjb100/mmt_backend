@@ -5,6 +5,8 @@ const router = express.Router();
 const returController = require('../controllers/returProduksi.controller');
 
 // Endpoint untuk scan barcode (GET /api/retur/scan?barcode=...&gudangAsal=...)
+router.get('/', returController.getBrowseData);
+
 router.get('/scan', returController.scanBarcode);
 
 // Endpoint untuk ambil nomor dokumen baru otomatis

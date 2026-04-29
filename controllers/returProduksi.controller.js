@@ -20,6 +20,25 @@ exports.scanBarcode = async (req, res) => {
     }
 };
 
+exports.getBrowseData = async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+        
+        // Default range: awal bulan ini sampai hari ini jika tidak diisi
+        const start = startDate || format(new Date(), 'yyyy-MM-01');
+        const end = endDate || format(new Date(), 'yyyy-MM-dd');
+
+        const data = await returService.getReturProduksiData(start, end);
+        
+        res.json({
+            success: true,
+            data: data
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 exports.getNewNomor = async (req, res) => {
     try {
         const nomor = await returService.getNewNomor();
