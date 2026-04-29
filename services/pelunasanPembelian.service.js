@@ -122,11 +122,20 @@ exports.getOutstandingInvoices = async (supKode) => {
                 h.invp_nomor AS Nomor,
                 h.invp_tanggal AS Tanggal,
                 h.invp_tanggal_tempo AS JatuhTempo,
-                IFNULL(SUM(d.invpd_jumlah * d.invpd_harga), 0) AS TotalInvoice
+                -- Gunakan logika yang sama dengan Invoice Data
+                IFNULL(SUM(
+                    CASE 
+                        WHEN b.brg_satuan_harga = 'M2' THEN (d.invpd_jumlah * (b.brg_panjang * b.brg_lebar) * d.invpd_harga)
+                        ELSE (d.invpd_jumlah * d.invpd_harga)
+                    END
+                ), 0) AS TotalInvoice
             FROM tinvp_hdr h
             JOIN tinvp_dtl d ON h.invp_nomor = d.invpd_inv_nomor
+            -- Tambahkan JOIN ke tbarang_mmt untuk mendapatkan info panjang, lebar, dan satuan harga
+            INNER JOIN tbarang_mmt b ON b.brg_kode = d.invpd_brg_kode
             WHERE h.invp_sup_kode = ? AND h.invp_status = 'OPEN'
-            GROUP BY h.invp_nomor
+            GROUP BY h.invp_nomor, h.invp_tanggal, h.invp_tanggal_tempo
+            ORDER BY h.invp_tanggal ASC
         `;
         const [rows] = await pool.query(sql, [supKode]);
         return rows;
@@ -144,12 +153,25 @@ exports.getAllOutstandingGlobal = async () => {
                 DATE_FORMAT(h.invp_tanggal, '%d-%m-%Y') AS Tanggal,
                 DATE_FORMAT(h.invp_tanggal_tempo, '%d-%m-%Y') AS JatuhTempo,
                 DATEDIFF(h.invp_tanggal_tempo, CURDATE()) AS SisaHari,
-                IFNULL(SUM(d.invpd_jumlah * d.invpd_harga), 0) AS TotalTagihan
+                -- Logika perhitungan total yang mendukung Satuan M2
+                IFNULL(SUM(
+                    CASE 
+                        WHEN b.brg_satuan_harga = 'M2' THEN (d.invpd_jumlah * (b.brg_panjang * b.brg_lebar) * d.invpd_harga)
+                        ELSE (d.invpd_jumlah * d.invpd_harga)
+                    END
+                ), 0) AS TotalTagihan
             FROM tinvp_hdr h
             LEFT JOIN tsupplier s ON s.sup_kode = h.invp_sup_kode
             JOIN tinvp_dtl d ON h.invp_nomor = d.invpd_inv_nomor
+            -- Tambahkan JOIN ke tbarang_mmt untuk mendapatkan info spesifikasi barang
+            INNER JOIN tbarang_mmt b ON b.brg_kode = d.invpd_brg_kode
             WHERE h.invp_status = 'OPEN'
-            GROUP BY h.invp_nomor
+            -- Group by harus mencakup semua kolom non-agregat untuk standar SQL yang aman
+            GROUP BY 
+                h.invp_nomor, 
+                s.sup_nama, 
+                h.invp_tanggal, 
+                h.invp_tanggal_tempo
             ORDER BY h.invp_tanggal_tempo ASC
         `;
         const [rows] = await pool.query(sql);

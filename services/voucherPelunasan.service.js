@@ -16,19 +16,19 @@ exports.generateNomorVoucher = async (perushKode, tanggalInput) => {
 
     const yearMonth = format(tanggal, 'yyMM');
     const currentYear = format(tanggal, 'yyyy');
-    const prefix = `VCH/${perushKode}`;
+    const prefix = `VCH-${perushKode}`;
     
     const sql = `
-        SELECT MAX(CAST(SUBSTRING_INDEX(vch_nomor, '/', -1) AS UNSIGNED)) AS max_num
+        SELECT MAX(CAST(SUBSTRING_INDEX(vch_nomor, '${prefix}-', -1) AS UNSIGNED)) AS max_num
         FROM tvoucher_pemb_hdr
-        WHERE vch_nomor LIKE '${prefix}/%' AND YEAR(vch_tanggal) = ?
+        WHERE vch_nomor LIKE '${prefix}-%' AND YEAR(vch_tanggal) = ?
     `;
 
     const [rows] = await pool.query(sql, [currentYear]);
     const nextNum = (rows[0].max_num || 0) + 1;
     const padded = String(nextNum).padStart(5, '0');
 
-    return `${prefix}/${yearMonth}/${padded}`;
+    return `${prefix}-${yearMonth}-${padded}`;
 };
 
 // ===================================
