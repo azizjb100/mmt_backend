@@ -24,9 +24,7 @@ const toRoman = (num) => {
   return roman;
 };
 
-/**
- * Helper: Get Next PO Number (00001/PK/XI/2025)
- */
+
 const getNextPoNumber = async (date, prefix = 'KP', connection) => {
   const d = new Date(date);
   const year = d.getFullYear();
@@ -190,7 +188,7 @@ const savePoMmt = async (data, nomorToEdit, currentUser) => {
       );
       await connection.query('DELETE FROM tpo_mmt_dtl WHERE pod_po_nomor = ?', [poNomor]);
     } else {
-      poNomor = await getNextPoNumber(new Date(tanggal), 'PK', connection);
+      poNomor = await getNextPoNumber(new Date(tanggal), 'KP', connection);
       await connection.query(
         `INSERT INTO tpo_mmt_hdr (po_nomor, po_tanggal, po_sup_kode, po_memo, po_istax, po_taxamount, po_amount,
          po_gdg_kode, date_create, user_create, po_dateline, po_type, po_kirim) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?)`,
