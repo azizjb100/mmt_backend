@@ -5,68 +5,81 @@ const lapMonProof = async (startDate, endDate) => {
   const tglMulai = moment(startDate).format('YYYY-MM-DD');
   const tglSelesai = moment(endDate).format('YYYY-MM-DD');
 
-  const ssql = `
-    SELECT 
-        mspk.*,
-        zz.*,
-        yy.*,
-        IFNULL(zz.lprd_jproof, 0) AS lprd_jproof,
-        IF(LENGTH(yy.nomorspk) > 5, 'ACC', '') AS statusmemo
+const ssql = `
+  SELECT 
+      mspk.mspk_nomor,
+      mspk.mspk_tanggal,
+      mspk.mspk_nama AS nama_order,
+      mspk.mspk_panjang,
+      mspk.mspk_lebar,
+      mspk.mspk_jumlah AS jml_order,
+      mspk.mspk_keterangan AS keterangan,
+      mspk.mspk_cab AS lokasi_proof,
+      mspk.mspk_kain AS jenis_bahan,
+      
+      IFNULL(zz.lprd_jproof, 0) AS lprd_jproof,
+      zz.lpr_tanggal,
+      zz.jenis,
+      zz.lama_proof,
 
-    FROM tmemospk mspk
+      yy.nomorspk,
+      yy.spktanggal,
+      IF(LENGTH(yy.nomorspk) > 5, 'ACC', '') AS statusmemo
 
-    LEFT JOIN (
-        SELECT 
-            a.lprd_spk_nomor,
-            a.lprd_j_proof AS lprd_jproof,
-            b.lpr_tanggal,
-            b.lpr_nomor,
-            b.lpr_jenis,
+  FROM tmemospk mspk
 
-            -- SAMA seperti Delphi
-            IF(b.lpr_jenis = 'M', 'MMT',
-               IF(b.lpr_jenis = 'S', 'SUBLIM',
-                  IF(b.lpr_jenis = 'T', 'TEKSTIL', '')
-               )
-            ) AS jenis,
+  LEFT JOIN (
+      SELECT 
+          a.lprd_spk_nomor,
+          a.lprd_j_proof AS lprd_jproof,
+          b.lpr_tanggal,
 
-            -- SAMA seperti Delphi (pakai tabel c)
-            DATEDIFF(b.lpr_tanggal, c.mspk_tanggal) AS lama_proof
+          IF(b.lpr_jenis = 'M', 'MMT',
+             IF(b.lpr_jenis = 'S', 'SUBLIM',
+                IF(b.lpr_jenis = 'T', 'TEKSTIL', '')
+             )
+          ) AS jenis,
 
-        FROM tlhk_proofmmt_dtl a
-        INNER JOIN tlhk_proofmmt_hdr b 
-            ON b.lpr_nomor = a.lprd_lpr_nomor
-        INNER JOIN tmemospk c 
-            ON c.mspk_nomor = a.lprd_spk_nomor
+          DATEDIFF(b.lpr_tanggal, c.mspk_tanggal) AS lama_proof
 
-        WHERE b.lpr_tanggal BETWEEN ? AND ?
-    ) zz 
-        ON zz.lprd_spk_nomor = mspk.mspk_nomor
+      FROM tlhk_proofmmt_dtl a
+      INNER JOIN tlhk_proofmmt_hdr b 
+          ON b.lpr_nomor = a.lprd_lpr_nomor
+      INNER JOIN tmemospk c 
+          ON c.mspk_nomor = a.lprd_spk_nomor
 
-    LEFT JOIN (
-        SELECT 
-            spk_memo,
-            spk_nomor AS nomorspk,
-            spk_tanggal AS spktanggal
-        FROM tspk
-        WHERE spk_Aktif = 'Y'
-    ) yy 
-        ON yy.spk_memo = mspk.mspk_nomor
+      WHERE b.lpr_tanggal BETWEEN ? AND ?
+  ) zz 
+      ON zz.lprd_spk_nomor = mspk.mspk_nomor
 
-    WHERE 
-        mspk.mspk_tanggal BETWEEN ? AND ?
-        AND mspk.mspk_aktif = 'Y'
-        AND mspk.mspk_divisi = 5
+  LEFT JOIN (
+      SELECT 
+          spk_memo,
+          spk_nomor AS nomorspk,
+          spk_tanggal AS spktanggal
+      FROM tspk
+      WHERE spk_Aktif = 'Y'
+  ) yy 
+      ON yy.spk_memo = mspk.mspk_nomor
 
-    ORDER BY mspk.mspk_tanggal ASC
-  `;
+  WHERE 
+      mspk.mspk_tanggal BETWEEN ? AND ?
+      AND mspk.mspk_aktif = 'Y'
+      AND mspk.mspk_divisi = 5
 
+  ORDER BY mspk.mspk_tanggal ASC
+  LIMIT 500
+`;
   const params = [tglMulai, tglSelesai, tglMulai, tglSelesai];
 
   let connection;
   try {
     connection = await pool.getConnection();
+
+    console.time('QUERY LAP MON PROOF');
     const [rows] = await connection.execute(ssql, params);
+    console.timeEnd('QUERY LAP MON PROOF');
+
     return rows;
   } catch (error) {
     console.error('Error lapMonProof:', error);
