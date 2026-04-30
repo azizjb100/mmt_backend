@@ -1,60 +1,66 @@
 const pool = require('../config/db.config');
 const moment = require('moment');
 
-/**
- * Laporan Monitoring Proof
- * Berdasarkan logika Unit ufrmLapMon_Proof (Delphi)
- */
 const lapMonProof = async (startDate, endDate) => {
-  // Format tanggal sesuai kebutuhan MySQL
   const tglMulai = moment(startDate).format('YYYY-MM-DD');
   const tglSelesai = moment(endDate).format('YYYY-MM-DD');
 
   const ssql = `
     SELECT 
-        mspk.*, 
-        zz.*, 
+        mspk.*,
+        zz.*,
         yy.*,
-        -- Status lprd_jproof untuk handle pewarnaan di frontend (seperti StylesGetContentStyle)
-        IFNULL(zz.lprd_jproof, 0) as lprd_jproof,
-        -- Penentuan status (Seperti logika Delphi statusmemo)
+        IFNULL(zz.lprd_jproof, 0) AS lprd_jproof,
         IF(LENGTH(yy.nomorspk) > 5, 'ACC', '') AS statusmemo
+
     FROM tmemospk mspk
+
     LEFT JOIN (
         SELECT 
             a.lprd_spk_nomor,
             a.lprd_j_proof AS lprd_jproof,
             b.lpr_tanggal,
             b.lpr_nomor,
-            -- Konversi Jenis (M->MMT, S->SUBLIM, T->TEKSTIL)
-            IF(b.lpr_jenis='M', 'MMT', 
-               IF(b.lpr_jenis='S', 'SUBLIM', 
-                  IF(b.lpr_jenis='T', 'TEKSTIL', '')
+            b.lpr_jenis,
+
+            -- SAMA seperti Delphi
+            IF(b.lpr_jenis = 'M', 'MMT',
+               IF(b.lpr_jenis = 'S', 'SUBLIM',
+                  IF(b.lpr_jenis = 'T', 'TEKSTIL', '')
                )
-            ) AS jenis_display,
-            -- Menghitung selisih hari (Lama Proof)
+            ) AS jenis,
+
+            -- SAMA seperti Delphi (pakai tabel c)
             DATEDIFF(b.lpr_tanggal, c.mspk_tanggal) AS lama_proof
+
         FROM tlhk_proofmmt_dtl a
-        INNER JOIN tlhk_proofmmt_hdr b ON b.lpr_nomor = a.lprd_lpr_nomor
-        INNER JOIN tmemospk c ON c.mspk_nomor = a.lprd_spk_nomor
+        INNER JOIN tlhk_proofmmt_hdr b 
+            ON b.lpr_nomor = a.lprd_lpr_nomor
+        INNER JOIN tmemospk c 
+            ON c.mspk_nomor = a.lprd_spk_nomor
+
         WHERE b.lpr_tanggal BETWEEN ? AND ?
-    ) zz ON zz.lprd_spk_nomor = mspk.mspk_nomor
+    ) zz 
+        ON zz.lprd_spk_nomor = mspk.mspk_nomor
+
     LEFT JOIN (
-        -- Cek status apakah sudah menjadi SPK aktif
         SELECT 
-            spk_memo, 
-            spk_nomor AS nomorspk, 
+            spk_memo,
+            spk_nomor AS nomorspk,
             spk_tanggal AS spktanggal
         FROM tspk
         WHERE spk_Aktif = 'Y'
-    ) yy ON yy.spk_memo = mspk.mspk_nomor
-    WHERE mspk.mspk_tanggal BETWEEN ? AND ?
-      AND mspk.mspk_aktif = 'Y'
-      AND mspk.mspk_divisi = 5
-    ORDER BY mspk.mspk_tanggal ASC;
+    ) yy 
+        ON yy.spk_memo = mspk.mspk_nomor
+
+    WHERE 
+        mspk.mspk_tanggal BETWEEN ? AND ?
+        AND mspk.mspk_aktif = 'Y'
+        AND mspk.mspk_divisi = 5
+
+    ORDER BY mspk.mspk_tanggal ASC
   `;
 
-  // Parameter query: zz.lpr_tanggal (start, end) dan mspk.mspk_tanggal (start, end)
   const params = [tglMulai, tglSelesai, tglMulai, tglSelesai];
 
   let connection;

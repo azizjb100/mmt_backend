@@ -8,28 +8,34 @@ const reportService = require('../services/lapMonProof.service');
 async function getLapMonProof(req, res) {
   const { startDate, endDate } = req.query;
 
-  // Validasi input (Penting karena query SQL Delphi sangat bergantung pada range tanggal)
+  // Validasi Parameter (Wajib ada untuk query DATEDIFF dan BETWEEN)
   if (!startDate || !endDate) {
     return res.status(400).json({
       success: false,
-      message: 'Parameter startDate dan endDate (YYYY-MM-DD) wajib diisi'
+      message: 'Parameter startDate dan endDate (YYYY-MM-DD) wajib diisi untuk melihat data Proofing'
     });
   }
 
   try {
-    const data = await reportService.lapMonProof(
-      startDate,
-      endDate
-    );
+    // Memanggil service yang sudah kita update SQL-nya
+    const data = await reportService.lapMonProof(startDate, endDate);
 
-    // Mengembalikan data hasil query SQL (tmemospk join tlhk_proofmmt)
-    res.json(data);
+    // Kirim response ke Vue
+    // Data ini sekarang berisi field: jenis_display, mspk_tanggal, deadline, nama_order, 
+    // panjang, lebar, mspk_nomor, jml_order, lprd_jproof, lama_proof, 
+    // lpr_tanggal, lokasi_proof, jenis_bahan, gramasi, keterangan, statusmemo, 
+    // spktanggal, nomorspk
+    res.json({
+      success: true,
+      count: data.length,
+      data: data
+    });
 
   } catch (error) {
-    console.error('Error in lapMonProof Controller:', error);
+    console.error('Error lapMonProof Controller:', error);
     res.status(500).json({
       success: false,
-      message: 'Terjadi kesalahan pada server saat mengambil data Monitoring Proof'
+      message: 'Gagal memuat Laporan Monitoring Proof. Periksa koneksi database atau nama kolom.'
     });
   }
 }
