@@ -1,4 +1,4 @@
-// backend/controllers/lapLsBahanBaku.controller.js
+// backend/controllers/lapLsBahanUtama.controller.js
 const service = require('../services/lapLsBahanUtama.service');
 const { format, startOfMonth } = require('date-fns');
 
@@ -33,6 +33,19 @@ exports.getTotalRoll = async (req, res) => {
   } catch (error) {
     console.error('Gagal mengambil total roll:', error);
     res.status(500).json({ message: 'Gagal mengambil ringkasan stok', error: error.message });
+  }
+};
+
+exports.getFlow6Bulan = async (req, res) => {
+  try {
+    const data = await service.getFlow6Bulan(); // Panggil fungsi query 6 bulan
+    res.json({
+      success: true,
+      data: data
+    });
+  } catch (error) {
+    console.error('Gagal mengambil flow 6 bulan:', error);
+    res.status(500).json({ message: 'Gagal mengambil data flow', error: error.message });
   }
 };
 

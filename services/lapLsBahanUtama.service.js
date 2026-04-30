@@ -177,11 +177,15 @@ const getTotalRollSekarang = async () => {
   const ssql = `
     SELECT 
       SUM(IFNULL(b.stok_sekarang, 0)) AS total_roll,
-      COUNT(a.brg_kode) AS total_jenis_barang
+      COUNT(a.brg_kode) AS total_jenis_barang,
+      SUM(IFNULL(b.total_masuk, 0)) AS total_incoming,
+      SUM(IFNULL(b.total_keluar, 0)) AS total_outgoing
     FROM tbarang_mmt a
     LEFT JOIN (
       SELECT 
         mst_brg_kode, 
+        SUM(mst_Stok_in) AS total_masuk,
+        SUM(mst_stok_out) AS total_keluar,
         SUM(mst_Stok_in - mst_stok_out) AS stok_sekarang
       FROM tmasterstok_mmt
       WHERE mst_gdg_kode = 'WH-16'
@@ -196,8 +200,27 @@ const getTotalRollSekarang = async () => {
   return rows[0];
 };
 
+const getFlow6Bulan = async () => {
+  const ssql = `
+    SELECT 
+      DATE_FORMAT(mst_tanggal, '%M %Y') AS bulan, -- Menambahkan Tahun agar unik
+      SUM(mst_Stok_in) AS masuk,
+      SUM(mst_stok_out) AS keluar
+    FROM tmasterstok_mmt
+    WHERE mst_gdg_kode = 'WH-16'
+      AND mst_tanggal >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+    -- Perbaikan: Grouping harus sama dengan ekspresi di SELECT
+    GROUP BY DATE_FORMAT(mst_tanggal, '%M %Y'), YEAR(mst_tanggal), MONTH(mst_tanggal)
+    ORDER BY YEAR(mst_tanggal) ASC, MONTH(mst_tanggal) ASC
+  `;
+
+  const [rows] = await pool.query(ssql);
+  return rows;
+};
+
 module.exports = {
   getReport,
-  getTotalRollSekarang
+  getTotalRollSekarang,
+  getFlow6Bulan
 
 };
