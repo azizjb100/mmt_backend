@@ -54,6 +54,7 @@ const searchBarcodeRoutes =require("./routes/searchBarcode.routes");
 const jadwalKirimRoutes = require("./routes/jadwalKirim.routes");
 const lapMonFinishingRoutes = require("./routes/lapMonFinishing.routes");
 const lapMonTekstilRoutes = require("./routes/lapMonTekstil.route");
+const lapMonProofRoutes = require("./routes/lapMonProof.routes");
 const lapBarangJadiRoutes = require("./routes/lapBarangJadi.routes");
 const voucherPelunasanRoutes = require("./routes/voucherPelunasan.routes");
 
@@ -162,6 +163,8 @@ app.use("/api/mmt/search-barcode", clientCertAuth, searchBarcodeRoutes);
 app.use("/api/mmt/jadwal-kirim", clientCertAuth, jadwalKirimRoutes);
 app.use("/api/mmt/laporan-barang-jadi", clientCertAuth, lapBarangJadiRoutes);
 app.use("/api/mmt/voucher-pelunasan", clientCertAuth, voucherPelunasanRoutes);
+app.use("/api/mmt/monitoring-proof", clientCertAuth, lapMonProofRoutes);
+
 
 
 
