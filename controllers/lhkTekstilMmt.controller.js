@@ -84,6 +84,32 @@ const handleSaveApproval = async (req, res) => {
     }
 };
 
+const getApprovalList = async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+        // Memanggil fungsi baru di service
+        const data = await lhkService.getAllApprovalHeaders(startDate, endDate);
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+const getApprovalFullData = async (req, res) => {
+    try {
+        const { nomor } = req.params;
+        const data = await lhkService.getApprovalFullByNomor(nomor);
+        
+        if (!data) {
+            return res.status(404).json({ success: false, message: "Data Approval tidak ditemukan." });
+        }
+        
+        res.json({ success: true, data: data });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 module.exports = { getLhkList, getLhkDetails, removeLhk,
-    handleSaveLhk, getLhkFullData, getLhkLookup, handleSaveApproval
+    handleSaveLhk, getLhkFullData, getLhkLookup, handleSaveApproval, getApprovalList, getApprovalFullData
  };

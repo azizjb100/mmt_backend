@@ -3,18 +3,15 @@ const express = require('express');
 const router = express.Router();
 const spkController = require('../controllers/spk.controller');
 
-// GET /api/mmt/spk/browse
+// --- Routes untuk SPK ---
 router.get('/browse', spkController.getSpkBrowse);
-
-// GET /api/mmt/spk/lookup
 router.get('/lookup', spkController.getSpkLookup);
-
-// GET /api/mmt/spk/detail-size/:nomor
 router.get('/detail-size/:nomor', spkController.getSpkDetailSize);
-
-// GET /api/mmt/spk/:nomor
-router.get('/:nomor', spkController.getSpkDetail);
-
 router.get('/print/:nomor', spkController.printSpk);
+router.get('/:nomor', spkController.getSpkDetail); // Letakkan paling bawah dari group SPK
+
+// --- Routes untuk STBJ ---
+router.get('/stbj/lookup', spkController.getStbjLookup);
+router.get('/stbj/:nomor', spkController.getStbjDetail);
 
 module.exports = router;

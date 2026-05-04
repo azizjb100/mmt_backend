@@ -259,25 +259,34 @@ const getLookupLhkTekstil = async (tanggal, shift) => {
             DATE_FORMAT(h.lth_tanggal, '%d-%m-%Y') AS Tanggal, 
             h.lth_shift AS Shift,
             h.lth_barcode AS Barcode,
-            h.lth_brg_kode AS Kode_Bahan, -- TAMBAHKAN INI
+            h.lth_brg_kode AS Kode_Bahan, 
             b.brg_nama AS Nama_Bahan,
-            -- Tambahkan kolom lain jika ada di table header atau join ke detail jika perlu
-            -- Misal asumsi satu LHK header mewakili satu mesin/spk:
+            
+            -- Mengambil Jenis Mesin (Baris pertama)
             (SELECT ltd_jns_mesin FROM tlhk_mesintekstil_dtl WHERE ltd_lth_nomor = h.lth_nomor LIMIT 1) AS Mesin,
+            
+            -- Mengambil Nomor SPK (Baris pertama)
             (SELECT ltd_spk_nomor FROM tlhk_mesintekstil_dtl WHERE ltd_lth_nomor = h.lth_nomor LIMIT 1) AS No_SPK,
+            
+            -- TAMBAHAN: Mengambil Ukuran Lebar (Baris pertama)
+            (SELECT ltd_lebar_pakai FROM tlhk_mesintekstil_dtl WHERE ltd_lth_nomor = h.lth_nomor LIMIT 1) AS Lebar,
+
+            -- TAMBAHAN: Mengambil Total Qty Cetak (Hasil SUM dari semua detail)
+            (SELECT SUM(ltd_qty_Cetak) FROM tlhk_mesintekstil_dtl WHERE ltd_lth_nomor = h.lth_nomor) AS Jml_Cetak,
+            
+            -- Mengambil Total Panjang Pakai (Hasil SUM dari semua detail)
             (SELECT SUM(ltd_panjang_pakai) FROM tlhk_mesintekstil_dtl WHERE ltd_lth_nomor = h.lth_nomor) AS Total_Meter
+            
         FROM tlhk_mesintekstil_hdr h
         LEFT JOIN tbarang_mmt b ON h.lth_brg_kode = b.brg_kode
         WHERE h.lth_status = 'POSTED'
     `;
 
-    // Filter Tanggal (Wajib ada biasanya, default hari ini di frontend)
     if (tanggal) {
         sql += ` AND h.lth_tanggal = ?`;
         params.push(tanggal);
     }
 
-    // Filter Shift (Opsional, jika 'Semua' tidak perlu filter)
     if (shift && shift !== 'Semua') {
       sql += ` AND h.lth_shift = ?`;
       params.push(shift);
@@ -291,14 +300,14 @@ const getLookupLhkTekstil = async (tanggal, shift) => {
 
 const generateAppNomor = async (date, connection) => {
     const yymm = format(new Date(date), 'yyMM');
-    const prefix = `APP-TEX.${yymm}.%`;
+    const prefix = `MMT-LHK-TA.${yymm}.%`;
     // GANTI: tapproval_tekstil_hdr -> tlhk_tekstilmmt_hdr
     const sql = `SELECT MAX(CAST(SUBSTRING_INDEX(lth_nomor, '.', -1) AS UNSIGNED)) AS max_num 
                  FROM tlhk_tekstilmmt_hdr WHERE lth_nomor LIKE ?`;
     
     const [rows] = await connection.query(sql, [prefix]);
     const nextNum = (rows[0].max_num || 0) + 1;
-    return `APP-TEX.${yymm}.${String(nextNum).padStart(4, '0')}`;
+    return `MMT-LHK-TA.${yymm}.${String(nextNum).padStart(4, '0')}`;
 };
 
 /**
@@ -397,10 +406,99 @@ const saveApproval = async (data) => {
     }
 };
 
+/**
+ * Mengambil daftar history Approval (tlhk_tekstilmmt_hdr)
+ */
+const getAllApprovalHeaders = async (startDate, endDate) => {
+    const tglMulai = format(new Date(startDate), 'yyyy-MM-dd');
+    const tglSelesai = format(new Date(endDate), 'yyyy-MM-dd');
+
+    const sql = `
+        SELECT 
+            h.lth_nomor AS Nomor, 
+            DATE_FORMAT(h.lth_tanggal, '%d-%m-%Y') AS Tanggal, 
+            h.lth_shift AS Shift,
+            h.lth_user_create AS Admin,
+            h.lth_status AS Status,
+            (SELECT SUM(ltd_panjang_pakai) 
+             FROM tlhk_tekstilmmt_dtl 
+             WHERE ltd_lth_nomor = h.lth_nomor) AS Total_Meter,
+            (SELECT COUNT(*) 
+             FROM tlhk_tekstilmmt_dtl 
+             WHERE ltd_lth_nomor = h.lth_nomor) AS Jumlah_Item
+        FROM tlhk_tekstilmmt_hdr h
+        WHERE h.lth_tanggal BETWEEN ? AND ?
+        ORDER BY h.lth_tanggal DESC, h.lth_nomor DESC
+    `;
+
+    const [rows] = await pool.query(sql, [tglMulai, tglSelesai]);
+    return rows;
+};
+
+/**
+ * Mengambil detail Approval berdasarkan nomor rekap
+ */
+const getApprovalDetailsByNomor = async (nomor) => {
+    const sqlDetail = `
+        SELECT 
+            d.ltd_lth_nomor AS Nomor_App,
+            d.ltd_no_urut AS No_Urut,
+            d.ltd_jns_mesin AS Mesin, 
+            d.ltd_spk_nomor AS Nomor_SPK, 
+            x.spk_nama AS Nama_SPK,
+            d.ltd_qty_Cetak AS Jml_Cetak, 
+            d.ltd_brg_kode AS Kode_Bahan, 
+            b.brg_nama AS Nama_Bahan,
+            d.ltd_panjang_pakai AS Total_Panjang,
+            d.ltd_lebar_pakai AS Lebar
+        FROM tlhk_tekstilmmt_dtl d
+        LEFT JOIN tbarang_mmt b ON d.ltd_brg_kode = b.brg_kode
+        LEFT JOIN (
+            SELECT spk_nomor, spk_nama FROM tspk 
+            UNION ALL 
+            SELECT mspk_nomor, mspk_nama FROM tmemospk 
+        ) x ON x.spk_nomor = d.ltd_spk_nomor 
+        WHERE d.ltd_lth_nomor = ?
+        ORDER BY d.ltd_no_urut
+    `;
+
+    const [rows] = await pool.query(sqlDetail, [nomor]);
+    return rows;
+};
+
+/**
+ * Mengambil data lengkap Approval (Header + Detail)
+ */
+const getApprovalFullByNomor = async (nomor) => {
+    const sqlHeader = `
+        SELECT 
+            lth_nomor AS Nomor, 
+            DATE_FORMAT(lth_tanggal, '%Y-%m-%d') AS Tanggal, 
+            lth_shift AS Shift,
+            lth_user_create AS Admin,
+            lth_status AS Status
+        FROM tlhk_tekstilmmt_hdr
+        WHERE lth_nomor = ?
+    `;
+
+    const [headerRows] = await pool.query(sqlHeader, [nomor]);
+    if (headerRows.length === 0) return null;
+
+    const details = await getApprovalDetailsByNomor(nomor);
+
+    return {
+        header: headerRows[0],
+        details: details
+    };
+};
+
 module.exports = {
     getAllHeaders,
     getDetailsByNomor,
     getLhkByNomor,
+    getAllApprovalHeaders,
+    getApprovalDetailsByNomor,
+    getApprovalFullByNomor,
     deleteLhk,
     generateNewNomor,
     saveLhk,

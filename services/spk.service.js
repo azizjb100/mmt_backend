@@ -99,6 +99,98 @@ const getBaseSpkQuery = (whereClause = "1=1") => {
     `;
 };
 
+/**
+ * Logika Utama: Mengambil data STBJ dengan agregat jumlah item per transaksi
+ */
+/**
+ * Logika Utama: Mengambil data STBJ dengan join ke gudang atau checker jika diperlukan
+ */
+const getBaseStbjQuery = (whereClause = "1=1") => {
+    return `
+        SELECT 
+            h.stbj_nomor AS Nomor,
+            h.stbj_tanggal AS Tanggal,
+            h.stbj_keterangan AS Keterangan,
+            h.stbj_gdg_kode AS Gudang_Asal,
+            h.stbj_gdgp_kode AS Gudang_Tujuan,
+            h.stbj_checker AS Checker,
+            h.stbj_ts_nomor AS No_TS,
+            /* Menghitung akumulasi Qty dan Koli dari detail */
+            IFNULL(dtl.total_qty, 0) AS Total_Qty,
+            IFNULL(dtl.total_koli, 0) AS Total_Koli
+        FROM tstbj_hdr h
+        LEFT JOIN (
+            SELECT 
+                stbjd_stbj_nomor, 
+                SUM(stbjd_jumlah) as total_qty, 
+                SUM(stbjd_koli) as total_koli 
+            FROM tstbj_dtl 
+            GROUP BY stbjd_stbj_nomor
+        ) dtl ON h.stbj_nomor = dtl.stbjd_stbj_nomor
+        WHERE ${whereClause}
+    `;
+};
+
+
+// ===================================
+// LOOKUP STBJ (Untuk Modal Pencarian)
+// ===================================
+exports.getStbjLookupData = async (keyword) => {
+    try {
+        let sql = `SELECT * FROM (${getBaseStbjQuery()}) AS stbj_combined`;
+        const params = [];
+
+        if (keyword) {
+            // Mencari berdasarkan nomor STBJ, Keterangan, atau Nomor TS
+            sql += ` WHERE (Nomor LIKE ? OR Keterangan LIKE ? OR No_TS LIKE ?)`;
+            const searchKeyword = `%${keyword}%`;
+            params.push(searchKeyword, searchKeyword, searchKeyword);
+        }
+
+        sql += ` ORDER BY Tanggal DESC LIMIT 50`;
+        
+        const [rows] = await pool.query(sql, params);
+        return rows;
+    } catch (error) {
+        throwDbError('Gagal mengambil data lookup STBJ', error);
+    }
+};
+
+// ===================================
+// DETAIL STBJ (Header & Rincian Item)
+// ===================================
+exports.getStbjFullDetail = async (nomorStbj) => {
+    try {
+        // 1. Ambil Data Header
+        const [header] = await pool.query(getBaseStbjQuery("h.stbj_nomor = ?"), [nomorStbj]);
+        if (header.length === 0) throw new Error(`STBJ ${nomorStbj} tidak ditemukan.`);
+
+        // 2. Ambil Data Detail sesuai struktur gambar (stbjd_...)
+        const sqlItems = `
+            SELECT 
+                d.stbjd_spk_nomor AS No_SPK,
+                s.spk_nama AS Nama_SPK,
+                d.stbjd_size AS Size,
+                d.stbjd_jumlah AS Qty,
+                d.stbjd_koli AS Koli,
+                d.stbjd_packing AS Packing,
+                d.stbjd_keterangan AS Catatan
+            FROM tstbj_dtl d
+            LEFT JOIN tspk s ON d.stbjd_spk_nomor = s.spk_nomor
+            WHERE d.stbjd_stbj_nomor = ?
+            ORDER BY d.stbjd_spk_nomor ASC
+        `;
+        const [items] = await pool.query(sqlItems, [nomorStbj]);
+
+        return {
+            ...header[0],
+            items: items
+        };
+    } catch (error) {
+        throwDbError(`Gagal memuat detail STBJ ${nomorStbj}`, error);
+    }
+};
+
 exports.getSpkLookupData = async (keyword) => {
     try {
         let sql = `

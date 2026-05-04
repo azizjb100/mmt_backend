@@ -70,11 +70,33 @@ const getNextNumber = async (req, res) => {
     }
 };
 
+const getApprovalList = async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+        const data = await sublimService.getAllApprovalHeaders(startDate, endDate);
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+const getApprovalDetails = async (req, res) => {
+    try {
+        const { nomor } = req.params;
+        const data = await sublimService.getApprovalDetailsByNomor(nomor);
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
 module.exports = { 
     getLhkList, 
     getLhkDetails, 
     getLhkFullData, 
     handleSaveLhk, 
     removeLhk,
-    getNextNumber
+    getNextNumber,
+    getApprovalList,
+    getApprovalDetails
 };

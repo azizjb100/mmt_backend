@@ -20,4 +20,10 @@ router.post('/', lhkSublimController.handleSaveLhk);
 // Hapus data (Header & Detail)
 router.delete('/:nomor', lhkSublimController.removeLhk);
 
+// List History Approval (Browse)
+router.get('/approval-history', lhkSublimController.getApprovalList);
+
+// Detail History Approval (Expand Row)
+router.get('/approval-history/detail/:nomor', lhkSublimController.getApprovalDetails);
+
 module.exports = router;
