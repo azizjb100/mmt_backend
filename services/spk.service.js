@@ -156,6 +156,49 @@ exports.getStbjLookupData = async (keyword) => {
     }
 };
 
+
+// backend/src/services/spk.service.js
+
+/**
+ * Mendapatkan data SPK dengan perhitungan realisasi STBJ
+ * Menjawab: Order Berapa (Jumlah), Sudah STBJ Berapa, Kurang Berapa
+ */
+exports.getSpkForStbjLookup = async (keyword) => {
+    try {
+        const sql = `
+            SELECT 
+                t.spk_nomor AS SPK,
+                t.spk_nama AS Nama,
+                t.spk_tanggal AS Tanggal,
+                t.spk_jumlah AS Qty_Order,
+                
+                /* Ambil akumulasi yang sudah dibikinkan STBJ */
+                CAST(IFNULL(stbj.total_stbj, 0) AS UNSIGNED) AS Sudah_STBJ,
+                
+                /* Hitung Sisa (Order - Sudah STBJ) */
+                CAST(GREATEST(0, t.spk_jumlah - IFNULL(stbj.total_stbj, 0)) AS UNSIGNED) AS Kurang_STBJ,
+                
+                t.spk_statuskerja AS Kepentingan,
+                IF(t.spk_close=1, 'Closed', 'Open') AS STATUS
+            FROM tspk t
+            LEFT JOIN (
+                /* Subquery untuk menjumlahkan semua STBJ yang pernah dibuat untuk SPK ini */
+                SELECT stbjd_spk_nomor, SUM(stbjd_jumlah) AS total_stbj
+                FROM tstbj_dtl
+                GROUP BY stbjd_spk_nomor
+            ) stbj ON stbj.stbjd_spk_nomor = t.spk_nomor
+            WHERE (t.spk_nomor LIKE ? OR t.spk_nama LIKE ?)
+            ORDER BY t.spk_tanggal DESC
+            LIMIT 100
+        `;
+
+        const searchKeyword = `%${keyword}%`;
+        const [rows] = await pool.query(sql, [searchKeyword, searchKeyword]);
+        return rows;
+    } catch (error) {
+        throwDbError('Gagal mengambil perhitungan SPK vs STBJ', error);
+    }
+};
 // ===================================
 // DETAIL STBJ (Header & Rincian Item)
 // ===================================

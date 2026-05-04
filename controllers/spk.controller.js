@@ -62,7 +62,7 @@ exports.printSpk = async (req, res) => {
 exports.getStbjLookup = async (req, res) => {
     const keyword = req.query.keyword || '';
     try {
-        const data = await spkService.getStbjLookupData(keyword);
+        const data = await spkService.getSpkForStbjLookup(keyword);
         res.status(200).json({ success: true, data: data });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Gagal memuat lookup STBJ' });
