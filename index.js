@@ -38,6 +38,7 @@ const permintaanProduksiBahanRoutes = require("./routes/permintaanProduksiBahan.
 const planningProduksiRoutes = require("./routes/planningProduksi.routes");
 const lhkTekstilMmtRoutes = require("./routes/lhkTekstilMmt.routes");
 const lhkCetakMmtRoutes = require("./routes/lhkCetakMmt.routes");
+const lhkProofRoutes = require("./routes/lhkProof.routes");
 const stokOpnameRoutes = require("./routes/stokOpnameGudang.routes");
 const pelunasanPembelianRoutes = require("./routes/pelunasanPembelian.routes");
 const mesinMmtRoutes = require("./routes/mesinMmt.routes");
@@ -57,6 +58,9 @@ const lapMonTekstilRoutes = require("./routes/lapMonTekstil.route");
 const lapMonProofRoutes = require("./routes/lapMonProof.routes");
 const lapBarangJadiRoutes = require("./routes/lapBarangJadi.routes");
 const voucherPelunasanRoutes = require("./routes/voucherPelunasan.routes");
+const poInternalRoutes = require("./routes/poInternal.routes");
+const lhkRtrRoutes = require("./routes/lhkRtr.routes");
+const lhkSublimRoutes = require("./routes/lhkSublim.routes");
 
 
 
@@ -144,6 +148,7 @@ app.use("/api/mmt/pengajuan-permintaan", clientCertAuth, pengajuanPermintaanRout
 app.use("/api/mmt/permintaan-produksi-bahan", clientCertAuth, permintaanProduksiBahanRoutes);
 app.use("/api/mmt/planning-produksi", clientCertAuth, planningProduksiRoutes);
 app.use("/api/mmt/lhk-tekstil-mmt", clientCertAuth, lhkTekstilMmtRoutes);
+app.use("/api/mmt/lhk-proof", clientCertAuth, lhkProofRoutes);
 app.use("/api/mmt/lhk-cetak-mmt", clientCertAuth, lhkCetakMmtRoutes);
 app.use("/api/mmt/stok-opname", clientCertAuth, stokOpnameRoutes);
 app.use("/api/mmt/pelunasan-pembelian", clientCertAuth, pelunasanPembelianRoutes);
@@ -164,7 +169,9 @@ app.use("/api/mmt/jadwal-kirim", clientCertAuth, jadwalKirimRoutes);
 app.use("/api/mmt/laporan-barang-jadi", clientCertAuth, lapBarangJadiRoutes);
 app.use("/api/mmt/voucher-pelunasan", clientCertAuth, voucherPelunasanRoutes);
 app.use("/api/mmt/monitoring-proof", clientCertAuth, lapMonProofRoutes);
-
+app.use("/api/mmt/po-internal", clientCertAuth, poInternalRoutes);
+app.use("/api/mmt/lhk-rtr", clientCertAuth, lhkRtrRoutes);
+app.use("/api/mmt/lhk-sublim", clientCertAuth, lhkSublimRoutes);
 
 
 

@@ -1,0 +1,24 @@
+const express = require('express');
+const router = express.Router();
+const lhkController = require('../controllers/lhkProof.controller');
+
+// Path: /api/mmt/lhk-proof
+
+// Endpoint untuk mendapatkan list data (Browse)
+router.get('/', lhkController.getBrowse);
+
+// Endpoint untuk mendapatkan detail item (untuk expand row di tabel)
+router.get('/detail/:nomor', lhkController.getDetailItems);
+
+// Endpoint untuk mengambil satu data utuh (Header + Details) untuk mode Edit
+router.get('/:nomor', lhkController.getOne);
+
+// Endpoint untuk simpan data (POST untuk baru, PUT untuk update)
+// Dalam lhkProof.service.js kita menggunakan logika saveLhk yang handle keduanya
+router.post('/', lhkController.save);
+router.put('/:nomor', lhkController.save);
+
+// Endpoint untuk hapus data
+router.delete('/:nomor', lhkController.delete);
+
+module.exports = router;
