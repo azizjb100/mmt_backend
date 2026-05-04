@@ -26,15 +26,14 @@ const lapMonFinishing = async (startDate, endDate) => {
     LEFT JOIN (
         SELECT 
             a.lfd_spk_nomor AS Nomor_SPK,
-            SUM(a.lfd_j_seaming) + IFNULL(ANY_VALUE(h.cetak_luarx), 0) AS Jml_seaming, 
-            SUM(a.lfd_j_mataayam) + IFNULL(ANY_VALUE(h.cetak_luarx), 0) AS Jml_mataayam, 
-            SUM(a.lfd_j_coly) + IFNULL(ANY_VALUE(h.cetak_luarx), 0) AS Jml_coly, 
+            SUM(a.lfd_j_seaming) + IFNULL(MAX(h.cetak_luarx), 0) AS Jml_seaming, 
+            SUM(a.lfd_j_mataayam) + IFNULL(MAX(h.cetak_luarx), 0) AS Jml_mataayam, 
+            SUM(a.lfd_j_coly) + IFNULL(MAX(h.cetak_luarx), 0) AS Jml_coly, 
             
-            -- Menggunakan ANY_VALUE agar tidak error ONLY_FULL_GROUP_BY
-            (ANY_VALUE(x.spk_jumlah) - SUM(a.lfd_j_seaming) - IFNULL(ANY_VALUE(h.cetak_luarx), 0)) AS k_seaming, 
-            (ANY_VALUE(x.spk_jumlah) - SUM(a.lfd_j_mataayam) - IFNULL(ANY_VALUE(h.cetak_luarx), 0)) AS k_mataayam, 
-            (ANY_VALUE(x.spk_jumlah) - SUM(a.lfd_j_coly) - IFNULL(ANY_VALUE(h.cetak_luarx), 0)) AS k_coly,
-            IFNULL(ANY_VALUE(h.cetak_luarx), 0) AS cetak_luarx
+            (MAX(x.spk_jumlah) - SUM(a.lfd_j_seaming) - IFNULL(MAX(h.cetak_luarx), 0)) AS k_seaming, 
+            (MAX(x.spk_jumlah) - SUM(a.lfd_j_mataayam) - IFNULL(MAX(h.cetak_luarx), 0)) AS k_mataayam, 
+            (MAX(x.spk_jumlah) - SUM(a.lfd_j_coly) - IFNULL(MAX(h.cetak_luarx), 0)) AS k_coly,
+            IFNULL(MAX(h.cetak_luarx), 0) AS cetak_luarx
         FROM tlhk_finishingmmt_dtl a 
         INNER JOIN tlhk_finishingmmt_hdr b ON b.lfh_nomor = a.lfd_lfh_nomor
         LEFT JOIN (

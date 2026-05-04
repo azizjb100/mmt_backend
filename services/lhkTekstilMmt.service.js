@@ -420,13 +420,15 @@ const getAllApprovalHeaders = async (startDate, endDate) => {
             h.lth_shift AS Shift,
             h.lth_user_create AS Admin,
             h.lth_status AS Status,
-            (SELECT SUM(ltd_panjang_pakai) 
-             FROM tlhk_tekstilmmt_dtl 
-             WHERE ltd_lth_nomor = h.lth_nomor) AS Total_Meter,
+            -- Rumus: Sum(panjang dari tspk * jumlah jadi dari detail lhk)
+            (SELECT SUM(s.spk_panjang * d.ltd_qty_cetak) 
+             FROM tlhk_mesintekstil_dtl d
+             INNER JOIN tspk s ON d.ltd_spk_nomor = s.spk_nomor
+             WHERE d.ltd_lth_nomor = h.lth_nomor) AS Total_Meter,
             (SELECT COUNT(*) 
-             FROM tlhk_tekstilmmt_dtl 
+             FROM tlhk_mesintekstil_dtl 
              WHERE ltd_lth_nomor = h.lth_nomor) AS Jumlah_Item
-        FROM tlhk_tekstilmmt_hdr h
+        FROM tlhk_mesintekstil_hdr h
         WHERE h.lth_tanggal BETWEEN ? AND ?
         ORDER BY h.lth_tanggal DESC, h.lth_nomor DESC
     `;
