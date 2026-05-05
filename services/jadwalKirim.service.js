@@ -196,10 +196,54 @@ const saveJadwalKirim = async (data) => {
   }
 };
 
+
+const getPrintData = async (startDate, endDate, gudang) => {
+  let params = [startDate, endDate];
+  let sql = `
+    SELECT 
+      a.Gudang, a.nomor_kirim, gdg.gdg_nama AS Nama_Gudang, 
+      DATE_FORMAT(a.Tanggal, '%d/%m/%Y') AS Tanggal, 
+      a.spk_nomor No_SPK,
+      c.spk_nama Nama_Spk, c.spk_ukuran Ukuran, c.spk_kain Kain,
+      b.no_urut, b.kota, b.uraian, b.jumlah AS Jml_Pcs, b.koli AS Jml_Koli,
+      b.jam AS Jam_Ready,
+      b.expedisi, e.Cus_nama AS Customer,
+      IFNULL((SELECT DISTINCT d.SJD_SJ_Nomor FROM tsj_dtl d 
+              INNER JOIN tsj_hdr h ON h.SJ_Nomor=d.SJD_SJ_Nomor 
+              WHERE h.SJ_Status_otomatis=0 AND d.sjd_nokirim=a.nomor_kirim 
+              AND d.sjd_idkirim=b.no_urut LIMIT 1), "") AS Nomor_SJ,
+      IFNULL((SELECT SUM(d.SJD_Jumlah) FROM tsj_dtl d 
+              INNER JOIN tsj_hdr h ON h.SJ_Nomor=d.SJD_SJ_Nomor 
+              WHERE h.SJ_Status_otomatis=0 AND d.sjd_nokirim=a.nomor_kirim 
+              AND d.sjd_idkirim=b.no_urut), 0) AS Realisasi_Kirim
+    FROM tjadwalkirim a
+    INNER JOIN tjadwalkirim_dtl b ON a.nomor_kirim = b.nomor_kirim
+    LEFT JOIN (
+      SELECT spk_nomor, spk_nama, spk_ukuran, spk_cus_kode, spk_kain FROM tspk WHERE spk_aktif='Y'
+      UNION ALL
+      SELECT mspk_nomor, mspk_nama, mspk_ukuran, mspk_cus_kode, mspk_kain FROM tmemospk
+    ) c ON c.spk_nomor = a.spk_nomor
+    LEFT JOIN tcustomer e ON e.Cus_kode = c.spk_cus_kode
+    LEFT JOIN tgudang gdg ON gdg.gdg_kode = a.gudang
+    WHERE a.tanggal >= ? AND a.tanggal <= ?
+  `;
+
+  if (gudang && gudang !== '') {
+    sql += ` AND a.gudang = ?`;
+    params.push(gudang);
+  }
+  
+  sql += ` ORDER BY a.tanggal ASC, a.nomor_kirim ASC, b.no_urut ASC`;
+
+  const [rows] = await pool.query(sql, params);
+  return rows;
+};
+
 // Properti module.exports tetap sama agar tidak merusak pemanggilan di Controller
 module.exports = {
   getJadwalKirimData,
   deleteJadwalKirim,
   saveJadwalKirim,
-  generateNomorKirim
+  generateNomorKirim,
+  getPrintData
 };

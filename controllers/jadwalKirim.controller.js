@@ -19,6 +19,24 @@ exports.browseJadwal = async (req, res) => {
   }
 };
 
+exports.printJadwal = async (req, res) => {
+  try {
+    const { startDate, endDate, gudang } = req.query;
+    const data = await jadwalService.getPrintData(startDate, endDate, gudang);
+    
+    // Anda bisa mengirim JSON ini ke library report seperti ExcelJS atau 
+    // mengirimnya ke frontend untuk di-render di HTML Print
+    res.json({
+      success: true,
+      company: "CV. Kencana Print",
+      periode: `${startDate} s/d ${endDate}`,
+      data: data
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 exports.deleteJadwal = async (req, res) => {
   try {
     // Parameter diambil dari body karena di Delphi menggunakan komposit key
