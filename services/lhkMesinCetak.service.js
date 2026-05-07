@@ -54,7 +54,7 @@ const getAllHeaders = async (startDate, endDate, search = '') => {
                 ELSE 0 
             END AS NilaiMinus,
 
-            t1.lbahan AS Kode_bahan,
+            t1.lbarcode_roll AS Kode_bahan,
             t3.brg_nama AS nama_Bahan,
             IFNULL(t1.ljumlah_kolom,0) AS Tile,
             IFNULL(t1.lpanjang,0) AS UkuranCetak,
@@ -82,9 +82,17 @@ const getAllHeaders = async (startDate, endDate, search = '') => {
     `;
 
     if (search) {
-        sql += ` AND (t2.spk_nama LIKE ? OR t1.lnomor LIKE ? OR t1.lspk_nomor LIKE ?) `;
+        // MENAMBAHKAN PENCARIAN BAHAN DAN BARCODE DI SINI
+        sql += ` AND (
+            t2.spk_nama LIKE ? 
+            OR t1.lnomor LIKE ? 
+            OR t1.lspk_nomor LIKE ? 
+            OR t3.brg_nama LIKE ? 
+            OR t1.lbarcode_roll LIKE ?
+        ) `;
         const searchPattern = `%${search}%`;
-        params.push(searchPattern, searchPattern, searchPattern);
+        // Tambahkan parameter sesuai jumlah tanda tanya (?) baru
+        params.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
     }
 
     sql += ` ORDER BY t1.ltanggal DESC, t1.lnomor DESC`;
@@ -366,7 +374,7 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
 
     // Helper Fungsi untuk menentukan kategori berdasarkan dimensi
     const getKategori = (panjang, lebar) => {
-        // Jika panjang >= 3 meter DAN lebar >= 0.5 meter, maka ROLL. Selain itu SCRAP.
+        // ROLL jika panjang >= 3 meter DAN lebar >= 0.5 meter. Selain itu SCRAP.
         if (panjang >= 3 && lebar >= 0.5) {
             return 'ROLL';
         }
@@ -391,6 +399,14 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
         }
 
         const totalPanjangTerpakai = detailsData.reduce((sum, d) => sum + Number(d.cetakmeter || 0), 0);
+
+        // --- VALIDASI AWAL: CEK PANJANG AMBIL BAHAN ---
+        // Kita ambil nilai tertinggi dari detail ambilBahanPanjang
+        const checkMaxPanjang = detailsData.reduce((max, d) => Math.max(max, Number(d.ambilBahanPanjang || 0)), 0);
+        
+        if (currentStatus === 'POSTED' && checkMaxPanjang <= 0) {
+            throw new Error("Gagal Simpan: Panjang bahan yang diambil tidak boleh 0. Scan ulang barcode material.");
+        }
 
         if (isEditMode) {
             await conn.query(`
@@ -493,7 +509,6 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
                 // 2. MUTASI MASUK (SISA UTAMA)
                 if (finalSisaMeter > 0) {
                     const kategoriSisa = getKategori(finalSisaMeter, finalLebarInput);
-
                     await conn.query(`
                         INSERT INTO tmasterstok_mmt (
                             mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
@@ -537,7 +552,8 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
     } catch (err) {
         if (conn) await conn.rollback();
         console.error("Error Save LHK:", err);
-        throw new Error(`Gagal Simpan LHK: ${err.message}`);
+        // Lempar pesan error asli agar Toast di Vue menampilkan pesan yang spesifik
+        throw new Error(err.message || "Gagal Simpan LHK");
     } finally {
         if (conn) conn.release();
     }
