@@ -139,12 +139,23 @@ const getReport = async (startDate, endDate, gdgKode) => {
     LEFT JOIN (
       SELECT 
         s.mst_brg_kode, 
-        SUM(s.mst_stok_in - s.mst_stok_out) AS stok_akhir_q,
-        SUM((s.mst_stok_in - s.mst_stok_out) * CASE 
-            WHEN brg.brg_type = 'K' THEN IFNULL(s.mst_panjang, 0)
-            ELSE (IFNULL(s.mst_panjang, 0) * IFNULL(s.mst_lebar, 0))
-          END
-        ) AS stok_akhir_m
+        SUM(
+  CASE 
+    WHEN s.mst_gdg_kode = 'GPM' AND IFNULL(s.mst_panjang, 0) < 5 THEN 0 -- Aturan khusus GPM
+    ELSE (s.mst_stok_in - s.mst_stok_out) 
+  END
+) AS stok_akhir_q,
+
+SUM(
+  CASE 
+    WHEN s.mst_gdg_kode = 'GPM' AND IFNULL(s.mst_panjang, 0) < 5 THEN 0 -- Aturan khusus GPM
+    ELSE 
+      (s.mst_stok_in - s.mst_stok_out) * CASE 
+          WHEN brg.brg_type = 'K' THEN IFNULL(s.mst_panjang, 0)
+          ELSE (IFNULL(s.mst_panjang, 0) * IFNULL(s.mst_lebar, 0))
+      END
+  END
+) AS stok_akhir_m
       FROM tmasterstok_mmt s
       JOIN tbarang_mmt brg ON s.mst_brg_kode = brg.brg_kode
       WHERE s.mst_tanggal <= ? AND s.mst_gdg_kode = ?

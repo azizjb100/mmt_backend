@@ -364,6 +364,15 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
         throw new Error("Header atau Detail tidak boleh kosong.");
     }
 
+    // Helper Fungsi untuk menentukan kategori berdasarkan dimensi
+    const getKategori = (panjang, lebar) => {
+        // Jika panjang >= 3 meter DAN lebar >= 0.5 meter, maka ROLL. Selain itu SCRAP.
+        if (panjang >= 3 && lebar >= 0.5) {
+            return 'ROLL';
+        }
+        return 'SCRAP';
+    };
+
     try {
         await conn.beginTransaction();
 
@@ -389,8 +398,8 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
                     ltanggal = ?, lgdg_prod = ?, lspk_nomor = ?, lmesin = ?,
                     lshift = ?, loperator = ?, lbahan = ?, lbarcode_roll = ?,
                     lpanjang_terpakai = ?, ljumlah_kolom = ?, lfixed = 'Y',
-                    ldate_modified = ?, luser_modified = ?, lstatus = ?, -- Gunakan userModified
-                    lpanjang_bs = ?, llebar_bs = ?
+                    ldate_modified = ?, luser_modified = ?, lstatus = ?,
+                    lpanjang_bs = ?, llebar_bs = ?, lpanjang_afal = ?, llebar_afal = ?
                 WHERE lnomor = ?
             `, [
                 formattedDate, headerData.lgdg_prod, combinedSpkNomor, headerData.lmesin,
@@ -398,6 +407,7 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
                 totalPanjangTerpakai, headerData.ljumlah_kolom, 
                 formattedNow, userModified, currentStatus,
                 headerData.lpanjang_bs || 0, headerData.llebar_bs || 0,
+                headerData.lpanjang_afal || 0, headerData.llebar_afal || 0,
                 finalNomor
             ]);
 
@@ -407,15 +417,15 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
             await conn.query(`
                 INSERT INTO tlhk_mesin_hdr (
                     lnomor, lspk_nomor, ltanggal, lmesin, lgdg_prod,
-                    lshift, loperator, ldate_create, luser_create, -- luser_create diisi userCreate
+                    lshift, loperator, ldate_create, luser_create,
                     lbahan, lbarcode_roll, lpanjang_terpakai,
                     ljumlah_kolom, lstatus, lpanjang_bs, llebar_bs, lpanjang_afal, llebar_afal, lfixed
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Y')
             `, [
                 finalNomor, combinedSpkNomor, formattedDate, headerData.lmesin, headerData.lgdg_prod,
-                headerData.lshift, headerData.loperator, formattedNow, userCreate, // <-- Perubahan di sini
+                headerData.lshift, headerData.loperator, formattedNow, userCreate,
                 headerData.lbahan, headerData.lbarcode_roll, totalPanjangTerpakai,
-                headerData.ljumlah_kolom,  currentStatus,
+                headerData.ljumlah_kolom, currentStatus,
                 headerData.lpanjang_bs || 0, headerData.llebar_bs || 0, 
                 headerData.lpanjang_afal || 0, headerData.llebar_afal || 0
             ]);
@@ -452,10 +462,8 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
             finalSisaLebar = Number(d.sisabahanlebar || 0);
         }
 
-        // 6. MUTASI STOK (HANYA JIKA POSTED)
         if (currentStatus === 'POSTED') {
             if (usedBarcode && maxAmbilPanjang > 0) {
-                // --- PERUBAHAN DISINI: Ambil info harga dan lebar awal dari barcode asal ---
                 const [oldStock] = await conn.query(`
                     SELECT mst_hargabeli, mst_satuan_harga, mst_lebar 
                     FROM tmasterstok_mmt 
@@ -467,53 +475,58 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
                 const satuanHargaLama = oldStock.length > 0 ? oldStock[0].mst_satuan_harga : null;
                 const lebarAwal = oldStock.length > 0 ? oldStock[0].mst_lebar : 0;
 
-                // Tentukan lebar yang akan digunakan untuk sisa
-                // Jika finalSisaLebar dari frontend <= 0, gunakan lebarAwal
                 const finalLebarInput = (finalSisaLebar > 0) ? finalSisaLebar : lebarAwal;
-
                 const initialLebar = detailsData[0].ambilBahanLebar || lebarAwal;
 
-                // MUTASI KELUAR (STOK LAMA HABIS)
+                // 1. MUTASI KELUAR (STOK LAMA HABIS)
                 await conn.query(`
                     INSERT INTO tmasterstok_mmt (
                         mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
                         mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi,
-                        mst_hargabeli, mst_satuan_harga, mst_tanggal, mst_barcode
-                    ) VALUES (?, ?, 0, 1, ?, ?, ?, ?, ?, ?, ?, ?)
+                        mst_hargabeli, mst_satuan_harga, mst_tanggal, mst_barcode, mst_kategori
+                    ) VALUES (?, ?, 0, 1, ?, ?, ?, ?, ?, ?, ?, ?, 'ROLL')
                 `, [
                     usedKodeBahan, headerData.lgdg_prod, maxAmbilPanjang, initialLebar, 
                     combinedSpkNomor, finalNomor, hargaBeliLama, satuanHargaLama, formattedDate, usedBarcode
                 ]);
 
-                // MUTASI MASUK (SISA UTAMA)
+                // 2. MUTASI MASUK (SISA UTAMA)
                 if (finalSisaMeter > 0) {
+                    const kategoriSisa = getKategori(finalSisaMeter, finalLebarInput);
+
                     await conn.query(`
                         INSERT INTO tmasterstok_mmt (
                             mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
                             mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi,
-                            mst_hargabeli, mst_satuan_harga, mst_tanggal, mst_barcode
-                        ) VALUES (?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+                            mst_hargabeli, mst_satuan_harga, mst_tanggal, mst_barcode,
+                            mst_kategori
+                        ) VALUES (?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     `, [
                         usedKodeBahan, headerData.lgdg_prod, finalSisaMeter, finalLebarInput, 
-                        combinedSpkNomor, finalNomor, hargaBeliLama, satuanHargaLama, formattedDate, usedBarcode
+                        combinedSpkNomor, finalNomor, hargaBeliLama, satuanHargaLama, formattedDate, usedBarcode,
+                        kategoriSisa
                     ]);
                 }
 
-                // MUTASI MASUK (AFAL SISTEM)
+                // 3. MUTASI MASUK (AFAL SISTEM)
                 const afalP = headerData.lpanjang_afal || 0; 
                 const afalL = headerData.llebar_afal || 0;
 
                 if (afalP > 0 && afalL > 0) {
+                    const kategoriAfal = getKategori(afalP, afalL);
                     const newAfalBarcode = await getNextSuffix(conn, usedBarcode);
+                    
                     await conn.query(`
                         INSERT INTO tmasterstok_mmt (
                             mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
                             mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi,
-                            mst_hargabeli, mst_satuan_harga, mst_tanggal, mst_barcode
-                        ) VALUES (?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+                            mst_hargabeli, mst_satuan_harga, mst_tanggal, mst_barcode,
+                            mst_kategori
+                        ) VALUES (?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     `, [
                         usedKodeBahan, headerData.lgdg_prod, afalP, afalL, 
-                        "STOK AFAL", finalNomor, hargaBeliLama, satuanHargaLama, formattedDate, newAfalBarcode
+                        "STOK AFAL", finalNomor, hargaBeliLama, satuanHargaLama, formattedDate, newAfalBarcode,
+                        kategoriAfal
                     ]);
                 }
             }
