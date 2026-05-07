@@ -8,7 +8,6 @@ const { format } = require('date-fns');
  */
 const getReport = async (startDate, endDate, gdgKode) => {
   const kodeGudang = gdgKode || 'WH-16';
-
   const tglMulai = format(new Date(startDate), 'yyyy-MM-dd');
   const tglSelesai = format(new Date(endDate), 'yyyy-MM-dd');
 
@@ -32,10 +31,8 @@ const getReport = async (startDate, endDate, gdgKode) => {
           ELSE ''
       END AS type_barang,
 
-      /* --- SPESIFIKASI MURNI --- */
       IFNULL(a.brg_panjang, 0) AS Panjang,
       IFNULL(a.brg_lebar, 0) AS Lebar,
-      /* M2 disesuaikan: Jika K (Kain) maka hanya Panjang, selain itu PxL */
       CASE 
         WHEN a.brg_type = 'K' THEN IFNULL(a.brg_panjang, 0)
         ELSE (IFNULL(a.brg_panjang, 0) * IFNULL(a.brg_lebar, 0))
@@ -63,7 +60,7 @@ const getReport = async (startDate, endDate, gdgKode) => {
 
     FROM tbarang_mmt a
 
-    /* Subquery b: Stok Awal */
+    /* Subquery b: Stok Awal (Hanya ROLL / NULL) */
     LEFT JOIN (
       SELECT 
         s.mst_brg_kode, 
@@ -75,18 +72,19 @@ const getReport = async (startDate, endDate, gdgKode) => {
         ) AS stok_awal_m
       FROM tmasterstok_mmt s
       JOIN tbarang_mmt brg ON s.mst_brg_kode = brg.brg_kode
-      WHERE s.mst_tanggal < ? AND s.mst_gdg_kode = ?
+      WHERE s.mst_tanggal < ? 
+        AND s.mst_gdg_kode = ?
+        AND (s.mst_kategori = 'ROLL' OR s.mst_kategori IS NULL)
       GROUP BY s.mst_brg_kode
     ) b ON b.mst_brg_kode = a.brg_kode
 
-    /* Subquery c: Mutasi & Harga */
+    /* Subquery c: Mutasi & Harga (Hanya ROLL / NULL) */
     LEFT JOIN (
       SELECT 
         s.mst_brg_kode,
         SUM(CASE WHEN s.mst_tanggal BETWEEN ? AND ? THEN s.mst_stok_in ELSE 0 END) AS terima_q,
         SUM(CASE WHEN s.mst_tanggal BETWEEN ? AND ? THEN s.mst_stok_out ELSE 0 END) AS keluar_q,
         
-        /* Terima M (Meter) dengan pengecekan Type K */
         SUM(CASE WHEN s.mst_tanggal BETWEEN ? AND ? THEN 
             (s.mst_stok_in * CASE 
                 WHEN brg.brg_type = 'K' THEN IFNULL(s.mst_panjang, 0)
@@ -94,7 +92,6 @@ const getReport = async (startDate, endDate, gdgKode) => {
             END) 
         ELSE 0 END) AS terima_m,
 
-        /* Keluar M (Meter) dengan pengecekan Type K */
         SUM(CASE WHEN s.mst_tanggal BETWEEN ? AND ? THEN 
             (s.mst_stok_out * CASE 
                 WHEN brg.brg_type = 'K' THEN IFNULL(s.mst_panjang, 0)
@@ -131,34 +128,27 @@ const getReport = async (startDate, endDate, gdgKode) => {
 
       FROM tmasterstok_mmt s
       JOIN tbarang_mmt brg ON s.mst_brg_kode = brg.brg_kode
-      WHERE s.mst_tanggal <= ? AND s.mst_gdg_kode = ?
+      WHERE s.mst_tanggal <= ? 
+        AND s.mst_gdg_kode = ?
+        AND (s.mst_kategori = 'ROLL' OR s.mst_kategori IS NULL)
       GROUP BY s.mst_brg_kode
     ) c ON c.mst_brg_kode = a.brg_kode
 
-    /* Subquery d: Stok Akhir */
+    /* Subquery d: Stok Akhir (Hanya ROLL / NULL) */
     LEFT JOIN (
       SELECT 
         s.mst_brg_kode, 
-        SUM(
-  CASE 
-    WHEN s.mst_gdg_kode = 'GPM' AND IFNULL(s.mst_panjang, 0) < 5 THEN 0 -- Aturan khusus GPM
-    ELSE (s.mst_stok_in - s.mst_stok_out) 
-  END
-) AS stok_akhir_q,
-
-SUM(
-  CASE 
-    WHEN s.mst_gdg_kode = 'GPM' AND IFNULL(s.mst_panjang, 0) < 5 THEN 0 -- Aturan khusus GPM
-    ELSE 
-      (s.mst_stok_in - s.mst_stok_out) * CASE 
-          WHEN brg.brg_type = 'K' THEN IFNULL(s.mst_panjang, 0)
-          ELSE (IFNULL(s.mst_panjang, 0) * IFNULL(s.mst_lebar, 0))
-      END
-  END
-) AS stok_akhir_m
+        SUM(s.mst_stok_in - s.mst_stok_out) AS stok_akhir_q,
+        SUM((s.mst_stok_in - s.mst_stok_out) * CASE 
+              WHEN brg.brg_type = 'K' THEN IFNULL(s.mst_panjang, 0)
+              ELSE (IFNULL(s.mst_panjang, 0) * IFNULL(s.mst_lebar, 0))
+          END
+        ) AS stok_akhir_m
       FROM tmasterstok_mmt s
       JOIN tbarang_mmt brg ON s.mst_brg_kode = brg.brg_kode
-      WHERE s.mst_tanggal <= ? AND s.mst_gdg_kode = ?
+      WHERE s.mst_tanggal <= ? 
+        AND s.mst_gdg_kode = ?
+        AND (s.mst_kategori = 'ROLL' OR s.mst_kategori IS NULL)
       GROUP BY s.mst_brg_kode
     ) d ON d.mst_brg_kode = a.brg_kode
 
@@ -174,7 +164,7 @@ SUM(
     tglMulai, tglSelesai,                             // Subquery c (terima_m)
     tglMulai, tglSelesai,                             // Subquery c (keluar_m)
     tglMulai, tglSelesai,                             // Subquery c (nilai_masuk_total)
-    tglSelesai, kodeGudang,                           // Subquery c (WHERE & harga_referensi)
+    tglSelesai, kodeGudang,                           // Subquery c (WHERE)
     tglSelesai, kodeGudang                            // Subquery d
   ];
 
