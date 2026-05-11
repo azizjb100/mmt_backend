@@ -234,6 +234,53 @@ exports.getStbjFullDetail = async (nomorStbj) => {
     }
 };
 
+/**
+ * Mendapatkan data SPK (Reguler/Memo) khusus untuk Modal Lookup Jadwal Kirim
+ * Menghitung: Total Order, Sudah Dijadwalkan, dan Sisa Saldo
+ */
+exports.getSpkForJadwalKirimLookup = async (keyword) => {
+    try {
+        const sql = `
+            SELECT 
+                combined.SPK,
+                combined.Nama,
+                combined.Tanggal,
+                combined.Ukuran,
+                combined.Bahan,
+                combined.Jumlah AS Total_Order,
+                
+                /* Hitung akumulasi Qty yang sudah masuk ke Jadwal Kirim */
+                CAST(IFNULL(jdwl.total_terjadwal, 0) AS UNSIGNED) AS Sudah_Kirim,
+                
+                /* Hitung Sisa Saldo (Total - Sudah Terjadwal) */
+                CAST(GREATEST(0, combined.Jumlah - IFNULL(jdwl.total_terjadwal, 0)) AS UNSIGNED) AS Belum_Kirim,
+                
+                combined.Tipe_SPK,
+                combined.Ngedit
+            FROM (
+                ${getBaseSpkQuery()}
+            ) AS combined
+            LEFT JOIN (
+                /* Subquery akumulasi jadwal kirim berdasarkan nomor SPK */
+                /* Sesuaikan nama tabel 'tjdwlkirim_dtl' dan field 'jkd_spk_nomor' dengan DB Anda */
+                SELECT jkd_spk_nomor, SUM(jkd_jumlah) AS total_terjadwal
+                FROM tjdwlkirim_dtl
+                GROUP BY jkd_spk_nomor
+            ) jdwl ON jdwl.jkd_spk_nomor = combined.SPK
+            WHERE (combined.SPK LIKE ? OR combined.Nama LIKE ?)
+              AND combined.Ngedit = 'ACC' /* Hanya tampilkan yang sudah di-ACC desainnya */
+            ORDER BY combined.Tanggal DESC
+            LIMIT 100
+        `;
+
+        const searchKeyword = `%${keyword || ''}%`;
+        const [rows] = await pool.query(sql, [searchKeyword, searchKeyword]);
+        return rows;
+    } catch (error) {
+        throwDbError('Gagal mengambil data SPK untuk Jadwal Kirim', error);
+    }
+};
+
 exports.getSpkLookupData = async (keyword) => {
     try {
         let sql = `

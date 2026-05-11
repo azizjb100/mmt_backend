@@ -344,37 +344,33 @@ const getRekapLhk = async (startDate, endDate) => {
     const tglMulai = format(new Date(startDate), 'yyyy-MM-dd');
     const tglSelesai = format(new Date(endDate), 'yyyy-MM-dd');
 
-    // 1. Rekap Per Mesin (Tetap sama)
+    // 1. Rekap Per Mesin
+    // Menggunakan alias agar output sama dengan struktur yang Anda inginkan
     const sqlMesin = `
         SELECT 
             d.lcd_jns_mesin AS Mesin,
             COUNT(DISTINCT d.lcd_spk_nomor) AS Jml_SPK,
             SUM(d.lcd_qty_Cetak) AS Total_Pcs,
-            SUM(d.lcd_qty_Cetak * IFNULL(s.spk_panjang,0) * IFNULL(s.spk_lebar,0)) AS Total_Meter
+            /* Total_Meter dihitung dari Qty * P * L sesuai getAllHeaders */
+            ROUND(SUM(d.lcd_qty_Cetak * IFNULL(s.spk_panjang, 0) * IFNULL(s.spk_lebar, 0)), 1) AS Total_Meter,
+            IFNULL(m.msn_kapasitas, 0) AS Kapasitas
         FROM tlhk_cetakmmt_dtl d
         JOIN tlhk_cetakmmt_hdr h ON d.lcd_lch_nomor = h.lch_nomor
-        LEFT JOIN (
-            SELECT spk_nomor, spk_panjang, spk_lebar FROM tspk
-            UNION ALL
-            SELECT mspk_nomor, mspk_panjang, mspk_lebar FROM tmemospk
-        ) s ON s.spk_nomor = d.lcd_spk_nomor
+        LEFT JOIN tspk s ON s.spk_nomor = d.lcd_spk_nomor
+        LEFT JOIN tmesin_mmt m ON d.lcd_jns_mesin = m.msn_nama
         WHERE h.lch_tanggal BETWEEN ? AND ?
-        GROUP BY d.lcd_jns_mesin
+        GROUP BY d.lcd_jns_mesin, m.msn_kapasitas
     `;
 
-    // 2. PERBAIKAN: Rekap Per Hari + Mesin agar Excel Terisi
+    // 2. Rekap Per Hari
     const sqlHarian = `
         SELECT 
             d.lcd_jns_mesin AS Mesin,
             DATE_FORMAT(h.lch_tanggal, '%Y-%m-%d') AS Tanggal,
-            SUM(d.lcd_qty_Cetak * IFNULL(s.spk_panjang,0) * IFNULL(s.spk_lebar,0)) AS Total_Meter
+            ROUND(SUM(d.lcd_qty_Cetak * IFNULL(s.spk_panjang, 0) * IFNULL(s.spk_lebar, 0)), 1) AS Total_Meter
         FROM tlhk_cetakmmt_hdr h
-        JOIN tlhk_cetakmmt_dtl d ON d.lcd_lch_nomor = h.lch_nomor
-        LEFT JOIN (
-            SELECT spk_nomor, spk_panjang, spk_lebar FROM tspk
-            UNION ALL
-            SELECT mspk_nomor, mspk_panjang, mspk_lebar FROM tmemospk
-        ) s ON s.spk_nomor = d.lcd_spk_nomor
+        JOIN tlhk_cetakmmt_dtl d ON h.lch_nomor = d.lcd_lch_nomor
+        LEFT JOIN tspk s ON s.spk_nomor = d.lcd_spk_nomor
         WHERE h.lch_tanggal BETWEEN ? AND ?
         GROUP BY d.lcd_jns_mesin, h.lch_tanggal
         ORDER BY h.lch_tanggal ASC, d.lcd_jns_mesin ASC

@@ -78,3 +78,16 @@ exports.getStbjDetail = async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
+
+exports.lookupSpkForJadwal = async (req, res) => {
+    try {
+        const { keyword } = req.query;
+        const data = await spkService.getSpkForJadwalKirimLookup(keyword);
+        res.json({
+            success: true,
+            data: data
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
