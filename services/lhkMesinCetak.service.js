@@ -646,36 +646,45 @@ const getRekapLhk = async (startDate, endDate) => {
     const tglMulai = format(new Date(startDate), 'yyyy-MM-dd');
     const tglSelesai = format(new Date(endDate), 'yyyy-MM-dd');
 
+    // 1. Rekap Per Mesin (Ditambah Join ke Master Mesin)
     const sqlMesin = `
         SELECT 
-            h.lmesin AS Mesin,
-            COUNT(DISTINCT d.ld_spk_nomor) AS Jml_SPK,
-            SUM(d.ld_total_qtycetak) AS Total_Pcs,
-            SUM(d.ld_luas_m2) AS Total_Meter,
-            IFNULL(m.msn_kapasitas, 0) AS Kapasitas
-        FROM tlhk_mesin_hdr h
-        JOIN tlhk_mesin_dtl d ON d.ld_lnomor = h.lnomor
-        LEFT JOIN tmesin_mmt m ON h.lmesin = m.msn_nama -- Asumsi join berdasarkan nama mesin
-        WHERE h.ltanggal BETWEEN ? AND ?
-        GROUP BY h.lmesin, m.msn_kapasitas
+            d.lcd_jns_mesin AS Mesin,
+            COUNT(DISTINCT d.lcd_spk_nomor) AS Jml_SPK,
+            SUM(d.lcd_qty_Cetak) AS Total_Pcs,
+            ROUND(SUM(d.lcd_qty_Cetak * IFNULL(s.spk_panjang, 0) * IFNULL(s.spk_lebar, 0)), 1) AS Total_Meter,
+            /* Ambil Kapasitas dari tabel master mesin */
+            IFNULL(m.msn_kapasitas, 0) AS Kapasitas 
+        FROM tlhk_cetakmmt_dtl d
+        INNER JOIN tlhk_cetakmmt_hdr h ON d.lcd_lch_nomor = h.lch_nomor
+        LEFT JOIN tspk s ON s.spk_nomor = d.lcd_spk_nomor
+        /* JOIN ke tabel master mesin berdasarkan kode/nama mesin */
+        LEFT JOIN tmesin_mmt m ON m.msn_nama = d.lcd_jns_mesin 
+        WHERE h.lch_tanggal BETWEEN ? AND ?
+        GROUP BY d.lcd_jns_mesin, m.msn_kapasitas
+        ORDER BY Total_Meter DESC
     `;
 
     const sqlHarian = `
         SELECT 
-            h.lmesin AS Mesin,
-            DATE_FORMAT(h.ltanggal, '%Y-%m-%d') AS Tanggal,
-            SUM(d.ld_luas_m2) AS Total_Meter
-        FROM tlhk_mesin_hdr h
-        JOIN tlhk_mesin_dtl d ON d.ld_lnomor = h.lnomor
-        WHERE h.ltanggal BETWEEN ? AND ?
-        GROUP BY h.lmesin, h.ltanggal
-        ORDER BY h.ltanggal ASC, h.lmesin ASC
+            DATE_FORMAT(h.lch_tanggal, '%Y-%m-%d') AS Tanggal,
+            d.lcd_jns_mesin AS Mesin,
+            ROUND(SUM(d.lcd_qty_Cetak * IFNULL(s.spk_panjang, 0) * IFNULL(s.spk_lebar, 0)), 1) AS Total_Meter
+        FROM tlhk_cetakmmt_hdr h
+        INNER JOIN tlhk_cetakmmt_dtl d ON h.lch_nomor = d.lcd_lch_nomor
+        LEFT JOIN tspk s ON s.spk_nomor = d.lcd_spk_nomor
+        WHERE h.lch_tanggal BETWEEN ? AND ?
+        GROUP BY h.lch_tanggal, d.lcd_jns_mesin
+        ORDER BY h.lch_tanggal ASC, d.lcd_jns_mesin ASC
     `;
 
     const [rekapMesin] = await pool.query(sqlMesin, [tglMulai, tglSelesai]);
     const [rekapHarian] = await pool.query(sqlHarian, [tglMulai, tglSelesai]);
 
-    return { rekapMesin, rekapHarian };
+    return { 
+        rekapMesin, 
+        rekapHarian 
+    };
 };
 
 /**
