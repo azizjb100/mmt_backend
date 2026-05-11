@@ -19,6 +19,28 @@ exports.browseJadwal = async (req, res) => {
   }
 };
 
+
+exports.getDetailJadwal = async (req, res) => {
+  try {
+    const { nomor } = req.params; // Mengambil nomor dari URL parameter
+    
+    if (!nomor) {
+      return res.status(400).json({ message: "Nomor Kirim tidak valid." });
+    }
+
+    const data = await jadwalService.getJadwalKirimByNomor(nomor);
+
+    if (!data) {
+      return res.status(404).json({ message: "Data tidak ditemukan." });
+    }
+
+    return res.status(200).json(data);
+  } catch (error) {
+    console.error("Controller Get Detail Error:", error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 exports.printJadwal = async (req, res) => {
   try {
     const { startDate, endDate, gudang } = req.query;
@@ -54,27 +76,22 @@ exports.deleteJadwal = async (req, res) => {
 
 
 exports.saveJadwal = async (req, res) => {
-  try {
-    const data = req.body;
+    try {
+        const data = req.body;
+        // Jika data.Nomor adalah "AUTO", kirim null agar di-generate nomor baru
+        const nomorToEdit = (data.Nomor && data.Nomor !== "AUTO") ? data.Nomor : null;
 
-    // Validasi minimal (Sesuaikan dengan kebutuhan bisnis)
-    if (!data.Gudang || !data.Tanggal || !data.No_SPK) {
-      return res.status(400).json({ 
-        message: "Gudang, Tanggal, dan Nomor SPK wajib diisi." 
-      });
+        // Ambil kdUser dari token (Pastikan nama properti di token adalah kdUser)
+        const currentUser = req.user ? req.user.kdUser : (data.usr_create || 'SYSTEM');
+
+        const result = await jadwalService.saveJadwalKirim(data, nomorToEdit, currentUser);
+        
+        res.status(200).json({
+            ...result,
+            oleh: currentUser
+        });
+    } catch (error) {
+        console.error("Controller Save Error:", error);
+        res.status(400).json({ message: 'Gagal Simpan.', error: error.message });
     }
-
-    // Ambil user dari token (asumsi middleware auth menyimpan user di req.user)
-    const payload = {
-      ...data,
-      usr_create: req.user?.username || data.usr_create || 'SYSTEM'
-    };
-
-    const result = await jadwalService.saveJadwalKirim(payload);
-    
-    return res.status(200).json(result);
-  } catch (error) {
-    console.error("Controller Save Error:", error);
-    return res.status(500).json({ message: error.message });
-  }
 };

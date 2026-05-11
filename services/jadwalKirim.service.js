@@ -1,6 +1,8 @@
 // backend/src/services/jadwalKirim.service.js
 const pool = require('../config/db.config');
 
+const { format } = require('date-fns'); // Tambahkan ini
+
 /**
  * Mengambil data Jadwal Kirim (Master) 
  * Sesuai logika SQLMaster di ufrmBrowseJadwalKirim2
@@ -57,6 +59,65 @@ const getJadwalKirimData = async (startDate, endDate, gudang) => {
   }
 };
 
+
+/**
+ * Mengambil satu data Jadwal Kirim beserta Detailnya untuk form EDIT
+ */
+const getJadwalKirimByNomor = async (nomor) => {
+    try {
+        // 1. Ambil Data Header
+        const [headerRows] = await pool.query(`
+            SELECT 
+                a.Nomor_Kirim AS Nomor, 
+                a.Gudang, 
+                gdg.gdg_nama AS Nama_Gudang, 
+                DATE_FORMAT(a.Tanggal, '%Y-%m-%d') AS Tanggal,
+                a.spk_nomor AS No_SPK, 
+                b.spk_nama AS Nama_Spk, 
+                b.spk_ukuran AS Ukuran,
+                b.spk_kain AS Kain,
+                a.usr_create
+            FROM tjadwalkirim a 
+            LEFT JOIN (
+                SELECT spk_nomor, spk_nama, spk_ukuran, spk_kain FROM tspk WHERE spk_aktif = 'Y'
+                UNION ALL 
+                SELECT mspk_nomor, mspk_nama, mspk_ukuran, mspk_kain FROM tmemospk
+            ) b ON b.spk_nomor = a.spk_nomor
+            LEFT JOIN tgudang gdg ON gdg.gdg_kode = a.gudang 
+            WHERE a.Nomor_Kirim = ?
+        `, [nomor]);
+
+        if (headerRows.length === 0) return null;
+
+        const header = headerRows[0];
+
+        // 2. Ambil Data Detail
+        const [detailRows] = await pool.query(`
+            SELECT 
+                No_urut,
+                kota,
+                uraian,
+                size,
+                jumlah AS Jumlah,
+                koli AS Koli,
+                jami AS JamInput,
+                Jam,
+                expedisi
+            FROM tjadwalkirim_dtl
+            WHERE nomor_kirim = ?
+            ORDER BY No_urut ASC
+        `, [nomor]);
+
+        // Gabungkan Header dan Detail
+        return {
+            ...header,
+            Detail: detailRows
+        };
+    } catch (error) {
+        console.error("Error getJadwalKirimByNomor:", error);
+        throw error;
+    }
+};
   /**
  * Generate Nomor Kirim otomatis (KRM.YYMM.XXXX)
  * Berdasarkan logika getmaxkode di Delphi
@@ -106,94 +167,105 @@ const deleteJadwalKirim = async (params) => {
   }
 };
 
-const saveJadwalKirim = async (data) => {
-  const connection = await pool.getConnection();
-  await connection.beginTransaction();
+const saveJadwalKirim = async (data, nomorToEdit, userLogin) => {
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
 
-  try {
-    let {
-      Nomor,
-      Gudang,
-      Tanggal,
-      No_SPK,
-      Jumlah,
-      Koli,
-      Realisasi,
-      Koli_Realisasi,
-      usr_create,
-      detail // Array detail dari frontend
-    } = data;
+        const serverTime = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+        const isUpdating = !!nomorToEdit;
 
-    // 1. Logika Auto Number
-    if (!Nomor || Nomor === "AUTO") {
-      Nomor = await generateNomorKirim(Tanggal, connection);
-    }
+        // 1. LOGIKA NOMOR (Auto Number)
+        let currentNomor = nomorToEdit;
+        if (!isUpdating) {
+            // Jika nomorToEdit kosong, generate nomor baru
+            // generateNomorKirim disesuaikan agar menerima parameter koneksi untuk transaksi
+            currentNomor = await generateNomorKirim(data.Tanggal, connection);
+        }
 
-    // 2. Cek Eksistensi untuk Header
-    const [existing] = await connection.query(
-      "SELECT Nomor_Kirim FROM tjadwalkirim WHERE Nomor_Kirim = ?",
-      [Nomor]
-    );
+        // 2. SIMPAN HEADER (tjadwalkirim)
+        if (isUpdating) {
+            await connection.query(`
+                UPDATE tjadwalkirim SET 
+                    Gudang = ?, 
+                    Tanggal = ?, 
+                    spk_nomor = ?, 
+                    Jumlah = ?, 
+                    Koli = ?, 
+                    Realisasi = ?, 
+                    koli_Realisasi = ?, 
+                    usr_update = ?, 
+                    tgl_update = ?
+                WHERE Nomor_Kirim = ?
+            `, [
+                data.Gudang, 
+                data.Tanggal, 
+                data.No_SPK, 
+                data.Jumlah || 0, 
+                data.Koli || 0, 
+                data.Realisasi || 0, 
+                data.Koli_Realisasi || 0, 
+                userLogin, 
+                serverTime, 
+                currentNomor
+            ]);
+        } else {
+            await connection.query(`
+                INSERT INTO tjadwalkirim 
+                (Nomor_Kirim, Gudang, Tanggal, spk_nomor, Jumlah, Koli, Realisasi, koli_Realisasi, usr_create, date_create) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `, [
+                currentNomor, 
+                data.Gudang, 
+                data.Tanggal, 
+                data.No_SPK, 
+                data.Jumlah || 0, 
+                data.Koli || 0, 
+                data.Realisasi || 0, 
+                data.Koli_Realisasi || 0, 
+                userLogin, 
+                serverTime
+            ]);
+        }
 
-    if (existing.length > 0) {
-      // --- UPDATE HEADER ---
-      await connection.query(
-        `UPDATE tjadwalkirim SET 
-          Gudang = ?, Tanggal = ?, spk_nomor = ?, Jumlah = ?, 
-          Koli = ?, Realisasi = ?, koli_Realisasi = ?, usr_update = ?, tgl_update = NOW()
-         WHERE Nomor_Kirim = ?`,
-        [Gudang, Tanggal, No_SPK, Jumlah, Koli, Realisasi, Koli_Realisasi, usr_create, Nomor]
-      );
-    } else {
-      // --- INSERT HEADER ---
-      await connection.query(
-        `INSERT INTO tjadwalkirim 
-          (Nomor_Kirim, Gudang, Tanggal, spk_nomor, Jumlah, Koli, Realisasi, koli_Realisasi, usr_create, date_create) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-        [Nomor, Gudang, Tanggal, No_SPK, Jumlah, Koli, Realisasi, Koli_Realisasi, usr_create]
-      );
-    }
+        // 3. LOGIKA DETAIL (Hapus Lama, Insert Baru)
+        // Selalu hapus detail berdasarkan Nomor_Kirim sebelum insert (Logic Delphi)
+       await connection.query("DELETE FROM tjadwalkirim_dtl WHERE nomor_kirim = ?", [currentNomor]);
 
-    // 3. LOGIKA DETAIL (Sesuai simpandata di Delphi)
-    // Hapus detail lama berdasarkan Nomor_Kirim
-    await connection.query("DELETE FROM tjadwalkirim_dtl WHERE nomor_kirim = ?", [Nomor]);
-
-    // Insert detail baru jika ada
-    if (detail && detail.length > 0) {
-      const detailQueries = detail
-        .filter(d => d.qty > 0) // Hanya simpan yang qty > 0 sesuai logika Delphi
+if (Array.isArray(data.Detail) && data.Detail.length > 0) {
+    const detailValues = data.Detail
+        .filter(d => (Number(d.qty) || 0) > 0) 
         .map((d, index) => [
-          Nomor,
-          index + 1, // no_urut
-          d.kota,
-          d.uraian,
-          d.qty,
-          d.koli,
-          d.jamInput || '', 
-          d.jamReady || '',
-          d.expedisi || ''
+            currentNomor,        // nomor_kirim (1)
+            index + 1,           // No_urut (2)
+            d.kota || '',        // kota (3)
+            d.uraian || '',      // uraian (4)
+            d.size || '',        // size (5)
+            parseFloat(d.qty) || 0, // jumlah (6)
+            parseInt(d.koli) || 0,  // koli (7)
+            d.jamInput || '',    // jami (8)
+            d.jamReady || '',    // Jam (9)
+            d.expedisi || ''     // expedisi (10)
         ]);
 
-      if (detailQueries.length > 0) {
-        await connection.query(
-          `INSERT INTO tjadwalkirim_dtl 
-            (nomor_kirim, no_urut, kota, uraian, jumlah, koli, jami, jam, expedisi) 
-           VALUES ?`,
-          [detailQueries]
-        );
-      }
+    if (detailValues.length > 0) {
+        await connection.query(`
+            INSERT INTO tjadwalkirim_dtl 
+            (nomor_kirim, No_urut, kota, uraian, size, jumlah, koli, jami, Jam, expedisi) 
+            VALUES ?
+        `, [detailValues]); // Menghapus 'keterangan' dari sini
     }
+}
+        await connection.commit();
+        return { success: true, Nomor: currentNomor, message: "Data berhasil disimpan" };
 
-    await connection.commit();
-    return { success: true, message: "Data berhasil disimpan", nomor: Nomor };
-
-  } catch (error) {
-    await connection.rollback();
-    console.error("Transaction Error:", error);
-    throw error;
-  } finally {
-    connection.release();
-  }
+    } catch (error) {
+        await connection.rollback();
+        console.error("Error in saveJadwalKirim:", error);
+        throw error;
+    } finally {
+        connection.release();
+    }
 };
 
 
@@ -243,6 +315,7 @@ const getPrintData = async (startDate, endDate, gudang) => {
 module.exports = {
   getJadwalKirimData,
   deleteJadwalKirim,
+  getJadwalKirimByNomor,
   saveJadwalKirim,
   generateNomorKirim,
   getPrintData

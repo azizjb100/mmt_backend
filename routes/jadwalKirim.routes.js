@@ -16,4 +16,6 @@ router.post('/save', verifyToken, controller.saveJadwal);
 // Endpoint untuk menghapus data
 router.delete('/delete', verifyToken, controller.deleteJadwal);
 
+router.get('/:nomor', verifyToken, controller.getDetailJadwal);
+
 module.exports = router;
