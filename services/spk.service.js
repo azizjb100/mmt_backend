@@ -258,17 +258,17 @@ exports.getSpkForJadwalKirimLookup = async (keyword) => {
                 combined.Tipe_SPK,
                 combined.Ngedit
             FROM (
+                /* Memanggil base query yang menggabungkan TSPK dan TMEMOSPK */
                 ${getBaseSpkQuery()}
             ) AS combined
             LEFT JOIN (
                 /* Subquery akumulasi jadwal kirim berdasarkan nomor SPK */
-                /* Sesuaikan nama tabel 'tjadwalkirim' dan field 'spk_nomor' dengan DB Anda */
                 SELECT spk_nomor, SUM(jumlah) AS total_terjadwal
                 FROM tjadwalkirim
                 GROUP BY spk_nomor
             ) jdwl ON jdwl.spk_nomor = combined.SPK
             WHERE (combined.SPK LIKE ? OR combined.Nama LIKE ?)
-              AND combined.Ngedit = 'ACC' /* Hanya tampilkan yang sudah di-ACC desainnya */
+              /* Kondisi Ngedit = 'ACC' telah dihapus agar semua data (MT, MX, dll) muncul */
             ORDER BY combined.Tanggal DESC
             LIMIT 100
         `;
