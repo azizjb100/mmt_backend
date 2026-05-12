@@ -262,11 +262,11 @@ exports.getSpkForJadwalKirimLookup = async (keyword) => {
             ) AS combined
             LEFT JOIN (
                 /* Subquery akumulasi jadwal kirim berdasarkan nomor SPK */
-                /* Sesuaikan nama tabel 'tjdwlkirim_dtl' dan field 'jkd_spk_nomor' dengan DB Anda */
-                SELECT jkd_spk_nomor, SUM(jkd_jumlah) AS total_terjadwal
-                FROM tjdwlkirim_dtl
-                GROUP BY jkd_spk_nomor
-            ) jdwl ON jdwl.jkd_spk_nomor = combined.SPK
+                /* Sesuaikan nama tabel 'tjadwalkirim' dan field 'spk_nomor' dengan DB Anda */
+                SELECT spk_nomor, SUM(jumlah) AS total_terjadwal
+                FROM tjadwalkirim
+                GROUP BY spk_nomor
+            ) jdwl ON jdwl.spk_nomor = combined.SPK
             WHERE (combined.SPK LIKE ? OR combined.Nama LIKE ?)
               AND combined.Ngedit = 'ACC' /* Hanya tampilkan yang sudah di-ACC desainnya */
             ORDER BY combined.Tanggal DESC
