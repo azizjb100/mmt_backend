@@ -8,7 +8,7 @@ const { format } = require('date-fns'); // Tambahkan ini
  * Sesuai logika SQLMaster di ufrmBrowseJadwalKirim2
  */
 
-const getJadwalKirimData = async (startDate, endDate, gudang) => {
+const getJadwalKirimData = async (startDate, endDate, gudang, search) => {
   let params = [startDate, endDate];
   
   let sql = `
@@ -16,7 +16,6 @@ const getJadwalKirimData = async (startDate, endDate, gudang) => {
       a.Nomor_Kirim AS Nomor, 
       a.Gudang, 
       gdg.gdg_nama AS Nama_Gudang, 
-      /* PERBAIKAN: Format tanggal ke string YYYY-MM-DD agar tidak terkonversi ke UTC oleh Node.js */
       DATE_FORMAT(a.Tanggal, '%Y-%m-%d') AS Tanggal,
       a.spk_nomor AS No_SPK, 
       b.spk_nama AS Nama_Spk, 
@@ -31,7 +30,6 @@ const getJadwalKirimData = async (startDate, endDate, gudang) => {
       a.usr_create 
     FROM tjadwalkirim a 
     LEFT JOIN (
-      /* Pastikan kolom select pada UNION ALL konsisten */
       SELECT spk_nomor, spk_nama, spk_ukuran, spk_kain FROM tspk WHERE spk_aktif = 'Y'
       UNION ALL 
       SELECT mspk_nomor, mspk_nama, mspk_ukuran, mspk_kain FROM tmemospk
@@ -40,20 +38,24 @@ const getJadwalKirimData = async (startDate, endDate, gudang) => {
     WHERE a.Tanggal >= ? AND a.Tanggal <= ?
   `;
 
-  // Filter Gudang (LIKE match)
+  // 1. Filter Gudang (LIKE match)
   if (gudang) {
     sql += ` AND a.Gudang LIKE ?`;
     params.push(`%${gudang}%`);
   }
 
-  // Tambahkan pengurutan agar data terbaru muncul di atas
+  // 2. Tambahan: Filter Nama SPK atau Nomor SPK
+  if (search) {
+    sql += ` AND (a.spk_nomor LIKE ? OR b.spk_nama LIKE ?)`;
+    params.push(`%${search}%`, `%${search}%`);
+  }
+
   sql += ` ORDER BY a.Tanggal DESC, a.Nomor_Kirim DESC`;
 
   try {
     const [rows] = await pool.query(sql, params);
     return rows;
   } catch (error) {
-    // Memberikan informasi error yang lebih detail untuk debugging
     console.error("Database Master Error:", error.message);
     throw new Error("Gagal mengambil data Jadwal Kirim: " + error.message);
   }

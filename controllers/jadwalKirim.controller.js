@@ -4,14 +4,14 @@ const jadwalService = require('../services/jadwalKirim.service');
 exports.browseJadwal = async (req, res) => {
   try {
     // Ambil 'gudang' dari req.query, bukan 'cab'
-    const { startDate, endDate, gudang } = req.query;
+    const { startDate, endDate, gudang, search } = req.query;
 
     if (!startDate || !endDate) {
       return res.status(400).json({ message: "Periode tanggal harus diisi." });
     }
 
-    // Kirim variabel gudang ke service
-    const data = await jadwalService.getJadwalKirimData(startDate, endDate, gudang);
+    // Kirim variabel gudang dan search ke service
+    const data = await jadwalService.getJadwalKirimData(startDate, endDate, gudang, search);
     
     return res.status(200).json(data);
   } catch (error) {
