@@ -194,8 +194,8 @@ const saveJadwalKirim = async (data, nomorToEdit, userLogin) => {
                     Koli = ?, 
                     Realisasi = ?, 
                     koli_Realisasi = ?, 
-                    usr_update = ?, 
-                    tgl_update = ?
+                    usr_modify = ?, 
+                    date_modify = ?
                 WHERE Nomor_Kirim = ?
             `, [
                 data.Gudang, 

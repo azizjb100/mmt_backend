@@ -17,22 +17,26 @@ const getAllHeaders = async (startDate, endDate) => {
 
     const sql = `
         SELECT 
-            h.lms_nomor AS Nomor, 
-            DATE_FORMAT(h.lms_tanggal, '%d-%m-%Y') AS Tanggal, 
-            h.lms_gdg_kode AS Gudang, 
+            h.lsb_nomor AS Nomor, 
+            DATE_FORMAT(h.lsb_tanggal, '%d-%m-%Y') AS Tanggal, 
+            h.lsb_gdg_kode AS Gudang, 
             g.gdg_nama AS Nama_Gudang, 
-            h.lms_shift AS Shift,
-            h.lms_status AS Status,
-            (SELECT IF(COUNT(*) > COUNT(IF(LENGTH(lmsd_bahan) > 0, 1, NULL)), 'N', 'Y') 
-             FROM tlhk_mesinsublim_dtl 
-             WHERE lmsd_lms_nomor = h.lms_nomor) AS Lengkap,
-            (SELECT SUM(lmsd_panjang * lmsd_lebar * lmsd_jumlah) 
-             FROM tlhk_mesinsublim_dtl 
-             WHERE lmsd_lms_nomor = h.lms_nomor) AS total_meter
+            h.lsb_shift AS Shift,
+            h.lsb_status AS Status,
+            (
+                SELECT IF(COUNT(*) > COUNT(IF(LENGTH(lsbd_bahan) > 0, 1, NULL)), 'N', 'Y') 
+                FROM tlhk_mesinsublim_dtl 
+                WHERE lsbd_lsb_nomor = h.lsb_nomor
+            ) AS Lengkap,
+            (
+                SELECT SUM(lsbd_panjang * lsbd_lebar * lsbd_jumlah) 
+                FROM tlhk_mesinsublim_dtl 
+                WHERE lsbd_lsb_nomor = h.lsb_nomor
+            ) AS total_meter
         FROM tlhk_mesinsublim_hdr h
-        LEFT JOIN tGUDANG g ON g.gdg_kode = h.lms_gdg_kode
-        WHERE h.lms_tanggal BETWEEN ? AND ?
-        ORDER BY h.lms_tanggal DESC, h.lms_nomor DESC
+        LEFT JOIN tGUDANG g ON g.gdg_kode = h.lsb_gdg_kode
+        WHERE h.lsb_tanggal BETWEEN ? AND ?
+        ORDER BY h.lsb_tanggal DESC, h.lsb_nomor DESC
     `;
 
     const [rows] = await pool.query(sql, [tglMulai, tglSelesai]);
@@ -42,24 +46,24 @@ const getAllHeaders = async (startDate, endDate) => {
 const getDetailsByNomor = async (nomor) => {
     const sqlDetail = `
         SELECT 
-            d.lmsd_lms_nomor AS Nomor,
-            d.lmsd_lokasi AS Lokasi, 
-            d.lmsd_spk_nomor AS Nomor_SPK, 
-            IF(LENGTH(d.lmsd_spk_nama)>0, d.lmsd_spk_nama, x.spk_nama) AS Nama_SPK, 
-            d.lmsd_panjang AS Panjang, 
-            d.lmsd_lebar AS Lebar, 
-            d.lmsd_jumlah_order AS J_Order, 
-            d.lmsd_bahan AS Bahan, 
-            d.lmsd_jumlah AS Jumlah,
-            (d.lmsd_panjang * d.lmsd_lebar * d.lmsd_jumlah) AS Jumlah_Meter
+            d.lsbd_lsb_nomor AS Nomor,
+            d.lsbd_lokasi AS Lokasi, 
+            d.lsbd_spk_nomor AS Nomor_SPK, 
+            IF(LENGTH(d.lsbd_spk_nama) > 0, d.lsbd_spk_nama, x.spk_nama) AS Nama_SPK, 
+            d.lsbd_panjang AS Panjang, 
+            d.lsbd_lebar AS Lebar, 
+            d.lsbd_jumlah_order AS J_Order, 
+            d.lsbd_bahan AS Bahan, 
+            d.lsbd_jumlah AS Jumlah,
+            (d.lsbd_panjang * d.lsbd_lebar * d.lsbd_jumlah) AS Jumlah_Meter
         FROM tlhk_mesinsublim_dtl d
         LEFT JOIN (
             SELECT spk_nomor, spk_nama FROM tspk 
             UNION ALL 
             SELECT mspk_nomor, mspk_nama FROM tmemospk 
-        ) x ON x.spk_nomor = d.lmsd_spk_nomor 
-        WHERE d.lmsd_lms_nomor = ?
-        ORDER BY d.lmsd_no_urut
+        ) x ON x.spk_nomor = d.lsbd_spk_nomor 
+        WHERE d.lsbd_lsb_nomor = ?
+        ORDER BY d.lsbd_no_urut
     `;
 
     const [rows] = await pool.query(sqlDetail, [nomor]);

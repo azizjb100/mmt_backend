@@ -724,28 +724,28 @@ const getAllDataForExport = async (startDate, endDate, mesin) => {
         }
     }
 
-    const sql = `
-        SELECT 
-            h.lnomor AS Nomor_LHK,
-            DATE_FORMAT(h.ltanggal, '%d/%m/%Y') AS Tanggal,
-            h.lshift AS Shift_LHK,
-            h.loperator AS Operator_LHK,
-            g.gdg_nama AS Gudang,
-            d.ld_spk_nomor AS Nomor_SPK,
-            s.spk_nama AS Nama_Order,
-            h.lmesin AS Mesin,
-            d.ld_total_qtycetak AS Qty_Cetak,
-            IFNULL(s.spk_panjang, 0) AS Panjang,
-            IFNULL(s.spk_lebar, 0) AS Lebar,
-            d.ld_luas_m2 AS m2_cetak
-        FROM tlhk_mesin_hdr h
-        JOIN tlhk_mesin_dtl d ON h.lnomor = d.ld_lnomor
-        LEFT JOIN tGUDANG g ON g.gdg_kode = h.lgdg_prod
-        LEFT JOIN tspk s ON s.spk_nomor = d.ld_spk_nomor
-        WHERE h.ltanggal BETWEEN ? AND ?
-        ${filterMesin}
-        ORDER BY h.ltanggal DESC, h.lnomor DESC, d.ld_urut ASC
-    `;
+const sql = `
+    SELECT 
+        h.lnomor AS Nomor_LHK, -- Tetap Nomor_LHK agar sesuai grouping frontend
+        DATE_FORMAT(h.ltanggal, '%d/%m/%Y') AS Tanggal,
+        h.lshift AS Shift_LHK,
+        h.loperator AS Operator_LHK,
+        g.gdg_nama AS Gudang,
+        d.ld_spk_nomor AS Nomor_SPK,
+        s.spk_nama AS Nama_Order, -- Alias ini harus sama dengan LHK Cetak
+        h.lmesin AS Mesin,
+        d.ld_total_qtycetak AS Qty_Cetak,
+        IFNULL(s.spk_panjang, 0) AS Panjang,
+        IFNULL(s.spk_lebar, 0) AS Lebar,
+        d.ld_luas_m2 AS m2_cetak -- Alias ini penting untuk perhitungan total per baris
+    FROM tlhk_mesin_hdr h
+    JOIN tlhk_mesin_dtl d ON h.lnomor = d.ld_lnomor
+    LEFT JOIN tGUDANG g ON g.gdg_kode = h.lgdg_prod
+    LEFT JOIN tspk s ON s.spk_nomor = d.ld_spk_nomor
+    WHERE h.ltanggal BETWEEN ? AND ?
+    ${filterMesin}
+    ORDER BY h.ltanggal DESC, h.lnomor DESC, d.ld_urut ASC
+`;
 
     const [rows] = await pool.query(sql, params);
     return rows;
