@@ -22,12 +22,21 @@ exports.getAllHeaders = async (req, res) => {
 
 exports.getLookup = async (req, res) => {
     try {
-        // AMBIL 'search' dari req.query di sini
-        const { startDate, endDate, search } = req.query; 
-        const data = await lhkCetakService.getLookup(startDate, endDate, search || '');
+        // 1. Tambahkan 'shift' untuk diambil dari req.query
+        const { startDate, endDate, shift, search } = req.query; 
+        
+        // 2. Teruskan 'shift' ke service sesuai urutan argumen di getLookup
+        // Urutan di service: (startDate, endDate, shift, search)
+        const data = await lhkCetakService.getLookup(
+            startDate, 
+            endDate, 
+            shift || '', 
+            search || ''
+        );
         
         res.json(data);
     } catch (error) {
+        console.error("Lookup Error:", error); // Bagus untuk debugging di console
         res.status(500).json({ 
             message: "Gagal mengambil data master LHK", 
             error: error.message 
