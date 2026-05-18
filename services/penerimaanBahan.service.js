@@ -189,24 +189,23 @@ exports.saveRecMmt = async (data, nomorToEdit, user) => {
         }
 
 
-        if (nomorToEdit) {
+if (nomorToEdit) {
+    const sqlUpdate = `
+        UPDATE Trec_mmt_hdr SET
+            rec_sup_kode = ?, rec_gdg_kode = ?, rec_memo = ?, rec_resi = ?, -- 🔥 PERBAIKAN: Tambahkan '=' dan '?'
+            rec_disc_faktur = ?, rec_disc_fakturpr = ?, rec_amount = ?, rec_taxamount = ?, rec_istax = ?,
+            rec_dateline = ?, rec_pemesan = ?, date_modified = ?, user_modified = ?,
+            rec_keterangan = ?
+        WHERE rec_nomor = ?
+    `;
+    await connection.query(sqlUpdate, [
+        headerData.SupplierKode, headerData.GudangKode, headerData.NoMinta, no_resi,
+        headerData.DiscFaktur, headerData.DiscPr, headerData.Total, headerData.PPN,
+        aistax, headerData.Dateline, headerData.Pemesan,
+        serverTime, user, headerData.KeteranganHeader, currentNomor
+    ]);
 
-            const sqlUpdate = `
-                UPDATE Trec_mmt_hdr SET
-                    rec_sup_kode = ?, rec_gdg_kode = ?, rec_memo = ?, rec_resi, rec_disc_faktur = ?,
-                    rec_disc_fakturpr = ?, rec_amount = ?, rec_taxamount = ?, rec_istax = ?,
-                    rec_dateline = ?, rec_pemesan = ?, date_modified = ?, user_modified = ?,
-                    rec_keterangan = ?
-                WHERE rec_nomor = ?
-            `;
-            await connection.query(sqlUpdate, [
-                headerData.SupplierKode, headerData.GudangKode, headerData.NoMinta, no_resi,
-                headerData.DiscFaktur, headerData.DiscPr, headerData.Total, headerData.PPN,
-                aistax, headerData.Dateline, headerData.Pemesan,
-                serverTime, user, headerData.KeteranganHeader, currentNomor
-            ]);
-
-            await connection.query('DELETE FROM Trec_mmt_DTL WHERE recd_rec_nomor = ?', [currentNomor]);
+    await connection.query('DELETE FROM Trec_mmt_DTL WHERE recd_rec_nomor = ?', [currentNomor]);
 
         } else {
 
@@ -218,8 +217,9 @@ exports.saveRecMmt = async (data, nomorToEdit, user) => {
         (rec_nomor, rec_tanggal, rec_memo, rec_sup_kode, rec_gdg_kode, 
          rec_resi, -- Tambahkan kolom ini
          rec_disc_faktur, rec_disc_fakturpr, rec_amount, rec_taxamount, 
-         rec_istax, rec_dateline, rec_pemesan, date_create, user_create, rec_keterangan)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         rec_istax, rec_dateline, rec_pemesan, date_create, user_create, rec_keterangan,
+         rec_status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
             await connection.query(sqlInsert, [
                 currentNomor, headerData.Tanggal, headerData.NoMinta,
@@ -227,7 +227,7 @@ exports.saveRecMmt = async (data, nomorToEdit, user) => {
                 no_resi,
                 headerData.DiscFaktur, headerData.DiscPr, headerData.Total,
                 headerData.PPN, aistax, headerData.Dateline, headerData.Pemesan,
-                serverTime, user, headerData.KeteranganHeader
+                serverTime, user, headerData.KeteranganHeader, 'OPEN'
             ]);
         }
 
@@ -241,7 +241,8 @@ exports.saveRecMmt = async (data, nomorToEdit, user) => {
                 d.satuan || '',
                 parseFloat(d.qtyPO) || 0,
                 parseFloat(d.qtyTerima) || 0,
-                0, 0,                 // disc & harga
+                0, 
+                parseFloat(d.harga) || 0,
                 d.keterangan || '',
                 index + 1
             ]);

@@ -182,6 +182,39 @@ exports.getAllOutstandingGlobal = async () => {
 };
 
 // ===================================
+// NEW: GET BPB OUTSTANDING PER SUPPLIER
+// ===================================
+// ===================================
+// NEW: GET BPB OUTSTANDING PER SUPPLIER
+// ===================================
+exports.getOutstandingBpb = async (supKode) => {
+    try {
+        const sql = `
+            SELECT 
+                h.rec_nomor AS Nomor,
+                h.rec_tanggal AS TanggalTerima,
+                -- Perbaikan menggunakan nama kolom riil database: recd_qty_terima
+                IFNULL(SUM(
+                    CASE 
+                        WHEN b.brg_satuan_harga = 'M2' THEN (d.recd_qty_terima * (b.brg_panjang * b.brg_lebar) * d.recd_harga)
+                        ELSE (d.recd_qty_terima * d.recd_harga)
+                    END
+                ), 0) AS TotalBpb
+            FROM trec_mmt_hdr h
+            JOIN trec_mmt_dtl d ON h.rec_nomor = d.recd_rec_nomor
+            INNER JOIN tbarang_mmt b ON b.brg_kode = d.recd_brg_kode
+            WHERE h.rec_sup_kode = ? AND h.rec_status = 'OPEN'
+            GROUP BY h.rec_nomor, h.rec_tanggal
+            ORDER BY h.rec_tanggal ASC
+        `;
+        const [rows] = await pool.query(sql, [supKode]);
+        return rows;
+    } catch (error) {
+        throwDbError('Gagal mengambil data outstanding BPB', error);
+    }
+};
+
+// ===================================
 // READ ALL (LIST DATA DENGAN DETAIL)
 // ===================================
 exports.getPelunasanData = async (startDate, endDate) => {

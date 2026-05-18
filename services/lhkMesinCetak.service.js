@@ -120,7 +120,11 @@ const getLookup = async (startDate, endDate, shift = '', search = '') => {
             IFNULL(x.qtytotalcetak, 0) AS TotalCetak,
             /* RUMUS KURANG CETAK */
             CAST(GREATEST(0, IFNULL(t2.spk_jumlah, 0) - IFNULL(all_prod.total_pernah_cetak, 0)) AS UNSIGNED) AS KurangCetak,
-            t1.loperator AS Operator
+            t1.loperator AS Operator,
+            
+            /* --- PENAMBAHAN STATUS AMBIL --- */
+            IF(rekap.lcd_lnomor IS NOT NULL, 'CLOSED', 'OPEN') AS StatusAmbil
+            
         FROM tlhk_mesin_hdr t1
         LEFT JOIN tspk t2 ON t2.spk_nomor = t1.lspk_nomor
         LEFT JOIN (
@@ -137,6 +141,13 @@ const getLookup = async (startDate, endDate, shift = '', search = '') => {
             JOIN tlhk_mesin_dtl d ON h.lnomor = d.ld_lnomor
             GROUP BY h.lspk_nomor
         ) all_prod ON all_prod.lspk_nomor = t1.lspk_nomor
+        
+        /* --- JOIN UNTUK CEK APAKAH NOMOR LHK INI SUDAH PERNAH DI REKAP --- */
+        LEFT JOIN (
+            SELECT DISTINCT lcd_lnomor 
+            FROM tlhk_cetakmmt_dtl
+        ) rekap ON rekap.lcd_lnomor = t1.lnomor
+
         WHERE t1.ltanggal BETWEEN ? AND ?
     `;
 

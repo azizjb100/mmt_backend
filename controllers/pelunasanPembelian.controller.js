@@ -36,6 +36,20 @@ exports.savePelunasan = async (req, res) => {
     }
 };
 
+exports.getOutstandingBpb = async (req, res) => {
+    try {
+        const { supKode } = req.params;
+        if (!supKode) {
+            return res.status(400).json({ message: "Kode Supplier wajib diisi" });
+        }
+
+        const data = await pelunasanService.getOutstandingBpb(supKode);
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
 // =============================
 // GET OUTSTANDING INVOICES
 // =============================

@@ -125,7 +125,8 @@ exports.getPermintaanBahanData = async (startDate, endDate, divisi, userManager)
             sqlMaster = `
                 SELECT
                     t1.mb_nomor AS Nomor, t1.mb_gdg_kode AS Gudang, t3.gdg_nama AS Nama,
-                    DATE_FORMAT(t1.mb_tanggal, '%d-%m-%Y') AS Tanggal, t1.mb_keterangan AS Keterangan,
+                    DATE_FORMAT(t1.mb_tanggal, '%Y-%m-%d') AS Tanggal, -- <--- PERBAIKAN: Format diubah ke yyyy-mm-dd
+                    t1.mb_keterangan AS Keterangan,
                     'MMT' AS Source,
                     ${trackingColumns},
                     CASE WHEN t1.mb_acc = 'Y' THEN 'Acc Manager' WHEN t1.mb_acc_req = 'Y' THEN 'Acc SPV' ELSE 'PENDING' END AS Status_Acc,
@@ -156,7 +157,8 @@ exports.getPermintaanBahanData = async (startDate, endDate, divisi, userManager)
             sqlMaster = `
                 SELECT
                     t1.mb_nomor AS Nomor, t1.mb_mintake AS Gudang, 'GUDANG OBAT' AS Nama,
-                    DATE_FORMAT(t1.mb_tanggal, '%d-%m-%Y') AS Tanggal, t1.mb_ket AS Keterangan,
+                    DATE_FORMAT(t1.mb_tanggal, '%Y-%m-%d') AS Tanggal, -- <--- PERBAIKAN: Format diubah ke yyyy-mm-dd
+                    t1.mb_ket AS Keterangan,
                     'TOBAT' AS Source,
                     NULL AS Estimasi_Kedatangan,
                     NULL AS Tanggal_Datang,
@@ -179,7 +181,7 @@ exports.getPermintaanBahanData = async (startDate, endDate, divisi, userManager)
 
         const masterNomors = masterResults.map(row => row.Nomor);
 
-        // 3. Query Detail Gabungan (PERBAIKAN: Menambahkan kolom Total_Diterima & Is_Acc)
+        // 3. Query Detail Gabungan
         const sqlDetail = `
             SELECT * FROM (
                 SELECT 
