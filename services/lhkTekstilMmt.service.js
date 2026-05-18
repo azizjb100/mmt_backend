@@ -150,6 +150,7 @@ const saveLhk = async (data) => {
         let isActuallyNew = false;
         const currentStatus = header.lstatus || 'DRAFT';
 
+        // 1. Cek atau Generate Nomor LHK
         if (!nomorLhk || nomorLhk === 'AUTO') {
             nomorLhk = await generateNewNomor(header.tanggal, conn);
             isActuallyNew = true;
@@ -158,6 +159,7 @@ const saveLhk = async (data) => {
             isActuallyNew = (rows.length === 0);
         }
 
+        // 2. Insert atau Update Header
         if (isActuallyNew) {
             const sqlInsHeader = `
                 INSERT INTO tlhk_mesintekstil_hdr (
@@ -181,27 +183,50 @@ const saveLhk = async (data) => {
                 currentStatus, header.brg_kode, header.barcode_input, nomorLhk
             ]);
 
+            // Bersihkan data lama sebelum insert ulang (Mode Edit)
             await conn.query('DELETE FROM tlhk_mesintekstil_dtl WHERE ltd_lth_nomor = ?', [nomorLhk]);
             await conn.query('DELETE FROM tmasterstok_mmt WHERE mst_noreferensi = ?', [nomorLhk]);
         }
 
+        // 3. Simpan Data Detail Pekerjaan
         let totalPanjangPakaiMeter = 0;
         if (details && details.length > 0) {
+            // SINKRONISASI: Menggunakan nama kolom asli tanpa underscore (ltd_cetak1 s/d ltd_cetak7)
             const sqlDetail = `
                 INSERT INTO tlhk_mesintekstil_dtl (
                     ltd_lth_nomor, ltd_no_urut, ltd_jns_mesin, ltd_spk_nomor, 
-                    ltd_qty_Cetak, ltd_brg_kode, ltd_panjang_pakai, ltd_lebar_pakai
+                    ltd_qty_Cetak, ltd_brg_kode, ltd_panjang_pakai, ltd_lebar_pakai,
+                    ltd_cetak1, ltd_cetak2, ltd_cetak3, ltd_cetak4, ltd_cetak5, ltd_cetak6, ltd_cetak7
                 ) VALUES ?
             `;
+            
             const values = details.map((d, i) => {
-                const subtotalMeter = (Number(d.panjang_per_pcs) || 0) * (Number(d.jumlah_cetak) || 0);
+                // Kalkulasi total pemakaian kain dalam Meter (Yard * 0.9 * Total Qty)
+                const subtotalMeter = (Number(d.panjang_per_pcs) || 0) * 0.9 * (Number(d.jumlah_cetak) || 0);
                 totalPanjangPakaiMeter += subtotalMeter;
-                return [nomorLhk, i + 1, d.mesin, d.nomor_spk, d.jumlah_cetak, header.brg_kode, subtotalMeter, d.lebar_spk || 0];
+                
+                return [
+                    nomorLhk, 
+                    i + 1, 
+                    d.mesin, 
+                    d.nomor_spk, 
+                    Number(d.jumlah_cetak || 0), // Masuk ke kolom ltd_qty_Cetak (Tot Qty)
+                    header.brg_kode, 
+                    subtotalMeter, 
+                    d.lebar_spk || 0,
+                    Number(d.cetak_1 || 0),
+                    Number(d.cetak_2 || 0),
+                    Number(d.cetak_3 || 0),
+                    Number(d.cetak_4 || 0),
+                    Number(d.cetak_5 || 0),
+                    Number(d.cetak_6 || 0),
+                    Number(d.cetak_7 || 0)
+                ];
             });
             await conn.query(sqlDetail, [values]);
         }
 
-        // LOGIKA STOK
+        // 4. Logika Potong Stok Otomatis (Jika Status POSTED)
         if (currentStatus === 'POSTED' && header.barcode_input) {
             const [oldStock] = await conn.query(`
                 SELECT mst_hargabeli, mst_satuan_harga, mst_lebar, brg.brg_type 
@@ -210,32 +235,52 @@ const saveLhk = async (data) => {
                 WHERE mst_barcode = ? ORDER BY id DESC LIMIT 1
             `, [header.barcode_input]);
 
-            if (oldStock.length > 0) {
+            // Safety check agar terhindar dari error crash jika data stok tidak ditemukan
+            if (oldStock && oldStock.length > 0) {
                 const info = oldStock[0];
                 let qtyPakaiYard = totalPanjangPakaiMeter;
-                if (info.brg_type === 'K') qtyPakaiYard = Number((totalPanjangPakaiMeter / 0.9).toFixed(4));
+                
+                if (info.brg_type === 'K') {
+                    qtyPakaiYard = Number((totalPanjangPakaiMeter / 0.9).toFixed(4));
+                }
 
                 const saldoAwalRoll = Number(header.panjang_awal) || 0;
 
                 // OUT: Buang saldo lama
                 await conn.query(`
-                    INSERT INTO tmasterstok_mmt (mst_brg_kode, mst_barcode, mst_gdg_kode, mst_stok_in, mst_stok_out, mst_tanggal, mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi, mst_satuan_harga, mst_hargabeli, date_create)
-                    VALUES (?, ?, ?, 0, 1, ?, ?, ?, ?, ?, ?, ?, NOW())
-                `, [header.brg_kode, header.barcode_input, header.gdgKode, header.tanggal, saldoAwalRoll, info.mst_lebar, 'ADJUSTMENT OUT (LHK)', nomorLhk, info.mst_satuan_harga, info.mst_hargabeli]);
+                    INSERT INTO tmasterstok_mmt (
+                        mst_brg_kode, mst_barcode, mst_gdg_kode, mst_stok_in, mst_stok_out, 
+                        mst_tanggal, mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi, 
+                        mst_satuan_harga, mst_hargabeli, date_create
+                    ) VALUES (?, ?, ?, 0, 1, ?, ?, ?, ?, ?, ?, ?, NOW())
+                `, [
+                    header.brg_kode, header.barcode_input, header.gdgKode, header.tanggal, 
+                    saldoAwalRoll, info.mst_lebar, 'ADJUSTMENT OUT (LHK)', nomorLhk, 
+                    info.mst_satuan_harga, info.mst_hargabeli
+                ]);
 
-                // IN: Sisa baru
+                // IN: Masukkan kembali sisa panjang kain roll terbaru
                 const sisaBaru = Number((saldoAwalRoll - qtyPakaiYard).toFixed(4));
                 if (sisaBaru > 0) {
                     await conn.query(`
-                        INSERT INTO tmasterstok_mmt (mst_brg_kode, mst_barcode, mst_gdg_kode, mst_stok_in, mst_stok_out, mst_tanggal, mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi, mst_satuan_harga, mst_hargabeli, date_create)
-                        VALUES (?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, NOW())
-                    `, [header.brg_kode, header.barcode_input, header.gdgKode, header.tanggal, sisaBaru, info.mst_lebar, 'SISA PRODUKSI', nomorLhk, info.mst_satuan_harga, info.mst_hargabeli]);
+                        INSERT INTO tmasterstok_mmt (
+                            mst_brg_kode, mst_barcode, mst_gdg_kode, mst_stok_in, mst_stok_out, 
+                            mst_tanggal, mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi, 
+                            mst_satuan_harga, mst_hargabeli, date_create
+                        ) VALUES (?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, NOW())
+                    `, [
+                        header.brg_kode, header.barcode_input, header.gdgKode, header.tanggal, 
+                        sisaBaru, info.mst_lebar, 'SISA PRODUKSI', nomorLhk, 
+                        info.mst_satuan_harga, info.mst_hargabeli
+                    ]);
                 }
+            } else {
+                console.warn(`Peringatan: Barcode roll ${header.barcode_input} tidak ditemukan pada tabel tmasterstok_mmt.`);
             }
         }
 
         await conn.commit();
-        return { success: true, nomor: nomorLhk, message: 'Data berhasil disimpan' };
+        return { success: true, nomor: nomorLhk, message: 'Data LHK berhasil disimpan' };
     } catch (error) {
         await conn.rollback();
         console.error("Error pada saveLhk Mesin Tekstil:", error);
@@ -410,6 +455,7 @@ const saveApproval = async (data) => {
  * Mengambil daftar history Approval (tlhk_tekstilmmt_hdr)
  */
 const getAllApprovalHeaders = async (startDate, endDate) => {
+    // Memastikan format tanggal aman untuk query MySQL
     const tglMulai = format(new Date(startDate), 'yyyy-MM-dd');
     const tglSelesai = format(new Date(endDate), 'yyyy-MM-dd');
 
@@ -420,15 +466,17 @@ const getAllApprovalHeaders = async (startDate, endDate) => {
             h.lth_shift AS Shift,
             h.lth_user_create AS Admin,
             h.lth_status AS Status,
-            -- Rumus: Sum(panjang dari tspk * jumlah jadi dari detail lhk)
-            (SELECT SUM(s.spk_panjang * d.ltd_qty_cetak) 
-             FROM tlhk_mesintekstil_dtl d
-             INNER JOIN tspk s ON d.ltd_spk_nomor = s.spk_nomor
+            
+            -- Ambil total pemakaian meter langsung dari tabel detail tekstil mmt
+            (SELECT IFNULL(SUM(d.ltd_panjang_pakai), 0) 
+             FROM tlhk_tekstilmmt_dtl d
              WHERE d.ltd_lth_nomor = h.lth_nomor) AS Total_Meter,
+             
+            -- Ambil jumlah item pekerjaan dari tabel detail tekstil mmt
             (SELECT COUNT(*) 
-             FROM tlhk_mesintekstil_dtl 
-             WHERE ltd_lth_nomor = h.lth_nomor) AS Jumlah_Item
-        FROM tlhk_mesintekstil_hdr h
+             FROM tlhk_tekstilmmt_dtl d
+             WHERE d.ltd_lth_nomor = h.lth_nomor) AS Jumlah_Item
+        FROM tlhk_tekstilmmt_hdr h
         WHERE h.lth_tanggal BETWEEN ? AND ?
         ORDER BY h.lth_tanggal DESC, h.lth_nomor DESC
     `;
