@@ -62,6 +62,7 @@ const poInternalRoutes = require("./routes/poInternal.routes");
 const lhkRtrRoutes = require("./routes/lhkRtr.routes");
 const lhkSublimRoutes = require("./routes/lhkSublim.routes");
 const lapMonSublimRoutes = require("./routes/lapMonSublim.routes");
+const dashboardRoutes = require("./routes/dashboard.routes");
 
 
 
@@ -174,6 +175,7 @@ app.use("/api/mmt/po-internal", clientCertAuth, poInternalRoutes);
 app.use("/api/mmt/lhk-rtr", clientCertAuth, lhkRtrRoutes);
 app.use("/api/mmt/lhk-sublim", clientCertAuth, lhkSublimRoutes);
 app.use("/api/mmt/monitoring-sublim", clientCertAuth, lapMonSublimRoutes);
+app.use("/api/mmt/dashboard", clientCertAuth, dashboardRoutes);
 
 
 
