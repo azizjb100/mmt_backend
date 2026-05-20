@@ -14,10 +14,8 @@ const getTopDeadlineCetak = async () => {
                 t.spk_nomor AS no_spk, 
                 t.spk_nama AS nama_produk, 
                 t.spk_jumlah AS qty_order,
-                'PCS' AS unit, -- Sesuaikan jika ada kolom unit khusus di tspk
+                'PCS' AS unit, 
                 t.spk_tanggal AS tanggal_spk,
-                /* Menggunakan spk_tanggal + INTERVAL toleransi atau kolom deadline jika ada. 
-                   Jika tidak ada kolom deadline_waktu, kita gunakan spk_tanggal sebagai basis urutan */
                 t.spk_tanggal AS deadline_waktu, 
                 TIMESTAMPDIFF(MINUTE, NOW(), t.spk_tanggal) AS menit_sisa,
                 CAST(IFNULL(prod.total_pernah_cetak, 0) AS UNSIGNED) AS Sudah_Cetak,
@@ -29,7 +27,9 @@ const getTopDeadlineCetak = async () => {
                 FROM tlhk_mesin_dtl
                 GROUP BY ld_spk_nomor
             ) prod ON prod.ld_spk_nomor = t.spk_nomor
-            WHERE t.spk_close = 0 AND t.spk_aktif = 'Y' -- Hanya ambil yang masih Open & Aktif
+            WHERE t.spk_close = 0 
+              AND t.spk_aktif = 'Y'
+              AND t.spk_tanggal >= '2026-01-01' -- Filter: Mulai 1 Januari 2026 hingga sekarang
 
             UNION ALL
 
@@ -52,16 +52,16 @@ const getTopDeadlineCetak = async () => {
                 GROUP BY ld_spk_nomor
             ) prod_m ON prod_m.ld_spk_nomor = m.mspk_nomor
             WHERE m.mspk_divisi = '5'
+              AND m.mspk_tanggal >= '2026-01-01' -- Filter: Mulai 1 Januari 2026 hingga sekarang
         ) AS antrean
-        WHERE Kurang_Cetak > 0 -- Validasi utama: Hanya yang produksinya belum terpenuhi
-        ORDER BY deadline_waktu ASC -- Menampilkan dari yang paling lama/mepet
+        WHERE Kurang_Cetak > 0 
+        ORDER BY deadline_waktu ASC 
         LIMIT 10
     `;
 
     try {
         const [rows] = await pool.query(sql);
         
-        // Format sisa waktu agar informatif bagi komponen Vue Anda
         return rows.map(item => {
             let sisaWaktuText = '';
             const menit = item.menit_sisa;
@@ -82,13 +82,13 @@ const getTopDeadlineCetak = async () => {
             return {
                 no_spk: item.no_spk,
                 nama_produk: item.nama_produk,
-                qty: item.Kurang_Cetak, // Frontend menerima sisa yang "harus dicetak"
+                qty: item.Kurang_Cetak, 
                 qty_order: item.qty_order,
                 sudah_cetak: item.Sudah_Cetak,
                 unit: item.unit,
                 sisa_waktu: sisaWaktuText,
                 menit_sisa: menit,
-                tipe_spk: item.Tipe_SPK
+                tipe_spk: item.tipe_spk
             };
         });
     } catch (error) {
