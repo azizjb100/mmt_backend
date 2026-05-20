@@ -34,8 +34,19 @@ const getPermintaanBahanPendingTotal = async (req, res) => {
     }
 };
 
+const getTopDeadlineCetakTotal = async (req, res) => {
+    try {
+        // Memanggil fungsi service baru tanpa LIMIT yang kita buat sebelumnya
+        const data = await dashboardService.getTopDeadlineCetakTotalFull();
+        res.json({ success: true, data: data });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 module.exports = {
     getTopDeadlineCetak,
     getPermintaanBahanPending,
-    getPermintaanBahanPendingTotal
+    getPermintaanBahanPendingTotal,
+    getTopDeadlineCetakTotal
 };

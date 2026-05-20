@@ -39,7 +39,7 @@ const getTopDeadlineCetak = async () => {
 
     try {
         const [rows] = await pool.query(sql);
-        
+
         return rows.map(item => {
             let sisaWaktuText = '';
             const menit = item.menit_sisa;
@@ -60,7 +60,7 @@ const getTopDeadlineCetak = async () => {
             return {
                 no_spk: item.no_spk,
                 nama_produk: item.nama_produk,
-                qty: item.Kurang_Cetak, 
+                qty: item.Kurang_Cetak,
                 qty_order: item.qty_order,
                 sudah_cetak: item.Sudah_Cetak,
                 unit: item.unit,
@@ -165,8 +165,78 @@ const getPermintaanBahanTotalFull = async () => {
     return rows;
 };
 
+const getTopDeadlineCetakTotalFull = async () => {
+    const sql = `
+        SELECT * FROM (
+            /* --- ONLY SECTION 1: SPK REGULER --- */
+            SELECT 
+                t.spk_nomor AS no_spk, 
+                t.spk_nama AS nama_produk, 
+                t.spk_jumlah AS qty_order,
+                'PCS' AS unit, 
+                t.spk_tanggal AS tanggal_spk,
+                t.spk_tanggal AS deadline_waktu, 
+                TIMESTAMPDIFF(MINUTE, NOW(), t.spk_tanggal) AS menit_sisa,
+                CAST(IFNULL(prod.total_pernah_cetak, 0) AS UNSIGNED) AS Sudah_Cetak,
+                CAST(GREATEST(0, t.spk_jumlah - IFNULL(prod.total_pernah_cetak, 0)) AS UNSIGNED) AS Kurang_Cetak,
+                'REGULER' as Tipe_SPK
+            FROM tspk t
+            LEFT JOIN (
+                SELECT lcd_spk_nomor, SUM(lcd_qty_cetak) as total_pernah_cetak
+                FROM tlhk_cetakmmt_dtl
+                GROUP BY lcd_spk_nomor
+            ) prod ON prod.lcd_spk_nomor = t.spk_nomor
+            WHERE t.spk_close = 0 
+              AND t.spk_aktif = 'Y'
+              AND t.spk_tanggal >= '2026-04-01'
+              AND t.spk_jo_kode = 'MT'
+        ) AS antrean
+        WHERE Kurang_Cetak > 0 -- Hanya ambil yang produksinya belum terpenuhi
+        ORDER BY deadline_waktu ASC -- Menampilkan dari yang paling mendesak
+        /* LIMIT 10 DIHAPUS SUPAYA MENAMPILKAN SEMUANYA DI MODAL */
+    `;
+
+    try {
+        const [rows] = await pool.query(sql);
+
+        return rows.map(item => {
+            let sisaWaktuText = '';
+            const menit = item.menit_sisa;
+
+            if (menit < 0) {
+                const positifMenit = Math.abs(menit);
+                if (positifMenit < 60) sisaWaktuText = `Lewat ${positifMenit} m`;
+                else if (positifMenit < 1440) sisaWaktuText = `Lewat ${(positifMenit / 60).toFixed(1)} Jam`;
+                else sisaWaktuText = `Lewat ${Math.floor(positifMenit / 1440)} Hari`;
+            } else if (menit < 60) {
+                sisaWaktuText = `${menit} Menit`;
+            } else if (menit < 1440) {
+                sisaWaktuText = `${(menit / 60).toFixed(1)} Jam`;
+            } else {
+                sisaWaktuText = `${Math.floor(menit / 1440)} Hari`;
+            }
+
+            return {
+                no_spk: item.no_spk,
+                nama_produk: item.nama_produk,
+                qty: item.Kurang_Cetak,
+                qty_order: item.qty_order,
+                sudah_cetak: item.Sudah_Cetak,
+                unit: item.unit,
+                sisa_waktu: sisaWaktuText,
+                menit_sisa: menit,
+                tipe_spk: item.tipe_spk,
+                tanggal_spk: item.tanggal_spk
+            };
+        });
+    } catch (error) {
+        throw new Error('Gagal memuat Seluruh Data Antrean Cetak: ' + error.message);
+    }
+};
+
 module.exports = {
     getTopDeadlineCetak,
     getPermintaanBahanPending,
-    getPermintaanBahanTotalFull
+    getPermintaanBahanTotalFull,
+    getTopDeadlineCetakTotalFull
 };

@@ -6,6 +6,7 @@ const dashboardController = require('../controllers/dashboard.controller'); // S
  * Route untuk data krisis operasional di Dashboard
  */
 router.get('/top-10-deadline', dashboardController.getTopDeadlineCetak);
+router.get('/top-10-deadline-total', dashboardController.getTopDeadlineCetakTotal);
 router.get('/permintaan-pending', dashboardController.getPermintaanBahanPending);
 router.get('/permintaan-pending-total', dashboardController.getPermintaanBahanPendingTotal);
 
