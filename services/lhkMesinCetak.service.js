@@ -412,7 +412,6 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
         const totalPanjangTerpakai = detailsData.reduce((sum, d) => sum + Number(d.cetakmeter || 0), 0);
 
         // --- VALIDASI AWAL: CEK PANJANG AMBIL BAHAN ---
-        // Kita ambil nilai tertinggi dari detail ambilBahanPanjang
         const checkMaxPanjang = detailsData.reduce((max, d) => Math.max(max, Number(d.ambilBahanPanjang || 0)), 0);
         
         if (currentStatus === 'POSTED' && checkMaxPanjang <= 0) {
@@ -420,6 +419,35 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
         }
 
         if (isEditMode) {
+            // ==================== PROSES LOGGING DATA LAMA ====================
+            // 1. Ambil snapshot data yang saat ini ada di DB sebelum ditimpa/dihapus
+            const [oldHeader] = await conn.query(`SELECT * FROM tlhk_mesin_hdr WHERE lnomor = ?`, [finalNomor]);
+            const [oldDetails] = await conn.query(`SELECT * FROM tlhk_mesin_dtl WHERE ld_lnomor = ?`, [finalNomor]);
+            const [oldStock] = await conn.query(`SELECT * FROM tmasterstok_mmt WHERE mst_noreferensi = ?`, [finalNomor]);
+
+            if (oldHeader.length > 0) {
+                // Bungkus semua data lama ke dalam satu object
+                const snapshotDataLama = {
+                    header: oldHeader[0],
+                    details: oldDetails,
+                    stock: oldStock
+                };
+
+                // 2. Simpan snapshot tersebut ke tabel log baru
+                await conn.query(`
+                    INSERT INTO tlhk_history_log (
+                        lhl_nomor_lhk, lhl_action, lhl_data_old, lhl_user_action, lhl_date_action
+                    ) VALUES (?, 'EDIT', ?, ?, ?)
+                `, [
+                    finalNomor,
+                    JSON.stringify(snapshotDataLama), // Diubah ke string JSON
+                    userModified,
+                    formattedNow
+                ]);
+            }
+            // ==================================================================
+
+            // Melanjutkan proses update bawaan kamu
             await conn.query(`
                 UPDATE tlhk_mesin_hdr SET
                     ltanggal = ?, lgdg_prod = ?, lspk_nomor = ?, lmesin = ?,
@@ -491,16 +519,16 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
 
         if (currentStatus === 'POSTED') {
             if (usedBarcode && maxAmbilPanjang > 0) {
-                const [oldStock] = await conn.query(`
+                const [oldStockData] = await conn.query(`
                     SELECT mst_hargabeli, mst_satuan_harga, mst_lebar 
                     FROM tmasterstok_mmt 
                     WHERE mst_barcode = ? 
                     LIMIT 1
                 `, [usedBarcode]);
 
-                const hargaBeliLama = oldStock.length > 0 ? oldStock[0].mst_hargabeli : 0;
-                const satuanHargaLama = oldStock.length > 0 ? oldStock[0].mst_satuan_harga : null;
-                const lebarAwal = oldStock.length > 0 ? oldStock[0].mst_lebar : 0;
+                const hargaBeliLama = oldStockData.length > 0 ? oldStockData[0].mst_hargabeli : 0;
+                const satuanHargaLama = oldStockData.length > 0 ? oldStockData[0].mst_satuan_harga : null;
+                const lebarAwal = oldStockData.length > 0 ? oldStockData[0].mst_lebar : 0;
 
                 const finalLebarInput = (finalSisaLebar > 0) ? finalSisaLebar : lebarAwal;
                 const initialLebar = detailsData[0].ambilBahanLebar || lebarAwal;
@@ -563,7 +591,6 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
     } catch (err) {
         if (conn) await conn.rollback();
         console.error("Error Save LHK:", err);
-        // Lempar pesan error asli agar Toast di Vue menampilkan pesan yang spesifik
         throw new Error(err.message || "Gagal Simpan LHK");
     } finally {
         if (conn) conn.release();

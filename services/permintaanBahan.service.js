@@ -446,13 +446,15 @@ exports.savePermintaanBahan = async (data, nomorToEdit, userLogin) => {
         // 1. GENERATE NOMOR
         let currentNomor = nomorToEdit;
         if (!isUpdating) {
-            // Menggunakan fungsi generateMaxKode yang sudah disesuaikan sebelumnya (MO untuk WH-20)
             currentNomor = await exports.generateMaxKode(data.Tanggal, data.GudangKode);
         }
 
-        // 2. LOGIKA PENGAJUAN (Cek ACC dari tpengajuan_permintaan_hdr)
-        let accStatus = 'N';
-        let accUser = null;
+        // 2. LOGIKA PENGAJUAN / MPPB (SINKRONISASI ACC STATUS)
+        // 🚀 Solusi: Ambil nilai default dari payload frontend terlebih dahulu
+        let accStatus = data.AccSpv === 'Y' ? 'Y' : 'N';
+        let accUser = data.AccSpvUser || null;
+
+        // Jika ada referensi NoPengajuan, lakukan validasi database seperti biasa
         if (data.NoPengajuan) {
             const [rows] = await connection.query(
                 `SELECT pp_acc_req, pp_acc_req_user FROM tpengajuan_permintaan_hdr WHERE pp_nomor = ? LIMIT 1`,
@@ -461,6 +463,9 @@ exports.savePermintaanBahan = async (data, nomorToEdit, userLogin) => {
             if (rows.length && rows[0].pp_acc_req === 'Y') {
                 accStatus = 'Y';
                 accUser = rows[0].pp_acc_req_user;
+            } else {
+                accStatus = 'N';
+                accUser = null;
             }
         }
 
@@ -470,22 +475,10 @@ exports.savePermintaanBahan = async (data, nomorToEdit, userLogin) => {
             if (isUpdating) {
                 await connection.query(`
                     UPDATE tobatmintabeli_hdr SET
-                        mb_tanggal = ?, 
-                        mb_ket = ?, 
-                        mb_status = ?, 
-                        mb_mintake = ?, 
-                        date_modified = ?, 
-                        user_modified = ?
+                        mb_tanggal = ?, mb_ket = ?, mb_status = ?, mb_mintake = ?, 
+                        date_modified = ?, user_modified = ?
                     WHERE mb_nomor = ?
-                `, [
-                    data.Tanggal, 
-                    data.Keterangan, 
-                    'OPEN', // Default status sesuai gambar (CHAR 10)
-                    data.PabrikKode || '', // mb_mintake sesuai gambar (CHAR 3)
-                    serverTime, 
-                    userLogin, 
-                    currentNomor
-                ]);
+                `, [data.Tanggal, data.Keterangan, 'OPEN', data.PabrikKode || '', serverTime, userLogin, currentNomor]);
 
                 await connection.query('DELETE FROM tobatmintabeli_dtl WHERE mbd_nomor = ?', [currentNomor]);
             } else {
@@ -493,27 +486,18 @@ exports.savePermintaanBahan = async (data, nomorToEdit, userLogin) => {
                     INSERT INTO tobatmintabeli_hdr 
                     (mb_nomor, mb_tanggal, mb_ket, mb_status, mb_mintake, date_create, user_create) 
                     VALUES (?, ?, ?, ?, ?, ?, ?)
-                `, [
-                    currentNomor, 
-                    data.Tanggal, 
-                    data.Keterangan, 
-                    'OPEN', 
-                    data.PabrikKode || '', 
-                    serverTime, 
-                    userLogin
-                ]);
+                `, [currentNomor, data.Tanggal, data.Keterangan, 'OPEN', data.PabrikKode || '', serverTime, userLogin]);
             }
 
-            // Simpan Detail Obat
             if (Array.isArray(data.Detail) && data.Detail.length > 0) {
                 const detailValues = data.Detail
-                    .filter(d => (d.SKU || d.KodeObat)) // Hindari baris kosong
+                    .filter(d => (d.SKU || d.KodeObat))
                     .map((item, index) => [
                         currentNomor,
                         item.SKU || item.KodeObat,
-                        parseFloat(item.QTY || item.Jumlah) || 0, // mbd_jumlah (DOUBLE)
+                        parseFloat(item.QTY || item.Jumlah) || 0,
                         item.KeteranganItem || item.Keterangan || '',
-                        index + 1 // mbd_nourut (INT)
+                        index + 1
                     ]);
 
                 if (detailValues.length > 0) {
@@ -565,7 +549,8 @@ exports.savePermintaanBahan = async (data, nomorToEdit, userLogin) => {
                         parseFloat(d.qty || d.QTY || d.Jumlah),
                         d.keterangan || d.KeteranganItem || null,
                         index + 1,
-                        accStatus === 'Y' ? 'Y' : 'N'
+                        // 🚀 Solusi Detail: Jika NoPengajuan kosong, percayakan status IsAcc tiap baris item dari frontend payload
+                        data.NoPengajuan ? accStatus : (d.IsAcc === 'Y' ? 'Y' : 'N')
                     ]);
 
                 if (detailValues.length > 0) {
