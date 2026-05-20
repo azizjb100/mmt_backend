@@ -161,9 +161,18 @@ const saveLhk = async (headerData, detailsData, inkData, existingNomor) => {
         const formattedDate = format(dateToUse, 'yyyy-MM-dd');
         const currentUser = headerData.luser_modified || 'SYSTEM';
 
-        // Ambil operator unik dari detail pengerjaan untuk disimpan di header (opsional)
-        const uniqueOperators = [...new Set(detailsData.map(d => (d.operator || '').trim()).filter(name => name !== ''))];
-        const combinedOperators = uniqueOperators.join(', ');
+        const detailOperators = [
+    ...new Set(
+        detailsData
+            .map(d => (d.operator || '').trim())
+            .filter(name => name !== '')
+    )
+];
+
+// Jika detail kosong, fallback ke header
+const combinedOperators = detailOperators.length > 0
+    ? detailOperators.join(', ')
+    : (headerData.lch_operator || '');
 
         // 2. SIMPAN / UPDATE HEADER (tlhk_cetakmmt_hdr)
         if (isEditMode) {
