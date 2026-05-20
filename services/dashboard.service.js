@@ -9,7 +9,7 @@ const { format } = require('date-fns');
 const getTopDeadlineCetak = async () => {
     const sql = `
         SELECT * FROM (
-            /* --- SECTION 1: SPK REGULER --- */
+            /* --- ONLY SECTION 1: SPK REGULER --- */
             SELECT 
                 t.spk_nomor AS no_spk, 
                 t.spk_nama AS nama_produk, 
@@ -29,35 +29,11 @@ const getTopDeadlineCetak = async () => {
             ) prod ON prod.ld_spk_nomor = t.spk_nomor
             WHERE t.spk_close = 0 
               AND t.spk_aktif = 'Y'
-              AND t.spk_tanggal >= '2026-04-01'
-              AND t.spk_jo_kode = 'MT' -- Filter tambahan: Hanya JO 'MT'
-
-            UNION ALL
-
-            /* --- SECTION 2: MEMO SPK --- */
-            SELECT 
-                m.mspk_nomor AS no_spk, 
-                m.mspk_nama AS nama_produk, 
-                m.mspk_jumlah AS qty_order,
-                'PCS' AS unit,
-                m.mspk_tanggal AS tanggal_spk,
-                m.mspk_tanggal AS deadline_waktu,
-                TIMESTAMPDIFF(MINUTE, NOW(), m.mspk_tanggal) AS menit_sisa,
-                CAST(IFNULL(prod_m.total_pernah_cetak, 0) AS UNSIGNED) AS Sudah_Cetak,
-                CAST(GREATEST(0, m.mspk_jumlah - IFNULL(prod_m.total_pernah_cetak, 0)) AS UNSIGNED) AS Kurang_Cetak,
-                'MEMO' as Tipe_SPK
-            FROM tmemospk m
-            LEFT JOIN (
-                SELECT ld_spk_nomor, SUM(ld_total_qtycetak) as total_pernah_cetak
-                FROM tlhk_mesin_dtl
-                GROUP BY ld_spk_nomor
-            ) prod_m ON prod_m.ld_spk_nomor = m.mspk_nomor
-            WHERE m.mspk_divisi = '5'
-              AND m.mspk_tanggal >= '2026-04-01'
-              AND m.mspk_jo_kode = 'MT' -- Filter tambahan: Hanya JO 'MT'
+              AND t.spk_tanggal >= '2026-01-01'
+              AND t.spk_jo_kode = 'MT'
         ) AS antrean
-        WHERE Kurang_Cetak > 0 
-        ORDER BY deadline_waktu ASC 
+        WHERE Kurang_Cetak > 0 -- Hanya ambil yang produksinya belum terpenuhi
+        ORDER BY deadline_waktu ASC -- Menampilkan dari yang paling mendesak
         LIMIT 10
     `;
 
