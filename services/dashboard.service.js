@@ -23,10 +23,10 @@ const getTopDeadlineCetak = async () => {
                 'REGULER' as Tipe_SPK
             FROM tspk t
             LEFT JOIN (
-                SELECT ld_spk_nomor, SUM(ld_total_qtycetak) as total_pernah_cetak
-                FROM tlhk_mesin_dtl
-                GROUP BY ld_spk_nomor
-            ) prod ON prod.ld_spk_nomor = t.spk_nomor
+                SELECT lcd_spk_nomor, SUM(lcd_qty_cetak) as total_pernah_cetak
+                FROM tlhk_cetakmmt_dtl
+                GROUP BY lcd_spk_nomor
+            ) prod ON prod.lcd_spk_nomor = t.spk_nomor
             WHERE t.spk_close = 0 
               AND t.spk_aktif = 'Y'
               AND t.spk_tanggal >= '2026-04-01'
