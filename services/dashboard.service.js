@@ -52,7 +52,7 @@ const getTopDeadlineCetak = async () => {
                 GROUP BY ld_spk_nomor
             ) prod_m ON prod_m.ld_spk_nomor = m.mspk_nomor
             WHERE m.mspk_divisi = '5'
-              AND m.mspk_tanggal >= '2026-01-01' -- Filter: Mulai 1 Januari 2026 hingga sekarang
+              AND m.mspk_tanggal >= '2026-04-01' -- Filter: Mulai 1 Januari 2026 hingga sekarang
         ) AS antrean
         WHERE Kurang_Cetak > 0 
         ORDER BY deadline_waktu ASC 
