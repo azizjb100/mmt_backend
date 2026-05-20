@@ -29,7 +29,7 @@ const getTopDeadlineCetak = async () => {
             ) prod ON prod.ld_spk_nomor = t.spk_nomor
             WHERE t.spk_close = 0 
               AND t.spk_aktif = 'Y'
-              AND t.spk_tanggal >= '2026-01-01' -- Filter: Mulai 1 Januari 2026 hingga sekarang
+              AND t.spk_tanggal >= '2026-04-01' -- Filter: Mulai 1 Januari 2026 hingga sekarang
 
             UNION ALL
 
