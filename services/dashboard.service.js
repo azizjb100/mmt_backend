@@ -29,7 +29,7 @@ const getTopDeadlineCetak = async () => {
             ) prod ON prod.ld_spk_nomor = t.spk_nomor
             WHERE t.spk_close = 0 
               AND t.spk_aktif = 'Y'
-              AND t.spk_tanggal >= '2026-01-01'
+              AND t.spk_tanggal >= '2026-04-01'
               AND t.spk_jo_kode = 'MT'
         ) AS antrean
         WHERE Kurang_Cetak > 0 -- Hanya ambil yang produksinya belum terpenuhi
