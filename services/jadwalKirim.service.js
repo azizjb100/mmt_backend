@@ -279,9 +279,15 @@ const getPrintData = async (startDate, endDate, gudang) => {
       DATE_FORMAT(a.Tanggal, '%d/%m/%Y') AS Tanggal, 
       a.spk_nomor No_SPK,
       c.spk_nama Nama_Spk, c.spk_ukuran Ukuran, c.spk_kain Kain,
-      b.no_urut, b.kota, b.uraian, b.jumlah AS Jml_Pcs, b.koli AS Jml_Koli,
+      b.no_urut, 
+      b.kota, 
+      /* GABUNGKAN KOTA DAN URAIAN DI SINI */
+      CONCAT_WS(' - ', NULLIF(TRIM(b.kota), ''), NULLIF(TRIM(b.uraian), '')) AS Uraian, 
+      b.jumlah AS Jml_Pcs, 
+      b.koli AS Jml_Koli,
       b.jam AS Jam_Ready,
-      b.expedisi, e.Cus_nama AS Customer,
+      b.expedisi AS Expedisi, 
+      e.Cus_kode AS Customer,
       IFNULL((SELECT DISTINCT d.SJD_SJ_Nomor FROM tsj_dtl d 
               INNER JOIN tsj_hdr h ON h.SJ_Nomor=d.SJD_SJ_Nomor 
               WHERE h.SJ_Status_otomatis=0 AND d.sjd_nokirim=a.nomor_kirim 
