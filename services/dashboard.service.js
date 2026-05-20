@@ -29,7 +29,7 @@ const getTopDeadlineCetak = async () => {
             ) prod ON prod.ld_spk_nomor = t.spk_nomor
             WHERE t.spk_close = 0 
               AND t.spk_aktif = 'Y'
-              AND t.spk_tanggal >= '2026-01-01'
+              AND t.spk_tanggal >= '2026-04-01'
               AND t.spk_jo_kode = 'MT' -- Filter tambahan: Hanya JO 'MT'
 
             UNION ALL
@@ -53,7 +53,7 @@ const getTopDeadlineCetak = async () => {
                 GROUP BY ld_spk_nomor
             ) prod_m ON prod_m.ld_spk_nomor = m.mspk_nomor
             WHERE m.mspk_divisi = '5'
-              AND m.mspk_tanggal >= '2026-01-01'
+              AND m.mspk_tanggal >= '2026-04-01'
               AND m.mspk_jo_kode = 'MT' -- Filter tambahan: Hanya JO 'MT'
         ) AS antrean
         WHERE Kurang_Cetak > 0 
