@@ -163,7 +163,7 @@ app.use("/api/mmt/laporan-ls-tinta", clientCertAuth, lapLsTintaRoutes);
 app.use("/api/mmt/retur-produksi", clientCertAuth, returProduksiRoutes);
 app.use("/api/mmt/penerimaan-po-ext-mmt", clientCertAuth, penerimaanPoExtMmtRoutes);
 app.use("/api/mmt/retur-beli", clientCertAuth, returBeliRoutes);
-app.use("/api/mmt/po-ext-mmt", clientCertAuth, poExtMmtRoutes);
+app.use("/api/mmt/po-external-mmt", clientCertAuth, poExtMmtRoutes);
 app.use("/api/mmt/stbj", clientCertAuth, stbjRoutes);
 app.use("/api/mmt/lap-pemakaian-bahan", clientCertAuth, lapPemakaianBahanRoutes);
 app.use("/api/mmt/mutasi-gudang", clientCertAuth, mutasiGudangRoutes);

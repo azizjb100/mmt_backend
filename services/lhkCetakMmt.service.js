@@ -31,18 +31,25 @@ const getAllHeaders = async (startDate, endDate, mesin) => {
 
     const sql = `
         SELECT 
-            lch_nomor AS Nomor, 
-            DATE_FORMAT(lch_tanggal, '%Y-%m-%d') AS Tanggal, 
-            lch_gdg_prod AS Gudang, 
+            h.lch_nomor AS Nomor, 
+            DATE_FORMAT(h.lch_tanggal, '%Y-%m-%d') AS Tanggal, 
+            h.lch_gdg_prod AS Gudang, 
             g.gdg_nama AS Nama_Gudang, 
-            lch_shift AS Shift, 
-            lch_operator AS Operator,
+            h.lch_shift AS Shift, 
+            h.lch_operator AS Operator,
+            
+            -- SUBQUERY UNTUK MENGAMBIL DAFTAR MESIN DARI DETAIL
+            (SELECT GROUP_CONCAT(DISTINCT d.lcd_jns_mesin ORDER BY d.lcd_jns_mesin ASC SEPARATOR ', ') 
+             FROM tlhk_cetakmmt_dtl d 
+             WHERE d.lcd_lch_nomor = h.lch_nomor) AS Mesin,
+
             (SELECT IF(COUNT(*) > COUNT(IF(LENGTH(lcd_brg_kode)>0, 1, NULL)), 'N','Y') 
-             FROM tlhk_cetakmmt_dtl WHERE lcd_lch_nomor = lch_nomor) AS Lengkap,
+             FROM tlhk_cetakmmt_dtl WHERE lcd_lch_nomor = h.lch_nomor) AS Lengkap,
+             
             (SELECT ROUND(SUM(lcd_qty_Cetak * IFNULL(spk_panjang,0) * IFNULL(spk_lebar,0)), 1)
- FROM tlhk_cetakmmt_dtl 
- LEFT JOIN tspk ON (spk_nomor = lcd_spk_nomor)
- WHERE lcd_lch_nomor = lch_nomor) AS cetak_meter
+             FROM tlhk_cetakmmt_dtl 
+             LEFT JOIN tspk ON (spk_nomor = lcd_spk_nomor)
+             WHERE lcd_lch_nomor = h.lch_nomor) AS cetak_meter
         FROM tlhk_cetakmmt_hdr h
         LEFT JOIN tGUDANG g ON (g.gdg_kode = h.lch_gdg_prod)
         WHERE h.lch_tanggal BETWEEN ? AND ?

@@ -38,14 +38,23 @@ const getLhkFullData = async (req, res) => {
 
 const handleSaveLhk = async (req, res) => {
     try {
-        // Logic simpan data (Create/Update)
-        const result = await sublimService.saveLhk(req.body);
-        res.status(200).json(result);
+        // 🔥 PERUBAHAN DI SINI: Ganti .saveLhk menjadi .saveLhkMesin
+        const result = await sublimService.saveLhkMesin(req.body); 
+        
+        if (!result.success) {
+            return res.status(500).json(result);
+        }
+
+        return res.json({
+            success: true,
+            message: "Data LHK Sublim berhasil disimpan.",
+            nomor: result.nomor
+        });
     } catch (error) {
         console.error("Error Saving LHK Sublim:", error);
-        res.status(500).json({ 
-            success: false, 
-            message: "Gagal menyimpan data LHK Sublim." 
+        return res.status(500).json({
+            success: false,
+            message: `Gagal menyimpan data LHK Sublim. Error: ${error.message}`
         });
     }
 };

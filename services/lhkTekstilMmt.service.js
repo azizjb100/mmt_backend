@@ -12,22 +12,48 @@ const getAllHeaders = async (startDate, endDate) => {
 
     const sql = `
         SELECT 
-            lth_nomor AS Nomor, 
-            DATE_FORMAT(lth_tanggal, '%d-%m-%Y') AS Tanggal, 
-            lth_gdg_prod AS Gudang, 
-            gdg_nama AS Nama_Gudang, 
-            lth_shift AS Shift,
-            lth_status AS Status,
-            (SELECT IF(COUNT(*) > COUNT(IF(LENGTH(ltd_brg_kode) > 0, 1, NULL)), 'N', 'Y') 
-             FROM tlhk_mesintekstil_dtl 
-             WHERE ltd_lth_nomor = lth_nomor) AS Lengkap,
-            (SELECT SUM(ltd_panjang_pakai) 
-             FROM tlhk_mesintekstil_dtl 
-             WHERE ltd_lth_nomor = lth_nomor) AS total_meter
-        FROM tlhk_mesintekstil_hdr 
-        LEFT JOIN tGUDANG ON gdg_kode = lth_gdg_prod
-        WHERE lth_tanggal BETWEEN ? AND ?
-        ORDER BY lth_tanggal DESC, lth_nomor DESC
+            h.lth_nomor AS Nomor, 
+            DATE_FORMAT(h.lth_tanggal, '%Y-%m-%d') AS Tanggal,
+            h.lth_gdg_prod AS Gudang, 
+            g.gdg_nama AS Nama_Gudang, 
+            h.lth_shift AS Shift,
+            h.lth_status AS Status,
+            
+            -- DATA MESIN & SPK (Mengambil baris detail terkait)
+            d.ltd_jns_mesin AS Mesin,
+            d.ltd_spk_nomor AS NomorSPK,
+            x.spk_nama AS NamaOrder,
+            IFNULL(x.spk_panjang, 0) AS spk_panjang,
+            IFNULL(x.spk_lebar, 0) AS spk_lebar,
+            IFNULL(x.spk_jumlah, 0) AS JumlahOrder,
+            
+            -- HITUNGAN REALISASI PRODUKSI TEKSTIL
+            IFNULL(d.ltd_qty_cetak, 0) AS cetak_meter,        -- Jumlah Cetak MMT/Tekstil
+            IFNULL(d.ltd_ambil_bahan, 0) AS PanjangBahanAwal,  -- Bahan Awal yang Diambil
+            
+            -- SISA METER AKHIR = Bahan Diambil - (Aktual Terpakai + Retur OK + Retur Menciut + Retur NOK)
+            -- Atau jika standardnya menggunakan Ambil Bahan - Qty Cetak:
+            (IFNULL(d.ltd_ambil_bahan, 0) - IFNULL(d.ltd_qty_cetak, 0)) AS SisaMeterAkhir,
+            
+            -- DATA BAHAN (Diambil dari lth_brg_kode atau ltd_brg_kode)
+            IFNULL(h.lth_brg_kode, d.ltd_brg_kode) AS Kode_bahan,
+            b.brg_nama AS nama_Bahan,
+
+            -- STATUS KELENGKAPAN DATA INPUTAN (Mengecek lth_brg_kode di Header)
+            IF(LENGTH(IFNULL(h.lth_brg_kode, '')) > 0, 'Y', 'N') AS Lengkap
+             
+        FROM tlhk_mesintekstil_hdr h
+        LEFT JOIN tGUDANG g ON g.gdg_kode = h.lth_gdg_prod
+        LEFT JOIN tlhk_mesintekstil_dtl d ON d.ltd_lth_nomor = h.lth_nomor
+        LEFT JOIN tbarang_mmt b ON b.brg_kode = IFNULL(h.lth_brg_kode, d.ltd_brg_kode)
+        LEFT JOIN (
+            SELECT spk_nomor, spk_nama, IFNULL(spk_jumlah, 0) AS spk_jumlah, IFNULL(spk_panjang,0) AS spk_panjang, IFNULL(spk_lebar,0) AS spk_lebar FROM tspk 
+            UNION ALL 
+            SELECT mspk_nomor, mspk_nama, IFNULL(mspk_jumlah, 0) AS mspk_jumlah, IFNULL(mspk_panjang,0) AS mspk_panjang, IFNULL(mspk_lebar,0) AS mspk_lebar FROM tmemospk 
+        ) x ON x.spk_nomor = d.ltd_spk_nomor 
+        
+        WHERE h.lth_tanggal BETWEEN ? AND ?
+        ORDER BY h.lth_tanggal DESC, h.lth_nomor DESC
     `;
 
     const [rows] = await pool.query(sql, [tglMulai, tglSelesai]);
@@ -35,38 +61,44 @@ const getAllHeaders = async (startDate, endDate) => {
 };
 
 /**
- * Mengambil detail LHK berdasarkan nomor
+ * Mengambil detail LHK berdasarkan nomor (Tetap dipertahankan jika komponen expander Vue membutuhkan detail breakdown)
  */
 const getDetailsByNomor = async (nomor) => {
     const sqlDetail = `
         SELECT 
-            ltd_lth_nomor AS Nomor,
-            ltd_jns_mesin AS Mesin, 
-            ltd_spk_nomor AS Nomor_SPK, 
+            d.ltd_lth_nomor AS Nomor,
+            d.ltd_jns_mesin AS Mesin, 
+            d.ltd_spk_nomor AS Nomor_SPK, 
             x.spk_nama AS Nama_SPK, 
             x.spk_jumlah AS Jumlah_SPK,
             x.spk_panjang AS Panjang, 
             x.spk_lebar AS Lebar, 
-            ltd_qty_Cetak AS Jml_Cetak, 
-            ltd_brg_kode AS Kode_Bahan, 
-            ltd_panjang_pakai AS Panjang_Pakai,
-            ltd_lebar_pakai AS Lebar_Pakai,
-            -- AMBIL DATA INPUTAN CETAK TIAP MESIN/POSISI
-            ltd_cetak1 AS Cetak_1,
-            ltd_cetak2 AS Cetak_2,
-            ltd_cetak3 AS Cetak_3,
-            ltd_cetak4 AS Cetak_4,
-            ltd_cetak5 AS Cetak_5,
-            ltd_cetak6 AS Cetak_6,
-            ltd_cetak7 AS Cetak_7
-        FROM tlhk_mesintekstil_dtl 
+            d.ltd_qty_cetak AS Jml_Cetak, 
+            d.ltd_brg_kode AS Kode_Bahan, 
+            b.brg_nama AS Nama, 
+            
+            -- Field Manajemen Bahan Kain/Tekstil
+            d.ltd_ambil_bahan AS Ambil_Bahan,
+            d.ltd_aktual_bahan AS Aktual_Bahan,
+            d.ltd_waste_tinta AS Waste_Tinta,
+            
+            -- Track Input Data Cetak Multi-Posisi
+            d.ltd_cetak1 AS Cetak_1,
+            d.ltd_cetak2 AS Cetak_2,
+            d.ltd_cetak3 AS Cetak_3,
+            d.ltd_cetak4 AS Cetak_4,
+            d.ltd_cetak5 AS Cetak_5,
+            d.ltd_cetak6 AS Cetak_6,
+            d.ltd_cetak7 AS Cetak_7
+        FROM tlhk_mesintekstil_dtl d
+        LEFT JOIN tbarang_mmt b ON b.brg_kode = d.ltd_brg_kode
         LEFT JOIN (
             SELECT spk_nomor, spk_nama, IFNULL(spk_jumlah, 0) AS spk_jumlah, IFNULL(spk_panjang,0) AS spk_panjang, IFNULL(spk_lebar,0) AS spk_lebar FROM tspk 
             UNION ALL 
             SELECT mspk_nomor, mspk_nama, IFNULL(mspk_jumlah, 0) AS mspk_jumlah, IFNULL(mspk_panjang,0) AS mspk_panjang, IFNULL(mspk_lebar,0) AS mspk_lebar FROM tmemospk 
-        ) x ON x.spk_nomor = ltd_spk_nomor 
-        WHERE ltd_lth_nomor = ?
-        ORDER BY ltd_no_urut
+        ) x ON x.spk_nomor = d.ltd_spk_nomor 
+        WHERE d.ltd_lth_nomor = ?
+        ORDER BY d.ltd_no_urut
     `;
 
     const [rows] = await pool.query(sqlDetail, [nomor]);

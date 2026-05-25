@@ -52,7 +52,7 @@ const getDetailsByNomor = async (nomor) => {
             IF(LENGTH(d.lsbd_spk_nama) > 0, d.lsbd_spk_nama, x.spk_nama) AS Nama_SPK, 
             d.lsbd_panjang AS Panjang, 
             d.lsbd_lebar AS Lebar, 
-            d.lsbd_jumlah_order AS J_Order, 
+            d.lsbd_jumlah AS J_Order, 
             d.lsbd_bahan AS Bahan, 
             d.lsbd_jumlah AS Jumlah,
             (d.lsbd_panjang * d.lsbd_lebar * d.lsbd_jumlah) AS Jumlah_Meter
@@ -75,32 +75,100 @@ const saveLhkMesin = async (data) => {
     const conn = await pool.getConnection();
     try {
         await conn.beginTransaction();
+        
         let nomorLhk = header.lsb_nomor;
         const currentStatus = header.lstatus || 'DRAFT';
+        const tanggalForm = header.lsb_tanggal;
+        const gdgKode = header.lsb_gdg_kode || 'GPM';
+        const shiftForm = header.lsb_shift || 1;
+        const userAction = header.user || 'SYSTEM';
 
+        // 1. PROSES HEADER (Sesuai gambar tlhk_mesinsublim_hdr)
         if (!nomorLhk || nomorLhk === 'AUTO') {
-            const yymm = format(new Date(header.lsb_tanggal), 'yyMM');
-            const [maxRows] = await conn.query(`SELECT MAX(CAST(SUBSTRING_INDEX(lms_nomor, '.', -1) AS UNSIGNED)) AS max_num FROM tlhk_mesinsublim_hdr WHERE lms_nomor LIKE ?`, [`${NOMERATOR_MESIN}.${yymm}.%`]);
-            nomorLhk = `${NOMERATOR_MESIN}.${yymm}.${String((maxRows[0].max_num || 0) + 1).padStart(4, '0')}`;
+            const yymm = format(new Date(tanggalForm), 'yyMM');
+            
+            // Menggunakan kolom lsb_nomor sesuai gambar database Anda
+            const [maxRows] = await conn.query(
+                `SELECT MAX(CAST(SUBSTRING_INDEX(lsb_nomor, '.', -1) AS UNSIGNED)) AS max_num 
+                 FROM tlhk_mesinsublim_hdr 
+                 WHERE lsb_nomor LIKE ?`, 
+                [`${NOMERATOR_MESIN}.${yymm}.%`]
+            );
+            
+            const nextNum = (maxRows[0].max_num || 0) + 1;
+            nomorLhk = `${NOMERATOR_MESIN}.${yymm}.${String(nextNum).padStart(4, '0')}`;
 
-            await conn.query(`INSERT INTO tlhk_mesinsublim_hdr (lms_nomor, lms_tanggal, lms_gdg_kode, lms_shift, lms_user_create, lms_date_create, lms_status) VALUES (?, ?, ?, ?, ?, NOW(), ?)`, 
-            [nomorLhk, header.lsb_tanggal, header.lsb_gdg_kode, header.lsb_shift, header.user || 'SYSTEM', currentStatus]);
+            // Kolom diubah ke: lsb_nomor, lsb_tanggal, lsb_jenis, lsb_shift, lsb_date_Create, lsb_user_create, lsb_gdg_kode, lsb_status
+            await conn.query(
+                `INSERT INTO tlhk_mesinsublim_hdr 
+                (lsb_nomor, lsb_tanggal, lsb_jenis, lsb_shift, lsb_date_Create, lsb_user_create, lsb_gdg_kode, lsb_status) 
+                VALUES (?, ?, 'S', ?, NOW(), ?, ?, ?)`, 
+                [nomorLhk, tanggalForm, shiftForm, userAction, gdgKode, currentStatus]
+            );
         } else {
-            await conn.query(`UPDATE tlhk_mesinsublim_hdr SET lms_tanggal=?, lms_gdg_kode=?, lms_shift=?, lms_status=?, lms_date_modified=NOW() WHERE lms_nomor=?`, 
-            [header.lsb_tanggal, header.lsb_gdg_kode, header.lsb_shift, currentStatus, nomorLhk]);
-            await conn.query(`DELETE FROM tlhk_mesinsublim_dtl WHERE lmsd_lms_nomor = ?`, [nomorLhk]);
+            // MODE UPDATE HEADER
+            await conn.query(
+                `UPDATE tlhk_mesinsublim_hdr 
+                 SET lsb_tanggal=?, lsb_shift=?, lsb_user_modified=?, lsb_gdg_kode=?, lsb_status=?, lsb_date_modified=NOW() 
+                 WHERE lsb_nomor=?`, 
+                [tanggalForm, shiftForm, userAction, gdgKode, currentStatus, nomorLhk]
+            );
+            
+            // Hapus detail lama sebelum insert ulang
+            await conn.query(`DELETE FROM tlhk_mesinsublim_dtl WHERE lsbd_lsb_nomor = ?`, [nomorLhk]);
         }
 
-        if (details.length > 0) {
-            const values = details.map((d, i) => [nomorLhk, i + 1, d.lokasi, d.spk_nomor, d.jumlah_sublim, d.jenis_bahan, d.spk_panjang, d.spk_lebar, d.spk_jmlorder]);
-            await conn.query(`INSERT INTO tlhk_mesinsublim_dtl (lmsd_lms_nomor, lmsd_no_urut, lmsd_lokasi, lmsd_spk_nomor, lmsd_jumlah, lmsd_bahan, lmsd_panjang, lmsd_lebar, lmsd_jumlah_order) VALUES ?`, [values]);
+        // 2. PROSES DETAIL (Sesuai struktur contoh INSERT tlhk_mesinsublim_dtl Anda)
+        if (details && details.length > 0) {
+            const values = details.map((d, i) => {
+                const p = parseFloat(d.spk_panjang || 0);
+                const l = parseFloat(d.spk_lebar || 0);
+                const qty = parseFloat(d.jumlah_sublim || 0);
+                const jMeter = p * l * qty; // Hitung total meter persegi per item detail
+
+                return [
+                    nomorLhk,                           // lsbd_lsb_nomor
+                    d.spk_nomor,                        // lsbd_spk_nomor
+                    d.spk_nama || '',                   // lsbd_spk_nama
+                    tanggalForm,                        // lsbd_spk_tanggal (default tanggal hari ini)
+                    tanggalForm,                        // lsbd_dateline (default)
+                    parseFloat(d.spk_jmlorder || 0),    // lsbd_jumlah_order
+                    p,                                  // lsbd_panjang
+                    l,                                  // lsbd_lebar
+                    '-',                                // lsbd_mesin
+                    qty,                                // lsbd_jumlah
+                    jMeter,                             // lsbd_j_meter
+                    d.lokasi || 'SB01',                 // lsbd_lokasi
+                    d.jenis_bahan || header.brg_kode,   // lsbd_bahan
+                    i + 1,                              // lsbd_no_urut
+                    0,                                  // lsbd_toleransi
+                    0,                                  // lsbd_waste
+                    '',                                 // lsbd_poi_nomor
+                    ''                                  // lsbd_poid_size
+                ];
+            });
+
+            const sqlInsertDtl = `
+                INSERT INTO tlhk_mesinsublim_dtl (
+                    lsbd_lsb_nomor, lsbd_spk_nomor, lsbd_spk_nama, lsbd_spk_tanggal, lsbd_dateline, 
+                    lsbd_jumlah_order, lsbd_panjang, lsbd_lebar, lsbd_mesin, lsbd_jumlah, 
+                    lsbd_j_meter, lsbd_lokasi, lsbd_bahan, lsbd_no_urut, lsbd_toleransi, 
+                    lsbd_waste, lsbd_poi_nomor, lsbd_poid_size
+                ) VALUES ?`;
+
+            await conn.query(sqlInsertDtl, [values]);
         }
 
         await conn.commit();
         return { success: true, nomor: nomorLhk };
-    } catch (error) { await conn.rollback(); throw error; } finally { conn.release(); }
+    } catch (error) { 
+        await conn.rollback(); 
+        console.error("CRITICAL SQL ERROR:", error.message);
+        return { success: false, message: `Database Error: ${error.message}` };
+    } finally { 
+        conn.release(); 
+    }
 };
-
 /**
  * =============================================================================
  * 2. BAGIAN APPROVAL (Rekap ke tlhk_sublim)

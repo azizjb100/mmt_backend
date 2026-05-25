@@ -850,34 +850,56 @@ const getDetailsByNomor = async (nomor) => {
             throw new Error(`Data LHK dengan nomor ${nomor} tidak ditemukan`);
         }
 
-        // 2. Ambil Data Detail beserta info SPK dan akumulasi produksi sebelumnya
+        // 2. Ambil Data Detail beserta info SPK, akumulasi, DAN data cetak 1-7
         const sqlDetail = `
-    SELECT 
-        d.ld_urut AS urut,
-        d.ld_spk_nomor AS nomor_spk,
-        s.spk_nama AS nama_spk,
-        IFNULL(s.spk_jumlah, 0) AS qty_order,
-        -- Akumulasi sebelum LHK ini
-        IFNULL((SELECT SUM(dx.ld_total_qtycetak) 
-          FROM tlhk_mesin_dtl dx 
-          WHERE dx.ld_spk_nomor = d.ld_spk_nomor 
-          AND dx.ld_lnomor < d.ld_lnomor), 0) AS sudah_cetak_sebelumnya,
-        d.ld_total_qtycetak AS totalcetak,
-        -- RUMUS KURANG CETAK (SISA)
-        CAST(GREATEST(0, IFNULL(s.spk_jumlah, 0) - (
-            IFNULL((SELECT SUM(dx.ld_total_qtycetak) 
-                    FROM tlhk_mesin_dtl dx 
-                    WHERE dx.ld_spk_nomor = d.ld_spk_nomor 
-                    AND dx.ld_lnomor < d.ld_lnomor), 0) + d.ld_total_qtycetak
-        )) AS UNSIGNED) AS kurang_cetak,
-        d.ld_total_metercetak AS cetakmeter,
-        d.ld_tile AS tile
-    FROM tlhk_mesin_dtl d
-    LEFT JOIN tspk s ON s.spk_nomor = d.ld_spk_nomor
-    WHERE d.ld_lnomor = ?
-    ORDER BY d.ld_urut ASC
-`;
-const [detailRows] = await pool.query(sqlDetail, [nomor]);
+            SELECT 
+                d.ld_urut AS urut,
+                d.ld_spk_nomor AS nomor_spk,
+                s.spk_nama AS nama_spk,
+                IFNULL(s.spk_jumlah, 0) AS qty_order,
+                
+                -- Field Cetak yang disesuaikan dengan saveLhk
+                IFNULL(d.ld_qtyCetak1, 0) AS cetak1,
+                IFNULL(d.ld_qtyCetak2, 0) AS cetak2,
+                IFNULL(d.ld_qtyCetak3, 0) AS cetak3,
+                IFNULL(d.ld_qtyCetak4, 0) AS cetak4,
+                IFNULL(d.ld_qtyCetak5, 0) AS cetak5,
+                IFNULL(d.ld_qtyCetak6, 0) AS cetak6,
+                IFNULL(d.ld_qtyCetak7, 0) AS cetak7,
+
+                -- Field Ambil Bahan & Sisa Bahan untuk kebutuhan edit/view
+                IFNULL(d.ld_ambilbahan, 0) AS ambilBahanPanjang,
+                IFNULL(d.ld_ambilbahan_lebar, 0) AS ambilBahanLebar,
+                IFNULL(d.ld_sisameter, 0) AS sisabahan,
+                IFNULL(d.ld_sisalebar, 0) AS sisabahanlebar,
+                IFNULL(d.ld_luas_m2, 0) AS luasm2,
+                IFNULL(d.ld_padding, 0) AS padding,
+
+                -- Akumulasi sebelum LHK ini
+                IFNULL((SELECT SUM(dx.ld_total_qtycetak) 
+                  FROM tlhk_mesin_dtl dx 
+                  WHERE dx.ld_spk_nomor = d.ld_spk_nomor 
+                  AND dx.ld_lnomor < d.ld_lnomor), 0) AS sudah_cetak_sebelumnya,
+                  
+                d.ld_total_qtycetak AS totalcetak,
+                
+                -- RUMUS KURANG CETAK (SISA)
+                CAST(GREATEST(0, IFNULL(s.spk_jumlah, 0) - (
+                    IFNULL((SELECT SUM(dx.ld_total_qtycetak) 
+                            FROM tlhk_mesin_dtl dx 
+                            WHERE dx.ld_spk_nomor = d.ld_spk_nomor 
+                            AND dx.ld_lnomor < d.ld_lnomor), 0) + d.ld_total_qtycetak
+                )) AS UNSIGNED) AS kurang_cetak,
+                
+                d.ld_total_metercetak AS cetakmeter,
+                d.ld_tile AS tile
+            FROM tlhk_mesin_dtl d
+            LEFT JOIN tspk s ON s.spk_nomor = d.ld_spk_nomor
+            WHERE d.ld_lnomor = ?
+            ORDER BY d.ld_urut ASC
+        `;
+        const [detailRows] = await pool.query(sqlDetail, [nomor]);
+        
         return {
             header: headerRows[0],
             details: detailRows
