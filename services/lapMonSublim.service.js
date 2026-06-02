@@ -10,8 +10,8 @@ const lapMonSublim = async (startDate, endDate) => {
   const tglMulai = moment(startDate).format('YYYY-MM-DD');
   const tglSelesai = moment(endDate).format('YYYY-MM-DD');
 
-  // Query SQL hasil translasi dari Delphi TfrmLapMon_Sublim.loaddata (ssql)
-const ssql = `
+  // Query SQL diperbaiki menggunakan DATE_FORMAT agar menghasilkan 'YYYY-MM-DD' bukan UTC Datetime string
+  const ssql = `
     SELECT 
         NULL AS poi_nomor, 
         NULL AS poi_tanggal, 
@@ -20,7 +20,36 @@ const ssql = `
         NULL AS poid_size, 
         NULL AS poid_jumlah,
         X.*, 
-        Y.*,
+        
+        -- Bagian Pemotong Datetime menjadi Date untuk tabel Y (tspk) --
+        Y.spk_nomor,
+        DATE_FORMAT(Y.spk_tanggal, '%Y-%m-%d') AS spk_tanggal,
+        Y.spk_cus_kode, Y.spk_cus_kaosan, Y.spk_jo_kode, Y.spk_divisi, Y.spk_nama,
+        Y.spk_jumlah, Y.spk_jumlah_jadi, Y.spk_prasj, Y.spk_jumlah_kirim, Y.spk_jumlah_inv,
+        Y.spk_ukuran, Y.spk_kain, Y.spk_finishing,
+        DATE_FORMAT(Y.spk_dateline, '%Y-%m-%d') AS spk_dateline, -- Deadline SPK Utama
+        DATE_FORMAT(Y.spk_datelinepo, '%Y-%m-%d') AS spk_datelinepo,
+        Y.spk_cab, Y.spk_workshop, Y.spk_keterangan, Y.spk_ketbeli, Y.spk_image, Y.spk_harga,
+        Y.spk_status_stbj, Y.spk_status_inv, 
+        DATE_FORMAT(Y.date_create, '%Y-%m-%d') AS date_create,
+        Y.date_modified, Y.user_create, Y.user_modified, Y.spk_perush_kode, Y.spk_pen_nomor,
+        Y.spk_pen_id, Y.spk_nama2, Y.spk_jumlah_retur, Y.spk_nomor_po, 
+        DATE_FORMAT(Y.spk_tgl_po, '%Y-%m-%d') AS spk_tgl_po,
+        Y.spk_ketpo, Y.spk_sal_kode, Y.spk_nomormemo, Y.spk_mspk_nomor, Y.spk_memo,
+        Y.spk_closed_produksi, Y.spk_tanggal_closed, Y.spk_alasanpending, Y.spk_panjang,
+        Y.spk_lebar, Y.spk_hargariil, Y.spk_hargafee, Y.spk_gramasi, Y.spk_statuskerja,
+        Y.spk_warna_badan, Y.spk_warna_lengan, Y.spk_warna_lain, Y.spk_tipe, Y.spk_close,
+        Y.spk_close_alasan, Y.spk_reason, Y.spk_sablon, Y.spk_bordir, Y.spk_sublim,
+        Y.spk_aktif, Y.spk_pinjo, Y.spk_date_last_stbj, Y.spk_label, Y.spk_pending,
+        Y.spk_ketpending, Y.spk_accpending, Y.spk_cmo, Y.spk_desain, Y.spk_sudahdtf,
+        Y.spk_repeat, Y.spk_tglsb, 
+        DATE_FORMAT(Y.spk_tglaccproof, '%Y-%m-%d') AS spk_tglaccproof,
+        Y.spk_lama, Y.spk_rev, Y.spk_rev_date, Y.spk_mpotong, Y.spk_mcetak, Y.spk_mbordir,
+        Y.spk_mjahit, Y.spk_mfinishing, Y.spk_ppotong, Y.spk_pcetak, Y.spk_pbordir,
+        Y.spk_pjahit, Y.spk_pfinishing, Y.spk_sizekhusus, Y.spk_mppb, Y.spk_jenis_badan,
+        Y.spk_jenis_lengan, Y.spk_cabkaos, Y.spk_iscetak, Y.spk_isupdate, Y.spk_newdesign,
+        Y.spk_designdone, Y.spk_new_design, Y.spk_alokasi, Y.spk_ambilstokdc, Y.spk_invdc,
+
         (X.lsbd_panjang * X.lsbd_lebar * X.lsbd_jumlah_order) AS meter_order, 
         (X.lsbd_jumlah_order - X.lsbd_jumlah) AS kurang,
         IF(X.sb01 = 0, 0, IF(Y.spk_jumlah - X.lsbd_jumlah < 0, X.sb01 + (Y.spk_jumlah - X.sb01), X.sb01)) AS sb01_std,
@@ -63,8 +92,46 @@ const ssql = `
     UNION ALL
 
     SELECT 
-        X.*, 
-        Y.*, 
+        X.poi_nomor, 
+        DATE_FORMAT(X.poi_tanggal, '%Y-%m-%d') AS poi_tanggal, 
+        DATE_FORMAT(X.poi_dateline, '%Y-%m-%d') AS poi_dateline, 
+        X.poi_spk_nomor, 
+        X.poid_size, 
+        X.poid_jumlah,
+        X.lsbd_lsb_nomor, X.lsbd_spk_nomor, X.lsbd_panjang, X.lsbd_lebar,
+        X.sb01, X.sb02, X.sb03, X.lsbd_jumlah, X.lsbd_jumlah_order,
+        X.sb01_m, X.sb02_m, X.sb03_m, X.lsbd_jumlah_m, X.lsbd_bahan, X.lsb_gdg_kode,
+        X.lsbd_poi_nomor, X.lsbd_poid_size,
+        
+        -- Bagian Pemotong Datetime menjadi Date untuk tabel Y (tspk) bagian UNION bawah --
+        Y.spk_nomor,
+        DATE_FORMAT(Y.spk_tanggal, '%Y-%m-%d') AS spk_tanggal,
+        Y.spk_cus_kode, Y.spk_cus_kaosan, Y.spk_jo_kode, Y.spk_divisi, Y.spk_nama,
+        Y.spk_jumlah, Y.spk_jumlah_jadi, Y.spk_prasj, Y.spk_jumlah_kirim, Y.spk_jumlah_inv,
+        Y.spk_ukuran, Y.spk_kain, Y.spk_finishing,
+        DATE_FORMAT(Y.spk_dateline, '%Y-%m-%d') AS spk_dateline, -- Deadline SPK Utama
+        DATE_FORMAT(Y.spk_datelinepo, '%Y-%m-%d') AS spk_datelinepo,
+        Y.spk_cab, Y.spk_workshop, Y.spk_keterangan, Y.spk_ketbeli, Y.spk_image, Y.spk_harga,
+        Y.spk_status_stbj, Y.spk_status_inv, 
+        DATE_FORMAT(Y.date_create, '%Y-%m-%d') AS date_create,
+        Y.date_modified, Y.user_create, Y.user_modified, Y.spk_perush_kode, Y.spk_pen_nomor,
+        Y.spk_pen_id, Y.spk_nama2, Y.spk_jumlah_retur, Y.spk_nomor_po, 
+        DATE_FORMAT(Y.spk_tgl_po, '%Y-%m-%d') AS spk_tgl_po,
+        Y.spk_ketpo, Y.spk_sal_kode, Y.spk_nomormemo, Y.spk_mspk_nomor, Y.spk_memo,
+        Y.spk_closed_produksi, Y.spk_tanggal_closed, Y.spk_alasanpending, Y.spk_panjang,
+        Y.spk_lebar, Y.spk_hargariil, Y.spk_hargafee, Y.spk_gramasi, Y.spk_statuskerja,
+        Y.spk_warna_badan, Y.spk_warna_lengan, Y.spk_warna_lain, Y.spk_tipe, Y.spk_close,
+        Y.spk_close_alasan, Y.spk_reason, Y.spk_sablon, Y.spk_bordir, Y.spk_sublim,
+        Y.spk_aktif, Y.spk_pinjo, Y.spk_date_last_stbj, Y.spk_label, Y.spk_pending,
+        Y.spk_ketpending, Y.spk_accpending, Y.spk_cmo, Y.spk_desain, Y.spk_sudahdtf,
+        Y.spk_repeat, Y.spk_tglsb, 
+        DATE_FORMAT(Y.spk_tglaccproof, '%Y-%m-%d') AS spk_tglaccproof,
+        Y.spk_lama, Y.spk_rev, Y.spk_rev_date, Y.spk_mpotong, Y.spk_mcetak, Y.spk_mbordir,
+        Y.spk_mjahit, Y.spk_mfinishing, Y.spk_ppotong, Y.spk_pcetak, Y.spk_pbordir,
+        Y.spk_pjahit, Y.spk_pfinishing, Y.spk_sizekhusus, Y.spk_mppb, Y.spk_jenis_badan,
+        Y.spk_jenis_lengan, Y.spk_cabkaos, Y.spk_iscetak, Y.spk_isupdate, Y.spk_newdesign,
+        Y.spk_designdone, Y.spk_new_design, Y.spk_alokasi, Y.spk_ambilstokdc, Y.spk_invdc,
+
         (X.lsbd_panjang * X.lsbd_lebar * X.lsbd_jumlah_order) AS meter_order, 
         (X.lsbd_jumlah_order - X.lsbd_jumlah) AS kurang,
         IF(X.sb01 = 0, 0, IF(Y.spk_jumlah - X.lsbd_jumlah < 0, X.sb01 + (Y.spk_jumlah - X.sb01), X.sb01)) AS sb01_std,
@@ -76,8 +143,7 @@ const ssql = `
         IF(X.sb03 = 0, 0, IF(Y.spk_jumlah - X.lsbd_jumlah < 0, X.sb03 + (Y.spk_jumlah - X.sb03), X.sb03)) * X.lsbd_panjang * X.lsbd_lebar AS sb03_std_m,
         IF(X.lsbd_jumlah = 0, 0, IF(Y.spk_jumlah - X.lsbd_jumlah < 0, X.lsbd_jumlah + (X.lsbd_jumlah_order - X.lsbd_jumlah), X.lsbd_jumlah)) * X.lsbd_panjang * X.lsbd_lebar AS meter_std
     FROM (
-        SELECT a.*, b.* 
-        FROM (
+        SELECT a.*, b.* FROM (
             SELECT poi_nomor, poi_tanggal, poi_dateline, poi_spk_nomor, poid_size, poid_jumlah
             FROM tpointernal_hdr 
             INNER JOIN tpointernal_dtl ON (poid_nomor = poi_nomor)
@@ -119,17 +185,15 @@ const ssql = `
     LIMIT 1000
   `;
 
-  // Total ada 6 parameter tanda tanya (?) untuk filter tanggal di dalam query UNION
   const params = [
-    tglMulai, tglSelesai, // Blok pertama (tlhk_sublim_hdr)
-    tglMulai, tglSelesai, // Blok kedua bagian 1 (tpointernal_hdr)
-    tglMulai, tglSelesai  // Blok kedua bagian 2 (tlhk_sublim_hdr didalam subquery PO)
+    tglMulai, tglSelesai, 
+    tglMulai, tglSelesai, 
+    tglMulai, tglSelesai  
   ];
 
   let connection;
   try {
     connection = await pool.getConnection();
-
     console.time('QUERY LAP MON SUBLIM');
     const [rows] = await connection.execute(ssql, params);
     console.timeEnd('QUERY LAP MON SUBLIM');

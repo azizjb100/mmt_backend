@@ -22,7 +22,35 @@ exports.getBrowseData = async (start, end, cab) => {
     sql += ` ORDER BY h.bpe_nomor DESC`;
 
     const [rows] = await pool.query(sql, params);
+    
+    // 🌟 PERBAIKAN: Inject data sub-tabel alokasi secara asinkron untuk setiap baris browse data
+    if (rows.length > 0) {
+        for (let row of rows) {
+            const [alokasi] = await pool.query(
+                `SELECT poeda_nomor AS NomorPO, poeda_nourut AS NoUrut, 
+                        poeda_kota AS KodeBrg, poeda_kota AS NamaBrg, 
+                        poeda_jumlah AS QtyPO 
+                 FROM tpoexternal_dtl_alokasi 
+                 WHERE poeda_nomor = ? ORDER BY poeda_nourut`, 
+                [row.NomorPO]
+            );
+            // Ikat array detail alokasi kota ke properti 'details' (huruf kecil, s)
+            row.details = alokasi || [];
+        }
+    }
+
     return rows;
+};
+
+exports.getDetailByNomor = async (nomor) => {
+    const [header] = await pool.query('SELECT * FROM tbpbpoexternal_hdr WHERE bpe_nomor = ?', [nomor]);
+    if (header.length === 0) throw new Error("Data tidak ditemukan");
+    
+    // Asumsi ada tabel detail penerimaan (jika menggunakan dtl alokasi PO gunakan tpoexternal_dtl_alokasi)
+    const [details] = await pool.query('SELECT * FROM tbpbpoexternal_dtl WHERE bped_nomor = ?', [nomor]);
+    
+    // 🌟 PERBAIKAN: Ubah property 'Detail' (D besar) menjadi 'details' (huruf kecil semua) agar seragam
+    return { ...header[0], details: details };
 };
 
 exports.deleteBPB = async (nomorBPB, userCab) => {

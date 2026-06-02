@@ -12,29 +12,37 @@ exports.getPermintaanBahan = async (req, res) => {
         if (!startDate || !endDate) {
             return res.status(400).json({ message: "Tanggal wajib diisi." });
         }
+
+        // ==========================================================
+        // 🌟 PERBAIKAN DI SINI: Sesuaikan dengan nama properti di JWT Payload
+        // ==========================================================
         const divisi = req.user.divisi; 
         const userManager = req.user.user_manager || 0;
+        
+        // INGAT: Di auth.service namanya 'bagian', bukan 'user_bagian'
+        const userBagian = req.user.bagian ? req.user.bagian.toLowerCase() : ""; 
 
         if (divisi === undefined || divisi === null) {
             return res.status(403).json({ 
                 message: "Akses ditolak. Divisi user tidak ditemukan dalam sesi login.",
-                debug_payload: req.user // Kirim balik ke client untuk cek isinya
+                debug_payload: req.user 
             });
         }
 
-        // 3. KIRIM 4 PARAMETER KE SERVICE
-        // Parameter: (startDate, endDate, divisi, userManager)
+        // Kirim ke service dengan parameter yang sudah benar
         const data = await permintaanBahanService.getPermintaanBahanData(
             startDate, 
             endDate, 
             divisi, 
-            userManager
+            userManager,
+            userBagian // Parameter ke-5
         );
 
         return res.status(200).json({ 
             message: 'Pengambilan data transaksi berhasil.', 
             divisi_aktif: divisi, 
-            is_manager: userManager === 1, // Info tambahan untuk frontend
+            bagian_aktif: userBagian, // Sekarang ini tidak akan "" lagi
+            is_manager: userManager === 1, 
             data: data 
         });
 

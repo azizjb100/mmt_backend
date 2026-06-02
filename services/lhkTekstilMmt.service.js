@@ -67,29 +67,60 @@ const getDetailsByNomor = async (nomor) => {
     const sqlDetail = `
         SELECT 
             d.ltd_lth_nomor AS Nomor,
+            d.ltd_no_urut AS urut,
             d.ltd_jns_mesin AS Mesin, 
-            d.ltd_spk_nomor AS Nomor_SPK, 
-            x.spk_nama AS Nama_SPK, 
-            x.spk_jumlah AS Jumlah_SPK,
+            d.ltd_spk_nomor AS Nomor_SPK,  -- KEMBALI KE ALIAS LAMA
+            x.spk_nama AS Nama_SPK,       -- KEMBALI KE ALIAS LAMA
+            x.spk_jumlah AS Jumlah_SPK,   -- KEMBALI KE ALIAS LAMA
             x.spk_panjang AS Panjang, 
             x.spk_lebar AS Lebar, 
-            d.ltd_qty_cetak AS Jml_Cetak, 
+            d.ltd_qty_cetak AS Jml_Cetak,  -- KEMBALI KE ALIAS LAMA
+            
+            -- HITUNGAN AKUMULASI (Tetap Dipertahankan)
+            IFNULL((
+                SELECT SUM(dx.ltd_qty_Cetak) 
+                FROM tlhk_mesintekstil_dtl dx
+                JOIN tlhk_mesintekstil_hdr hx ON hx.lth_nomor = dx.ltd_lth_nomor
+                JOIN tlhk_mesintekstil_hdr h_curr ON h_curr.lth_nomor = d.ltd_lth_nomor
+                WHERE dx.ltd_spk_nomor = d.ltd_spk_nomor 
+                  AND hx.lth_tanggal < h_curr.lth_tanggal
+            ), 0) AS sudah_cetak_sebelumnya,
+
+            (IFNULL((
+                SELECT SUM(dx.ltd_qty_Cetak) 
+                FROM tlhk_mesintekstil_dtl dx
+                JOIN tlhk_mesintekstil_hdr hx ON hx.lth_nomor = dx.ltd_lth_nomor
+                JOIN tlhk_mesintekstil_hdr h_curr ON h_curr.lth_nomor = d.ltd_lth_nomor
+                WHERE dx.ltd_spk_nomor = d.ltd_spk_nomor 
+                  AND hx.lth_tanggal < h_curr.lth_tanggal
+            ), 0) + IFNULL(d.ltd_qty_Cetak, 0)) AS total_pernah_cetak, 
+
             d.ltd_brg_kode AS Kode_Bahan, 
             b.brg_nama AS Nama, 
             
             -- Field Manajemen Bahan Kain/Tekstil
-            d.ltd_ambil_bahan AS Ambil_Bahan,
-            d.ltd_aktual_bahan AS Aktual_Bahan,
-            d.ltd_waste_tinta AS Waste_Tinta,
+            d.ltd_ambil_bahan AS Ambil_Bahan, -- KEMBALI KE ALIAS LAMA
+            IFNULL(d.ltd_aktual_bahan, 0) AS Aktual_Bahan,
+            IFNULL(d.ltd_waste_tinta, 0) AS Waste_Tinta,
             
-            -- Track Input Data Cetak Multi-Posisi
-            d.ltd_cetak1 AS Cetak_1,
-            d.ltd_cetak2 AS Cetak_2,
-            d.ltd_cetak3 AS Cetak_3,
-            d.ltd_cetak4 AS Cetak_4,
-            d.ltd_cetak5 AS Cetak_5,
-            d.ltd_cetak6 AS Cetak_6,
-            d.ltd_cetak7 AS Cetak_7
+            -- Track Input Data Cetak Multi-Posisi (Menyediakan versi Huruf Besar & Kecil agar Aman)
+            IFNULL(d.ltd_cetak1, 0) AS Cetak_1,
+            IFNULL(d.ltd_cetak2, 0) AS Cetak_2,
+            IFNULL(d.ltd_cetak3, 0) AS Cetak_3,
+            IFNULL(d.ltd_cetak4, 0) AS Cetak_4,
+            IFNULL(d.ltd_cetak5, 0) AS Cetak_5,
+            IFNULL(d.ltd_cetak6, 0) AS Cetak_6,
+            IFNULL(d.ltd_cetak7, 0) AS Cetak_7,
+            
+            -- Alias Cadangan Huruf Kecil untuk handle fungsi backend / frontend dynamic
+            IFNULL(d.ltd_qty_cetak, 0) AS totalcetak,
+            IFNULL(d.ltd_cetak1, 0) AS cetak1,
+            IFNULL(d.ltd_cetak2, 0) AS cetak2,
+            IFNULL(d.ltd_cetak3, 0) AS cetak3,
+            IFNULL(d.ltd_cetak4, 0) AS cetak4,
+            IFNULL(d.ltd_cetak5, 0) AS cetak5,
+            IFNULL(d.ltd_cetak6, 0) AS cetak6,
+            IFNULL(d.ltd_cetak7, 0) AS cetak7
         FROM tlhk_mesintekstil_dtl d
         LEFT JOIN tbarang_mmt b ON b.brg_kode = d.ltd_brg_kode
         LEFT JOIN (
@@ -98,7 +129,7 @@ const getDetailsByNomor = async (nomor) => {
             SELECT mspk_nomor, mspk_nama, IFNULL(mspk_jumlah, 0) AS mspk_jumlah, IFNULL(mspk_panjang,0) AS mspk_panjang, IFNULL(mspk_lebar,0) AS mspk_lebar FROM tmemospk 
         ) x ON x.spk_nomor = d.ltd_spk_nomor 
         WHERE d.ltd_lth_nomor = ?
-        ORDER BY d.ltd_no_urut
+        ORDER BY d.ltd_no_urut ASC
     `;
 
     const [rows] = await pool.query(sqlDetail, [nomor]);
@@ -118,8 +149,11 @@ const getLhkByNomor = async (nomor) => {
             lth_brg_kode AS Kode_Bahan,
             lth_barcode AS Barcode_Roll,
             lth_status AS Status,
-            brg_nama AS Nama_Bahan
-        FROM tlhk_mesintekstil_hdr
+            brg_nama AS Nama_Bahan,
+            (SELECT GROUP_CONCAT(DISTINCT dtl.ltd_jns_mesin ORDER BY dtl.ltd_jns_mesin ASC SEPARATOR ', ')
+             FROM tlhk_mesintekstil_dtl dtl
+             WHERE dtl.ltd_lth_nomor = lth_nomor) AS Mesin
+        FROM tlhk_mesintekstil_hdr 
         LEFT JOIN tbarang_mmt ON brg_kode = lth_brg_kode
         WHERE lth_nomor = ?
     `;
@@ -243,46 +277,48 @@ const saveLhk = async (data) => {
         let totalPanjangPakaiMeter = 0;
         let sisaOtomatisDariFrontend = 0; 
 
-        if (details && details.length > 0) {
-            const sqlDetail = `
-                INSERT INTO tlhk_mesintekstil_dtl (
-                    ltd_lth_nomor, ltd_no_urut, ltd_jns_mesin, ltd_spk_nomor, 
-                    ltd_qty_Cetak, ltd_brg_kode, ltd_panjang_pakai, ltd_lebar_pakai,
-                    ltd_cetak1, ltd_cetak2, ltd_cetak3, ltd_cetak4, ltd_cetak5, ltd_cetak6, ltd_cetak7
-                ) VALUES ?
-            `;
-            
-            const values = details.map((d, i) => {
-                const panjangPerPcs = Number(d.panjang_per_pcs || d.Panjang || 0);
-                const jmlCetak = Number(d.jumlah_cetak || d.Jml_Cetak || 0);
-                
-                const subtotalMeter = panjangPerPcs * 0.9 * jmlCetak;
-                totalPanjangPakaiMeter += subtotalMeter;
+if (details && details.length > 0) {
+    const sqlDetail = `
+        INSERT INTO tlhk_mesintekstil_dtl (
+            ltd_lth_nomor, ltd_no_urut, ltd_jns_mesin, ltd_spk_nomor, 
+            ltd_qty_Cetak, ltd_brg_kode, ltd_panjang_pakai, ltd_lebar_pakai,
+            ltd_cetak1, ltd_cetak2, ltd_cetak3, ltd_cetak4, ltd_cetak5, ltd_cetak6, ltd_cetak7,
+            ltd_ambil_bahan -- 1. Tambahkan kolom target di sini
+        ) VALUES ?
+    `;
+    
+    const values = details.map((d, i) => {
+        const panjangPerPcs = Number(d.panjang_per_pcs || d.Panjang || 0);
+        const jmlCetak = Number(d.jumlah_cetak || d.Jml_Cetak || 0);
+        
+        const subtotalMeter = panjangPerPcs * 0.9 * jmlCetak;
+        totalPanjangPakaiMeter += subtotalMeter;
 
-                if (d.sisabahan !== undefined) {
-                    sisaOtomatisDariFrontend = Number(d.sisabahan || 0);
-                }
-                
-                return [
-                    nomorLhk, 
-                    i + 1, 
-                    d.mesin || d.Mesin, 
-                    d.nomor_spk || d.Nomor_SPK, 
-                    jmlCetak,
-                    header.brg_kode, 
-                    subtotalMeter, 
-                    d.lebar_spk || d.Lebar || 0,
-                    Number(d.cetak_1 ?? d.cetak1 ?? 0),
-                    Number(d.cetak_2 ?? d.cetak2 ?? 0),
-                    Number(d.cetak_3 ?? d.cetak3 ?? 0),
-                    Number(d.cetak_4 ?? d.cetak4 ?? 0),
-                    Number(d.cetak_5 ?? d.cetak5 ?? 0),
-                    Number(d.cetak_6 ?? d.cetak6 ?? 0),
-                    Number(d.cetak_7 ?? d.cetak7 ?? 0)
-                ];
-            });
-            await conn.query(sqlDetail, [values]);
+        if (d.sisabahan !== undefined) {
+            sisaOtomatisDariFrontend = Number(d.sisabahan || 0);
         }
+        
+        return [
+            nomorLhk, 
+            i + 1, 
+            d.mesin || d.Mesin, 
+            d.nomor_spk || d.Nomor_SPK, 
+            jmlCetak,
+            header.brg_kode, 
+            subtotalMeter, 
+            d.lebar_spk || d.Lebar || 0,
+            Number(d.cetak_1 ?? d.cetak1 ?? 0),
+            Number(d.cetak_2 ?? d.cetak2 ?? 0),
+            Number(d.cetak_3 ?? d.cetak3 ?? 0),
+            Number(d.cetak_4 ?? d.cetak4 ?? 0),
+            Number(d.cetak_5 ?? d.cetak5 ?? 0),
+            Number(d.cetak_6 ?? d.cetak6 ?? 0),
+            Number(d.cetak_7 ?? d.cetak7 ?? 0),
+            Number(d.ltd_ambil_bahan || d.ambil_bahan || d.PanjangBahanAwal || 0) // 2. Petakan nilainya di sini
+        ];
+    });
+    await conn.query(sqlDetail, [values]);
+}
 
         // 4. Logika Potong & Perbarui Stok Otomatis (Jika Status POSTED)
         if (currentStatus === 'POSTED' && header.barcode_input) {

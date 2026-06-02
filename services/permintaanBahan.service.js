@@ -77,7 +77,8 @@ exports.getInvoicePembelianData = async (startDate, endDate) => {
     }
 };
 
-exports.getPermintaanBahanData = async (startDate, endDate, divisi, userManager) => {
+// PERBAIKAN: Menambahkan parameter userBagian ke dalam fungsi
+exports.getPermintaanBahanData = async (startDate, endDate, divisi, userManager, userBagian) => {
     try {
         let sqlMaster = "";
         let paramsMaster = [];
@@ -121,11 +122,17 @@ exports.getPermintaanBahanData = async (startDate, endDate, divisi, userManager)
              WHERE pod.pod_mb_nomor = t1.mb_nomor) AS Tanggal_Datang
         `;
 
-        if (divisi == 1 || (userManager == 1 && divisi != 4)) {
+        // PERBAIKAN: Logika IF diubah agar finance dan audit bisa mengakses data MMT
+        if (
+            divisi == 1 || 
+            (userManager == 1 && divisi != 4) || 
+            userBagian === 'finance' || 
+            userBagian === 'audit'
+        ) {
             sqlMaster = `
                 SELECT
                     t1.mb_nomor AS Nomor, t1.mb_gdg_kode AS Gudang, t3.gdg_nama AS Nama,
-                    DATE_FORMAT(t1.mb_tanggal, '%Y-%m-%d') AS Tanggal, -- <--- PERBAIKAN: Format diubah ke yyyy-mm-dd
+                    DATE_FORMAT(t1.mb_tanggal, '%Y-%m-%d') AS Tanggal,
                     t1.mb_keterangan AS Keterangan,
                     'MMT' AS Source,
                     ${trackingColumns},
@@ -157,7 +164,7 @@ exports.getPermintaanBahanData = async (startDate, endDate, divisi, userManager)
             sqlMaster = `
                 SELECT
                     t1.mb_nomor AS Nomor, t1.mb_mintake AS Gudang, 'GUDANG OBAT' AS Nama,
-                    DATE_FORMAT(t1.mb_tanggal, '%Y-%m-%d') AS Tanggal, -- <--- PERBAIKAN: Format diubah ke yyyy-mm-dd
+                    DATE_FORMAT(t1.mb_tanggal, '%Y-%m-%d') AS Tanggal,
                     t1.mb_ket AS Keterangan,
                     'TOBAT' AS Source,
                     NULL AS Estimasi_Kedatangan,

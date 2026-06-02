@@ -73,9 +73,18 @@ const getDetailForBpb = async (req, res) => {
         const { nomor } = req.params;
         const data = await poService.getPoDetailForBpb(nomor);
         
-        // Sinkronisasi dengan Vue: targetItem.Detail = res.data || [];
-        // Jika service mengembalikan { details: [...] }, pastikan di-return data details-nya atau object utuh
-        res.json(data?.details || data || []);
+        if (!data) {
+            return res.status(404).json({ 
+                success: false, 
+                message: "Detail PO tidak ditemukan" 
+            });
+        }
+        
+        // 🌟 PERBAIKAN: Kirim objek utuh agar frontend dapat membaca d.poe_nomor, d.spk_nama, dll.
+        res.json({ 
+            success: true, 
+            data: data 
+        });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }

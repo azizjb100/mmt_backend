@@ -2,24 +2,20 @@ const express = require('express');
 const router = express.Router();
 const poCtrl = require('../controllers/poExtMmt.controller'); 
 
-// Menyelaraskan dengan Axios Frontend: api.get("/mmt/po-external")
+// === 1. TARUH ENDPOINT STATIS DI PALING ATAS ===
 router.get('/', poCtrl.browse); 
-
 router.post('/save', poCtrl.save);
-
-router.get('/:nomor', poCtrl.getById);
-
-// Menyelaraskan dengan Axios Frontend: api.delete("/mmt/po-external/:nomor")
-router.delete('/:nomor', poCtrl.remove);
-
-// Menyelaraskan dengan Axios Frontend: api.post("/mmt/po-external/submit-pin")
 router.post('/submit-pin', poCtrl.submitPin);
 
-// Menyelaraskan dengan Axios Frontend: api.get("/mmt/po-external/check-pin/:nomor")
-router.get('/check-pin/:nomor', poCtrl.checkPin);
-
-// Endpoint Tambahan untuk Lookup BPB
+// Jalur khusus Lookup BPB wajib di atas /:nomor
 router.get('/lookup-bpb', poCtrl.getLookupBpb);
-router.get('/detail/:nomor', poCtrl.getDetailForBpb); // Sesuai dengan api.get(`${API_URL}/detail/${lastNomor}`)
+router.get('/detail/:nomor', poCtrl.getDetailForBpb); 
 router.get('/sudah-terima/:nomor', poCtrl.getSudahTerima);
+
+
+// === 2. TARUH ENDPOINT DINAMIS (/:nomor) DI PALING BAWAH ===
+router.get('/check-pin/:nomor', poCtrl.checkPin);
+router.get('/:nomor', poCtrl.getById); // <-- Sekarang "lookup-bpb" tidak akan terjebak di sini lagi
+router.delete('/:nomor', poCtrl.remove);
+
 module.exports = router;

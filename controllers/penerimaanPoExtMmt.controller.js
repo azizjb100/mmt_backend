@@ -13,7 +13,7 @@ exports.browse = async (req, res) => {
 exports.remove = async (req, res) => {
     try {
         const { nomor } = req.params;
-        const userCab = req.user.cab; // Diambil dari middleware auth
+        const userCab = req.user?.cab; // Gunakan optional chaining agar aman
 
         await service.deleteBPB(nomor, userCab);
         res.json({ success: true, message: "Data berhasil dihapus dan status PO diperbarui." });
@@ -24,12 +24,18 @@ exports.remove = async (req, res) => {
 
 exports.save = async (req, res) => {
     try {
-        // 1. Ambil status apakah ini update atau baru (isEditMode dari frontend)
-        // Jika frontend mengirim 'Nomor' yang bukan 'AUTO', berarti update
-        const isUpdate = req.body.Nomor && req.body.Nomor !== 'AUTO';
+        // 🌟 PERBAIKAN: Deteksi isUpdate secara akurat dari param URL (PUT) maupun body payload
+        const urlNomor = req.params.nomor;
+        const bodyNomor = req.body.Nomor;
+        
+        const isUpdate = (urlNomor && urlNomor !== 'AUTO') || (bodyNomor && bodyNomor !== 'AUTO');
 
-        // 2. Ambil kode user secara spesifik (misal: 'ADMIN' atau 'LIA')
-        // Sesuaikan 'req.user.kdUser' dengan nama field di token JWT Anda
+        // Jika nomor diambil dari URL param (saat request PUT), pastikan payload body ikut terisi nomor tersebut
+        if (urlNomor && urlNomor !== 'AUTO' && !req.body.Nomor) {
+            req.body.Nomor = urlNomor;
+        }
+
+        // 2. Ambil kode user secara spesifik
         const userLogin = req.user?.kdUser || req.user?.username || 'SYSTEM';
 
         // 3. Panggil service dengan 3 parameter sesuai urutan: (data, isUpdate, userLogin)
@@ -37,13 +43,13 @@ exports.save = async (req, res) => {
 
         res.json({ 
             success: true, 
-            message: "Data berhasil disimpan",
+            message: isUpdate ? "Data berhasil diperbarui" : "Data berhasil disimpan",
             data: result 
         });
     } catch (err) {
-        // Berikan status 400 jika error validasi (seperti PO sudah dibayar)
-        // atau 500 jika error database
-        res.status(500).json({ 
+        // Jika error dipicu oleh proteksi "PO sudah ada pembayaran", berikan status 400 Bad Request
+        const isValidationError = err.message.includes("sudah ada pembayaran");
+        res.status(isValidationError ? 400 : 500).json({ 
             success: false, 
             message: err.message 
         });

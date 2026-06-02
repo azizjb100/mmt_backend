@@ -107,3 +107,105 @@ exports.getPlanningByNomor = async (nomor) => {
         throw new Error(`Database Error: ${error.message}`);
     }
 };
+
+exports.savePlanningProduksi = async (payload) => {
+    const { spk_nomor, panjang, lebar, details, forceSave = false } = payload;
+    const connection = await pool.getConnection(); // Ambil koneksi manual untuk Transaksi
+    
+    try {
+        await connection.beginTransaction();
+
+        // -----------------------------------------------------------------
+        // LAHNGKAH 1: Validasi Kapasitas Harian Mesin (Kecuali jika forceSave = true)
+        // -----------------------------------------------------------------
+        if (!forceSave) {
+            // Ambil kapasitas maksimal semua mesin cetak dari tmesin_mmt
+            const [mesinKapasitas] = await connection.query(
+                'SELECT msn_kode, msn_kapasitas FROM tmesin_mmt WHERE msn_jenis = "C" AND msn_note = "CETAK"'
+            );
+
+            // Mapping kapasitas ke object key-value agar mudah diakses: { MT01: 500, MT02: 400, ... }
+            const kapasitasMap = {};
+            mesinKapasitas.forEach(m => {
+                kapasitasMap[m.msn_kode] = parseFloat(m.msn_kapasitas) || 0;
+            });
+
+            // Loop setiap detail yang dikirim dari Vue untuk divalidasi kapasitasnya
+            for (const row of details) {
+                if (!row.mesin || !row.tanggal) continue;
+
+                // Hitung total plan_cetak yang SUDAH ADA di database untuk tanggal & mesin tersebut (milik SPK lain)
+                const [existingPlan] = await connection.query(
+                    `SELECT SUM(plan_cetak) AS total_cetak 
+                     FROM tplanningspk_mmt 
+                     WHERE plan_tanggal = ? AND plan_mesin = ? AND plan_spk <> ?`,
+                    [row.tanggal, row.mesin, spk_nomor]
+                );
+
+                const currentCetakDb = parseFloat(existingPlan[0].total_cetak) || 0;
+                const inputCetakBaru = parseFloat(row.cetak) || 0;
+                const kapasitasMax = kapasitasMap[row.mesin] || 0;
+
+                // Formula Delphi: (Total database + input baru) jika melebihi kapasitas
+                if (kapasitasMax > 0 && (currentCetakDb + inputCetakBaru) > kapasitasMax) {
+                    // Hitung Luas Planning dalam M2 berdasarkan rumus Delphi: (jml * panjang * lebar)
+                    const totalM2Planning = (currentCetakDb + inputCetakBaru) * parseFloat(panjang) * parseFloat(lebar);
+                    
+                    // Kembalikan flag alert ke frontend (Vue) agar memicu confirm dialog
+                    await connection.rollback();
+                    connection.release();
+                    return {
+                        overCapacityAlert: true,
+                        message: `Tanggal ${row.tanggal}, Mesin: ${row.mesin} Melebihi Kapasitas produksi!\n` +
+                                 `Kapasitas/Hari = ${kapasitasMax} M2\n` +
+                                 `Planning cetak saat ini = ${totalM2Planning.toFixed(2)} M2`
+                    };
+                }
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // LANGKAH 2: Bersihkan data lama berdasarkan nomor SPK (Delete Old Record)
+        // -----------------------------------------------------------------
+        await connection.query("DELETE FROM tplanningspk_mmt WHERE plan_spk = ?", [spk_nomor]);
+
+        // -----------------------------------------------------------------
+        // LANGKAH 3: Simpan Data Baru (Insert New Detail Loops)
+        // -----------------------------------------------------------------
+        const insertSql = `
+            INSERT INTO tplanningspk_mmt 
+            (plan_spk, plan_tanggal, plan_datang, plan_mesin, plan_cetak, plan_finishing, plan_kirim, plan_ketcetak, plan_ketfinishing, plan_ketkirim, plan_usr, plan_dtusr)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+
+        for (const row of details) {
+            // Abaikan jika baris kosong / tidak ada mesin terpilih
+            if (!row.mesin) continue; 
+
+            await connection.query(insertSql, [
+                spk_nomor,
+                row.tanggal,
+                parseFloat(row.datang) || 0,
+                row.mesin,
+                parseFloat(row.cetak) || 0,
+                parseFloat(row.finishing) || 0,
+                parseFloat(row.kirim) || 0,
+                row.ketcetak || '',
+                row.ketfinishing || '',
+                row.ketkirim || '',
+                row.usr || 'SYSTEM',
+                row.dtusr || new Date()
+            ]);
+        }
+
+        await connection.commit();
+        connection.release();
+        return { success: true, message: "Planning berhasil disimpan" };
+
+    } catch (error) {
+        await connection.rollback();
+        connection.release();
+        console.error("Error in savePlanningProduksi:", error);
+        throw new Error(error.message);
+    }
+};
