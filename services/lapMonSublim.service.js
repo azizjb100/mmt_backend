@@ -2,7 +2,8 @@ const pool = require('../config/db.config');
 const moment = require('moment');
 
 /**
- * Service untuk menarik data Laporan Monitoring Sublim (Ter-akumulasi Tanpa Double)
+ * Service untuk menarik data Laporan Monitoring Sublim - Fix Akumulasi Tanpa Double
+ * Disinkronkan dari logika Delphi 7 ufrmLapMon_Sublim (loaddata)
  * @param {string} startDate - Format 'YYYY-MM-DD'
  * @param {string} endDate - Format 'YYYY-MM-DD'
  */
@@ -10,7 +11,8 @@ const lapMonSublim = async (startDate, endDate) => {
   const tglMulai = moment(startDate).format('YYYY-MM-DD');
   const tglSelesai = moment(endDate).format('YYYY-MM-DD');
 
-  // SOLUSI: Membungkus UNION ALL ke dalam subquery utama, lalu di-GROUP BY secara menyeluruh di bagian paling luar
+  // SOLUSI UTAMA: Membungkus UNION ALL milik Delphi ke dalam subquery outer (U),
+  // lalu melakukan GROUP BY berdasarkan SPK, Ukuran, Panjang, dan Lebar secara mutlak.
   const ssql = `
     SELECT 
         MAX(U.poi_nomor) AS poi_nomor,
@@ -151,13 +153,13 @@ const lapMonSublim = async (startDate, endDate) => {
         SUM(U.sb03_std_m) AS sb03_std_m,
         SUM(U.meter_std) AS meter_std
     FROM (
-        -- ================== QUERY PART 1 ==================
+        -- ================== BLOK DATA 1 (Murni Realisasi LHK Sublim) ==================
         SELECT 
             NULL AS poi_nomor, 
             NULL AS poi_tanggal, 
             NULL AS poi_dateline, 
             NULL AS poi_spk_nomor, 
-            X.lsbd_poid_size AS poid_size, -- Disamakan aliasnya agar sinkron di luar
+            X.lsbd_poid_size AS poid_size, 
             0 AS poid_jumlah,
             X.lsbd_lsb_nomor, X.lsbd_spk_nomor, X.lsbd_panjang, X.lsbd_lebar,
             X.sb01, X.sb02, X.sb03, X.lsbd_jumlah, X.lsbd_jumlah_order,
@@ -204,7 +206,7 @@ const lapMonSublim = async (startDate, endDate) => {
             IF(X.lsbd_jumlah = 0, 0, IF(Y.spk_jumlah - X.lsbd_jumlah < 0, X.lsbd_jumlah + (X.lsbd_jumlah_order - X.lsbd_jumlah), X.lsbd_jumlah)) * X.lsbd_panjang * X.lsbd_lebar AS meter_std
         FROM (
             SELECT 
-                NULL AS lsbd_lsb_nomor, 
+                NULL AS lsbd_lsb_nomor, -- Di-null kan agar nomor dokumen internal LHK tidak memecah baris
                 lsbd_spk_nomor, lsbd_panjang, lsbd_lebar,
                 ROUND(SUM(IF(lsbd_lokasi = 'SB01', lsbd_jumlah, 0)), 0) AS sb01,
                 ROUND(SUM(IF(lsbd_lokasi = 'SB02', lsbd_jumlah, 0)), 0) AS sb02,
@@ -228,7 +230,7 @@ const lapMonSublim = async (startDate, endDate) => {
 
         UNION ALL
 
-        -- ================== QUERY PART 2 ==================
+        -- ================== BLOK DATA 2 (Sinkronisasi PO Internal Supplier Kaos) ==================
         SELECT 
             X.poi_nomor, 
             DATE_FORMAT(X.poi_tanggal, '%Y-%m-%d') AS poi_tanggal, 
@@ -313,6 +315,7 @@ const lapMonSublim = async (startDate, endDate) => {
         ) X
         LEFT JOIN tspk Y ON (Y.spk_nomor = X.poi_spk_nomor)
     ) U
+    WHERE U.spk_nomor IS NOT NULL
     GROUP BY U.spk_nomor, U.poid_size, U.lsbd_panjang, U.lsbd_lebar
     ORDER BY spk_tanggal ASC
     LIMIT 1000
