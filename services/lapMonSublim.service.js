@@ -10,7 +10,7 @@ const lapMonSublim = async (startDate, endDate) => {
   const tglMulai = moment(startDate).format('YYYY-MM-DD');
   const tglSelesai = moment(endDate).format('YYYY-MM-DD');
 
-  // Query SQL diperbaiki menggunakan DATE_FORMAT agar menghasilkan 'YYYY-MM-DD' bukan UTC Datetime string
+  // PERBAIKAN: Mengeluarkan lsbd_lsb_nomor dari GROUP BY agar data LHK yang berbeda otomatis ter-SUM (akumulasi)
   const ssql = `
     SELECT 
         NULL AS poi_nomor, 
@@ -27,7 +27,7 @@ const lapMonSublim = async (startDate, endDate) => {
         Y.spk_cus_kode, Y.spk_cus_kaosan, Y.spk_jo_kode, Y.spk_divisi, Y.spk_nama,
         Y.spk_jumlah, Y.spk_jumlah_jadi, Y.spk_prasj, Y.spk_jumlah_kirim, Y.spk_jumlah_inv,
         Y.spk_ukuran, Y.spk_kain, Y.spk_finishing,
-        DATE_FORMAT(Y.spk_dateline, '%Y-%m-%d') AS spk_dateline, -- Deadline SPK Utama
+        DATE_FORMAT(Y.spk_dateline, '%Y-%m-%d') AS spk_dateline, 
         DATE_FORMAT(Y.spk_datelinepo, '%Y-%m-%d') AS spk_datelinepo,
         Y.spk_cab, Y.spk_workshop, Y.spk_keterangan, Y.spk_ketbeli, Y.spk_image, Y.spk_harga,
         Y.spk_status_stbj, Y.spk_status_inv, 
@@ -62,30 +62,31 @@ const lapMonSublim = async (startDate, endDate) => {
         IF(X.lsbd_jumlah = 0, 0, IF(Y.spk_jumlah - X.lsbd_jumlah < 0, X.lsbd_jumlah + (X.lsbd_jumlah_order - X.lsbd_jumlah), X.lsbd_jumlah)) * X.lsbd_panjang * X.lsbd_lebar AS meter_std
     FROM (
         SELECT 
-            lsbd_lsb_nomor, 
+            NULL AS lsbd_lsb_nomor, -- Di-null kan karena nomor LHK acak tidak perlu ditampilkan per baris
             lsbd_spk_nomor,
             lsbd_panjang, 
             lsbd_lebar,
-            ROUND(CONCAT(SUM(IF(lsbd_lokasi = 'SB01', lsbd_jumlah, 0))), 0) AS sb01,
-            ROUND(CONCAT(SUM(IF(lsbd_lokasi = 'SB02', lsbd_jumlah, 0))), 0) AS sb02,
-            ROUND(CONCAT(SUM(IF(lsbd_lokasi = 'SB03', lsbd_jumlah, 0))), 0) AS sb03,
-            ROUND(CONCAT(SUM(lsbd_jumlah)), 0) AS lsbd_jumlah,
-            SUM(lsbd_jumlah_order) AS lsbd_jumlah_order,
+            ROUND(SUM(IF(lsbd_lokasi = 'SB01', lsbd_jumlah, 0)), 0) AS sb01,
+            ROUND(SUM(IF(lsbd_lokasi = 'SB02', lsbd_jumlah, 0)), 0) AS sb02,
+            ROUND(SUM(IF(lsbd_lokasi = 'SB03', lsbd_jumlah, 0)), 0) AS sb03,
+            ROUND(SUM(lsbd_jumlah), 0) AS lsbd_jumlah,
+            -- Menggunakan MAX / MIN untuk order kuantitas agar jumlah order awal tidak ikut ter-SUM melipat ganda
+            MAX(lsbd_jumlah_order) AS lsbd_jumlah_order,
             SUM(IF(lsbd_lokasi = 'SB01', lsbd_jumlah, 0) * lsbd_panjang) AS sb01_m,
             SUM(IF(lsbd_lokasi = 'SB02', lsbd_jumlah, 0) * lsbd_panjang) AS sb02_m,
             SUM(IF(lsbd_lokasi = 'SB03', lsbd_jumlah, 0) * lsbd_panjang) AS sb03_m,
             SUM(lsbd_jumlah * lsbd_panjang) AS lsbd_jumlah_m, 
             lsbd_bahan, 
-            lsb_gdg_kode,
+            MAX(lsb_gdg_kode) AS lsb_gdg_kode,
             lsbd_poi_nomor, 
             lsbd_poid_size
         FROM (
-            SELECT a.*, b.*
+            SELECT a.*, b.lsb_gdg_kode, b.lsb_tanggal
             FROM tlhk_sublim_dtl a
             INNER JOIN tlhk_sublim_hdr b ON (b.lsb_nomor = a.lsbd_lsb_nomor)
             WHERE b.lsb_tanggal BETWEEN ? AND ?
         ) xx
-        GROUP BY lsbd_lsb_nomor, lsbd_spk_nomor, lsbd_panjang, lsbd_lebar, lsbd_bahan, lsb_gdg_kode, lsbd_poi_nomor, lsbd_poid_size
+        GROUP BY lsbd_spk_nomor, lsbd_panjang, lsbd_lebar, lsbd_bahan, lsbd_poi_nomor, lsbd_poid_size
     ) X
     LEFT JOIN tspk Y ON (Y.spk_nomor = X.lsbd_spk_nomor)
 
@@ -109,7 +110,7 @@ const lapMonSublim = async (startDate, endDate) => {
         Y.spk_cus_kode, Y.spk_cus_kaosan, Y.spk_jo_kode, Y.spk_divisi, Y.spk_nama,
         Y.spk_jumlah, Y.spk_jumlah_jadi, Y.spk_prasj, Y.spk_jumlah_kirim, Y.spk_jumlah_inv,
         Y.spk_ukuran, Y.spk_kain, Y.spk_finishing,
-        DATE_FORMAT(Y.spk_dateline, '%Y-%m-%d') AS spk_dateline, -- Deadline SPK Utama
+        DATE_FORMAT(Y.spk_dateline, '%Y-%m-%d') AS spk_dateline, 
         DATE_FORMAT(Y.spk_datelinepo, '%Y-%m-%d') AS spk_datelinepo,
         Y.spk_cab, Y.spk_workshop, Y.spk_keterangan, Y.spk_ketbeli, Y.spk_image, Y.spk_harga,
         Y.spk_status_stbj, Y.spk_status_inv, 
@@ -153,30 +154,30 @@ const lapMonSublim = async (startDate, endDate) => {
         ) a
         LEFT JOIN (
             SELECT 
-                lsbd_lsb_nomor, 
+                NULL AS lsbd_lsb_nomor, 
                 lsbd_spk_nomor,
                 lsbd_panjang, 
                 lsbd_lebar,
-                ROUND(CONCAT(SUM(IF(lsbd_lokasi = 'SB01', lsbd_jumlah, 0))), 0) AS sb01,
-                ROUND(CONCAT(SUM(IF(lsbd_lokasi = 'SB02', lsbd_jumlah, 0))), 0) AS sb02,
-                ROUND(CONCAT(SUM(IF(lsbd_lokasi = 'SB03', lsbd_jumlah, 0))), 0) AS sb03,
-                ROUND(CONCAT(SUM(lsbd_jumlah)), 0) AS lsbd_jumlah,
-                SUM(lsbd_jumlah_order) AS lsbd_jumlah_order,
+                ROUND(SUM(IF(lsbd_lokasi = 'SB01', lsbd_jumlah, 0)), 0) AS sb01,
+                ROUND(SUM(IF(lsbd_lokasi = 'SB02', lsbd_jumlah, 0)), 0) AS sb02,
+                ROUND(SUM(IF(lsbd_lokasi = 'SB03', lsbd_jumlah, 0)), 0) AS sb03,
+                ROUND(SUM(lsbd_jumlah), 0) AS lsbd_jumlah,
+                MAX(lsbd_jumlah_order) AS lsbd_jumlah_order,
                 SUM(IF(lsbd_lokasi = 'SB01', lsbd_jumlah, 0) * lsbd_panjang) AS sb01_m,
                 SUM(IF(lsbd_lokasi = 'SB02', lsbd_jumlah, 0) * lsbd_panjang) AS sb02_m,
                 SUM(IF(lsbd_lokasi = 'SB03', lsbd_jumlah, 0) * lsbd_panjang) AS sb03_m,
                 SUM(lsbd_jumlah * lsbd_panjang) AS lsbd_jumlah_m, 
                 lsbd_bahan, 
-                lsb_gdg_kode,
+                MAX(lsb_gdg_kode) AS lsb_gdg_kode,
                 lsbd_poi_nomor, 
                 lsbd_poid_size
             FROM (
-                SELECT a.*, b.*
+                SELECT a.*, b.lsb_gdg_kode, b.lsb_tanggal
                 FROM tlhk_sublim_dtl a
                 INNER JOIN tlhk_sublim_hdr b ON (b.lsb_nomor = a.lsbd_lsb_nomor)
                 WHERE b.lsb_tanggal BETWEEN ? AND ?
             ) xx
-            GROUP BY lsbd_lsb_nomor, lsbd_spk_nomor, lsbd_panjang, lsbd_lebar, lsbd_bahan, lsb_gdg_kode, lsbd_poi_nomor, lsbd_poid_size
+            GROUP BY lsbd_spk_nomor, lsbd_panjang, lsbd_lebar, lsbd_bahan, lsbd_poi_nomor, lsbd_poid_size
         ) b ON (b.lsbd_poi_nomor = a.poi_nomor AND b.lsbd_poid_size = a.poid_size)
     ) X
     LEFT JOIN tspk Y ON (Y.spk_nomor = X.poi_spk_nomor)
