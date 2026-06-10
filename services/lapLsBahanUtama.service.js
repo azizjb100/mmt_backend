@@ -193,6 +193,49 @@ const getReport = async (startDate, endDate, gdgKode) => {
   return rows;
 };
 
+const getReportDetailByItem = async (startDate, endDate, gdgKode, brgKode) => {
+  const kodeGudang = gdgKode || 'WH-16';
+  const tglMulai = format(new Date(startDate), 'yyyy-MM-dd');
+  const tglSelesai = format(new Date(endDate), 'yyyy-MM-dd');
+
+  const ssql = `
+    SELECT 
+      s.mst_tanggal AS tanggal,
+      s.mst_noreferensi AS no_referensi,
+      s.mst_spk_nomor AS no_spk,
+      s.mst_kategori AS kategori,
+      s.mst_barcode AS barcode,
+      CASE 
+        WHEN s.mst_kategori = 'RETUR' THEN 'RETUR SISA'
+        WHEN s.mst_stok_in > 0 THEN 'MASUK / TERIMA'
+        WHEN s.mst_stok_out > 0 THEN 'KELUAR / PAKAI'
+        ELSE 'MUTASI'
+      END AS jenis_mutasi,
+      
+      IF(s.mst_stok_in > 0, s.mst_stok_in, 0) AS qty_in,
+      IF(s.mst_stok_out > 0, s.mst_stok_out, 0) AS qty_out,
+      
+      IF(s.mst_stok_in > 0, 
+        (s.mst_stok_in * CASE WHEN brg.brg_type = 'K' THEN IFNULL(s.mst_panjang, 0) ELSE (IFNULL(s.mst_panjang, 0) * IFNULL(s.mst_lebar, 0)) END), 
+        0
+      ) AS meter_in,
+      IF(s.mst_stok_out > 0, 
+        (s.mst_stok_out * CASE WHEN brg.brg_type = 'K' THEN IFNULL(s.mst_panjang, 0) ELSE (IFNULL(s.mst_panjang, 0) * IFNULL(s.mst_lebar, 0)) END), 
+        0
+      ) AS meter_out
+      
+    FROM tmasterstok_mmt s
+    JOIN tbarang_mmt brg ON s.mst_brg_kode = brg.brg_kode
+    WHERE s.mst_brg_kode = ?
+      AND s.mst_gdg_kode = ?
+      AND s.mst_tanggal BETWEEN ? AND ?
+      AND (s.mst_kategori IN ('ROLL', 'RETUR', 'SCRAP') OR s.mst_kategori IS NULL)
+    ORDER BY s.mst_tanggal ASC, s.id ASC
+  `;
+
+  const [rows] = await pool.query(ssql, [brgKode, kodeGudang, tglMulai, tglSelesai]);
+  return rows;
+};
 
 const getTotalRollSekarang = async () => {
   const ssql = `
@@ -240,6 +283,7 @@ const getFlow6Bulan = async () => {
 
 module.exports = {
   getReport,
+  getReportDetailByItem,
   getTotalRollSekarang,
   getFlow6Bulan
 };

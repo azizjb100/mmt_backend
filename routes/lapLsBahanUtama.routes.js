@@ -6,7 +6,10 @@ const controller = require('../controllers/lapLsBahanUtama.controller');
 // GET /api/reports/ls-bahan-utama
 router.get('/', controller.getReport);
 
+router.get('/detail', controller.getReportDetail);
+
 router.get('/total-roll', controller.getTotalRoll);
+
 
 router.get('/flow-6-bulan', controller.getFlow6Bulan);
 

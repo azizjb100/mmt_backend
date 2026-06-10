@@ -9,94 +9,229 @@ const throwDbError = (message, error) => { throw new Error(message + ': ' + erro
  * Logika Utama: Menggabungkan TSPK, TMEMOSPK, dan Kalkulasi Produksi
  * Diperbaiki agar menyertakan status 'Ngedit' (PIN), Approval, dan Akumulasi 
  */
-const getBaseSpkQuery = (whereClause = "1=1") => {
+const getBaseSpkQuery = (whereClauseReguler = "1=1", whereClauseMemo = "1=1") => {
     return `
         SELECT x.*,
-            /* Logika Warna/Status PIN (Ngedit) untuk Frontend */
-            IFNULL(
-                IF(x.ppin='N', 'TOLAK',
-                    IF(x.ppin='Y' AND x.ppakai='', 'ACC',
-                        IF(x.ppin='Y' AND x.ppakai='Y', '', 
-                            IF(x.ppin='WAIT', 'WAIT', '')
+            /* LOGIKA SINKRONISASI CETAK:
+               Jika spk_cmo sudah terisi (bukan null & bukan kosong), maka otomatis 'ACC' (Bisa Cetak).
+               Jika belum terisi, maka dia akan mengecek jalur PIN seperti biasa. */
+            IF(TRIM(IFNULL(x.Acc_MO, '')) <> '', 'ACC',
+                IFNULL(
+                    IF(x.ppin = 'N', 'TOLAK',
+                        IF(x.ppin = 'Y' AND x.ppakai = '', 'ACC',
+                            IF(x.ppin = 'Y' AND x.ppakai = 'Y', '', 
+                                IF(x.ppin = '', 'WAIT', '')
+                            )
                         )
-                    )
-                ), ''
+                    ), ''
+                )
             ) AS Ngedit
         FROM (
             /* --- SECTION 1: SPK REGULER --- */
             SELECT 
                 t.spk_nomor AS SPK, 
-                t.spk_nama AS Nama, 
-                v.divisi AS Divisi, 
+                t.user_create AS MO,
+                t.spk_cmo AS CMO,
                 t.spk_tanggal AS Tanggal, 
-                t.spk_jumlah AS Jumlah,
-                t.spk_ukuran AS Ukuran, 
-                t.spk_kain AS Bahan, 
-                t.spk_gramasi AS Gramasi,
+                t.spk_dateline AS Deadline,
+                t.spk_statuskerja AS Kepentingan,
+                t.spk_divisi AS Divisi, 
+                t.spk_nama AS Nama, 
+                t.spk_cab AS Cabang,
+                t.spk_workshop AS Workshop,
+                t.spk_pending AS Pending,            
+                t.spk_ketpending AS Ket_Pending,       
+                'REGULER' AS Tipe_SPK,
                 IFNULL(t.spk_panjang, 0) AS Panjang, 
                 IFNULL(t.spk_lebar, 0) AS Lebar,
-                t.spk_statuskerja AS Kepentingan,
-                t.spk_cmo AS CMO,
-                IF(t.spk_close=1, 'Closed', 'Open') AS STATUS,
-                t.spk_aktif AS Aktif,
-                t.spk_pending AS Pending,
-                t.spk_accpending AS AccPending,
-                t.spk_newdesign AS design_baru,
-                t.spk_designdone AS design_done,
-
-                /* PIN System (Logika Ngedit) */
-                IFNULL((SELECT pin_acc FROM tspk_pin5 WHERE pin_trs="SPK" AND pin_nomor=t.spk_nomor ORDER BY pin_urut DESC LIMIT 1), "NULL") as ppin,
-                IFNULL((SELECT pin_dipakai FROM tspk_pin5 WHERE pin_trs="SPK" AND pin_nomor=t.spk_nomor ORDER BY pin_urut DESC LIMIT 1), "NULL") as ppakai,
-
-                /* Akumulasi Produksi (Sudah Cetak) */
+                t.spk_gramasi AS Gramasi,
+                t.spk_kain AS Bahan, 
+                t.spk_finishing AS Finishing,
+                t.spk_keterangan AS Pesan,            
+                0 AS PraSJ,                           
+                0 AS Kirim,                           
+                t.user_create AS Created,
+                t.spk_nomor_po AS PO,
+                t.spk_ketpo AS Ket_PO,
+                t.spk_datelinepo AS Dateline_PO,
+                IF(t.spk_aktif='Y', 'Open', 'Closed') AS STATUS, 
+                '' AS Alasan_Close,
+                t.spk_pen_nomor AS No_Penawaran,
+                t.spk_memo AS MAP,                    
+                
+                /* Progress Jalur Kerja Internal (Realisasi) */
+                IFNULL(t.spk_mpotong, 'N') AS Potong,
+                t.spk_repeat AS "Repeat",
+                
+                /* Status Kontrol / QC Produksi Eksternal */
+                IFNULL(t.spk_ppotong, 'N') AS QC_Potong,
+                IFNULL(t.spk_bordir, 'N') AS Bordir,
                 CAST(IFNULL(prod.total_pernah_cetak, 0) AS UNSIGNED) AS Sudah_Cetak,
-                CAST(GREATEST(0, t.spk_jumlah - IFNULL(prod.total_pernah_cetak, 0)) AS UNSIGNED) AS Kurang_Cetak,
-                'REGULER' as Tipe_SPK
+                IFNULL(t.spk_pcetak, 'N') AS QC_Cetak,
+                IFNULL(t.spk_invdc, '') AS DC,       
+                IFNULL(t.spk_pjahit, 'N') AS Jahit,
+                IFNULL(t.spk_pfinishing, 'N') AS Lipat,
+                
+                /* Logika Jadi */
+                CASE 
+                    WHEN t.spk_divisi IN ('1', '5') THEN CAST(IFNULL(prod.total_pernah_cetak, 0) AS UNSIGNED)
+                    WHEN t.spk_divisi = '3' AND TRIM(IFNULL(t.spk_invdc, '')) <> '' THEN CAST(IFNULL(dc_stock.total_stok_dc, 0) AS UNSIGNED)
+                    ELSE 0 
+                END AS Jadi,
+
+                /* Selisih Manufaktur */
+                CAST(GREATEST(0, t.spk_jumlah - (
+                    CASE 
+                        WHEN t.spk_divisi IN ('1', '5') THEN IFNULL(prod.total_pernah_cetak, 0)
+                        WHEN t.spk_divisi = '3' AND TRIM(IFNULL(t.spk_invdc, '')) <> '' THEN IFNULL(dc_stock.total_stok_dc, 0)
+                        ELSE 0 
+                    END
+                )) AS UNSIGNED) AS Kurang_Jadi,
+
+                0 AS Kurang_Potong,
+                0 AS Kurang_Bordir,
+                CAST(GREATEST(0, t.spk_jumlah - IFNULL(prod.total_pernah_cetak, 0)) AS UNSIGNED) AS Kurang_Cetak_Prod,
+                0 AS Kurang_QC_Cetak,
+                0 AS Kurang_Jahit,
+                0 AS Kurang_Lipat,
+                
+                t.spk_aktif AS Aktif,
+                t.spk_cmo AS Acc_MO, /* Di-alias kan ke Acc_MO untuk dibaca di sub-query luar x.* */
+                t.spk_newdesign AS design_baru,
+                t.spk_desain AS design_done,          
+
+                /* PIN System */
+                IFNULL((SELECT pin_acc FROM tspk_pin5 WHERE pin_trs="SPK" AND pin_nomor=t.spk_nomor ORDER BY pin_urut DESC LIMIT 1), "") as ppin,
+                IFNULL((SELECT pin_dipakai FROM tspk_pin5 WHERE pin_trs="SPK" AND pin_nomor=t.spk_nomor ORDER BY pin_urut DESC LIMIT 1), "") as ppakai,
+                t.spk_jumlah AS Jumlah
             FROM tspk t
-            LEFT JOIN v_help_spk v ON v.Spk = t.spk_nomor
+            
+            /* JOIN 1: Hitungan Cetak Mesin */
             LEFT JOIN (
                 SELECT ld_spk_nomor, SUM(ld_total_qtycetak) as total_pernah_cetak
                 FROM tlhk_mesin_dtl
                 GROUP BY ld_spk_nomor
             ) prod ON prod.ld_spk_nomor = t.spk_nomor
-            WHERE ${whereClause}
+            
+            /* JOIN 2: Hitungan Ambil Stok dari Gudang DC */
+            LEFT JOIN (
+                SELECT d.invd_inv_nomor, SUM(d.invd_jumlah) AS total_stok_dc
+                FROM retail.tinv_dtl d
+                INNER JOIN retail.tinv_hdr h ON d.invd_inv_nomor = h.inv_nomor
+                GROUP BY d.invd_inv_nomor
+            ) dc_stock ON dc_stock.invd_inv_nomor = t.spk_invdc
+            
+            WHERE ${whereClauseReguler}
 
             UNION ALL
 
             /* --- SECTION 2: MEMO SPK --- */
             SELECT 
                 m.mspk_nomor AS SPK, 
+                '' AS MO,
+                '' AS CMO,
+                m.mspk_tanggal AS Tanggal,
+                m.mspk_dateline AS Deadline,
+                'INTERNAL' AS Kepentingan,
+                m.mspk_divisi AS Divisi,              
                 m.mspk_nama AS Nama, 
-                '5' AS Divisi, 
-                m.mspk_tanggal AS Tanggal, 
-                m.mspk_jumlah AS Jumlah,
-                m.mspk_ukuran AS Ukuran, 
-                '' AS Bahan,
-                m.mspk_gramasi AS Gramasi,
+                m.mspk_cab AS Cabang,                 
+                m.mspk_workshop AS Workshop,          
+                'NORMAL' AS Pending,
+                '' AS Ket_Pending,
+                'MEMO' AS Tipe_SPK,
                 IFNULL(m.mspk_panjang, 0) AS Panjang, 
                 IFNULL(m.mspk_lebar, 0) AS Lebar,
-                'INTERNAL' AS Kepentingan,
-                '' AS CMO,
+                m.mspk_gramasi AS Gramasi,
+                m.mspk_kain AS Bahan,                 
+                m.mspk_finishing AS Finishing,        
+                m.mspk_keterangan AS Pesan,           
+                0 AS PraSJ,
+                0 AS Kirim,
+                '' AS Created,
+                m.mspk_nomor_po AS PO,                
+                '' AS Ket_PO,
+                m.mspk_tgl_po AS Dateline_PO,         
                 'Open' AS STATUS,
-                'Y' AS Aktif,
-                'NORMAL' AS Pending,
-                'ACC' AS AccPending,
+                '' AS Alasan_Close,
+                '' AS No_Penawaran,
+                '' AS MAP,
+                'N' AS Potong,                        
+                'N' AS "Repeat",
+                'N' AS QC_Potong,
+                'N' AS Bordir,
+                CAST(IFNULL(prod_m.total_pernah_cetak, 0) AS UNSIGNED) AS Sudah_Cetak,
+                'N' AS QC_Cetak,
+                '' AS DC,
+                'N' AS Jahit,
+                'N' AS Lipat,
+                CAST(IFNULL(prod_m.total_pernah_cetak, 0) AS UNSIGNED) AS Jadi,
+                
+                CAST(GREATEST(0, m.mspk_rencana_order - IFNULL(prod_m.total_pernah_cetak, 0)) AS UNSIGNED) AS Kurang_Jadi,
+                0 AS Kurang_Potong,
+                0 AS Kurang_Bordir,
+                CAST(GREATEST(0, m.mspk_rencana_order - IFNULL(prod_m.total_pernah_cetak, 0)) AS UNSIGNED) AS Kurang_Cetak_Prod, 
+                0 AS Kurang_QC_Cetak,
+                0 AS Kurang_Jahit,
+                0 AS Kurang_Lipat,
+                m.mspk_aktif AS Aktif,                
+                '' AS Acc_MO, /* Kosong untuk Memo karena tidak melalui approval CMO marketing */
                 'N' AS design_baru,
                 'Y' AS design_done,
-                'NULL' as ppin,
-                'NULL' as ppakai,
-                CAST(IFNULL(prod_m.total_pernah_cetak, 0) AS UNSIGNED) AS Sudah_Cetak,
-                CAST(GREATEST(0, m.mspk_jumlah - IFNULL(prod_m.total_pernah_cetak, 0)) AS UNSIGNED) AS Kurang_Cetak,
-                'MEMO' as Tipe_SPK
+                '' as ppin,
+                '' as ppakai,
+                m.mspk_rencana_order AS Jumlah        
             FROM tmemospk m
             LEFT JOIN (
                 SELECT ld_spk_nomor, SUM(ld_total_qtycetak) as total_pernah_cetak
                 FROM tlhk_mesin_dtl
                 GROUP BY ld_spk_nomor
             ) prod_m ON prod_m.ld_spk_nomor = m.mspk_nomor
-            WHERE m.mspk_divisi = '5'
+            WHERE ${whereClauseMemo}
         ) x
     `;
+};
+// ===================================
+// BROWSE DATA (UTAMA) - Menggunakan Query Perbaikan
+// ===================================
+exports.getAllSpkData = async (filters) => {
+    try {
+        const { startDate, endDate, keyword, cabang } = filters;
+        
+        let whereReguler = "1=1";
+        let whereMemo = "1=1";
+        const params = [];
+
+        // Masukkan parameter filter tanggal jika ada
+        if (startDate && endDate) {
+            whereReguler += ` AND t.spk_tanggal BETWEEN ? AND ?`;
+            whereMemo += ` AND m.mspk_tanggal BETWEEN ? AND ?`;
+            params.push(startDate, endDate, startDate, endDate);
+        }
+
+        // Masukkan parameter filter cabang jika dipilih selain 'ALL'
+        if (cabang && cabang !== 'ALL') {
+            whereReguler += ` AND t.spk_cab = ?`;
+            // Karena tabel tmemospk tidak punya kolom cabang, kita matikan atau bypass data memo jika filter cabang aktif
+            whereMemo += ` AND 'ALL' = ?`; 
+            params.push(cabang, cabang);
+        }
+
+        let sql = getBaseSpkQuery(whereReguler, whereMemo);
+
+        // Pencarian global berdasarkan keyword (SPK / Nama)
+        if (keyword) {
+            sql = `SELECT * FROM (${sql}) as sub WHERE SPK LIKE ? OR Nama LIKE ?`;
+            params.push(`%${keyword}%`, `%${keyword}%`);
+        }
+
+        sql += ` ORDER BY Tanggal DESC`;
+
+        const [rows] = await pool.query(sql, params);
+        return rows;
+    } catch (error) {
+        throwDbError('Gagal mengambil data Browse SPK secara keseluruhan', error);
+    }
 };
 
 /**
@@ -306,41 +441,7 @@ exports.getSpkLookupData = async (keyword) => {
     }
 };
 
-// ===================================
-// 1. BROWSE DATA (UTAMA) - Pengganti btnRefreshClick
-// ===================================
-exports.getAllSpkData = async (filters) => {
-    try {
-        const { startDate, endDate, keyword, cabang } = filters;
-        
-        let where = "1=1";
-        const params = [];
 
-        if (startDate && endDate) {
-            where += ` AND t.spk_tanggal BETWEEN ? AND ?`;
-            params.push(startDate, endDate);
-        }
-
-        if (cabang && cabang !== 'ALL') {
-            where += ` AND t.spk_cab = ?`;
-            params.push(cabang);
-        }
-
-        let sql = getBaseSpkQuery(where);
-
-        if (keyword) {
-            sql = `SELECT * FROM (${sql}) as sub WHERE SPK LIKE ? OR Nama LIKE ?`;
-            params.push(`%${keyword}%`, `%${keyword}%`);
-        }
-
-        sql += ` ORDER BY Tanggal DESC`;
-
-        const [rows] = await pool.query(sql, params);
-        return rows;
-    } catch (error) {
-        throwDbError('Gagal mengambil data Browse SPK', error);
-    }
-};
 
 // ===================================
 // 2. DETAIL SIZE (Expanded Row Logic)

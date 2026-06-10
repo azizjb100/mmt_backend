@@ -20,6 +20,33 @@ exports.getReport = async (req, res) => {
   }
 };
 
+exports.getReportDetail = async (req, res) => {
+  try {
+    const { startDate, endDate, gdgKode, brgKode } = req.query;
+
+    if (!startDate || !endDate || !brgKode) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Parameter tidak lengkap (startDate, endDate, dan brgKode wajib diisi).' 
+      });
+    }
+
+    // Memanggil fungsi detail yang berada di service
+    const detailData = await service.getReportDetailByItem(startDate, endDate, gdgKode, brgKode);
+
+    res.json({
+      success: true,
+      data: detailData
+    });
+  } catch (error) {
+    console.error('Gagal mengambil detail laporan:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Gagal mengambil detail laporan', 
+      error: error.message 
+    });
+  }
+};
 
 // Fungsi Baru untuk Total Roll Saat Ini
 exports.getTotalRoll = async (req, res) => {
