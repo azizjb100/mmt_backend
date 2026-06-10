@@ -117,61 +117,137 @@ const generateNewNomor = async (date, connection = null) => {
 const saveLhk = async (data) => {
     const { header, details } = data;
     const conn = await pool.getConnection();
+    const currentStatus = header.lstatus || 'DRAFT';
+
+    if (!header || !Array.isArray(details) || details.length === 0) {
+        if (conn) conn.release();
+        throw new Error("Data header atau detail kerja tidak boleh kosong.");
+    }
 
     try {
         await conn.beginTransaction();
 
         let nomorLhk = header.nomor;
+        const now = new Date();
+        const dateToUse = header.tanggal ? new Date(header.tanggal) : now;
+        const formattedDate = format(dateToUse, 'yyyy-MM-dd');
+        const userAction = header.user || 'SYSTEM';
 
-        // Logika IF FLAGEDIT di Delphi
+        // 1. OLAH DATA MASTER HEADER
         if (!nomorLhk || nomorLhk === 'AUTO') {
             nomorLhk = await generateNewNomor(header.tanggal, conn);
             
             const sqlInsHeader = `
                 INSERT INTO tlhk_proofmmt_hdr (
                     lpr_nomor, lpr_tanggal, lpr_gdg_kode, lpr_jenis, 
-                    lpr_keterangan, lpr_date_create, lpr_user_create
-                ) VALUES (?, ?, ?, ?, ?, NOW(), ?)
+                    lpr_keterangan, lpr_date_create, lpr_user_create, lpr_status
+                ) VALUES (?, ?, ?, ?, ?, NOW(), ?, ?)
             `;
             await conn.query(sqlInsHeader, [
-                nomorLhk, header.tanggal, header.gdgKode, header.jenis, 
-                header.keterangan, header.user || 'SYSTEM'
+                nomorLhk, formattedDate, header.gdgKode, header.jenis, 
+                header.keterangan, userAction, currentStatus
             ]);
         } else {
+            // Jika mode edit, bersihkan histori stok lama yang bersumber dari nomor referensi ini
             const sqlUpdHeader = `
                 UPDATE tlhk_proofmmt_hdr SET 
                     lpr_tanggal = ?, lpr_gdg_kode = ?, lpr_jenis = ?, 
-                    lpr_keterangan = ?, lpr_date_modified = NOW(), lpr_user_modified = ?
+                    lpr_keterangan = ?, lpr_date_modified = NOW(), lpr_user_modified = ?, lpr_status = ?
                 WHERE lpr_nomor = ?
             `;
             await conn.query(sqlUpdHeader, [
-                header.tanggal, header.gdgKode, header.jenis, 
-                header.keterangan, header.user || 'SYSTEM', nomorLhk
+                formattedDate, header.gdgKode, header.jenis, 
+                header.keterangan, userAction, currentStatus, nomorLhk
             ]);
 
-            // Hapus detail lama (Logika tt.Append('delete from...') di Delphi)
+            // Bersihkan data dtl & stok lama sebelum di-overwrite (Anti duplikasi data ganda)
             await conn.query('DELETE FROM tlhk_proofmmt_dtl WHERE lprd_lpr_nomor = ?', [nomorLhk]);
+            await conn.query('DELETE FROM tmasterstok_mmt WHERE mst_noreferensi = ?', [nomorLhk]);
         }
 
-        // Simpan Detail baru
+        // 2. OLAH BULK INSERT DATA DETAIL WORK-FLOW
         if (details && details.length > 0) {
             const sqlDetail = `
                 INSERT INTO tlhk_proofmmt_dtl (
                     lprd_lpr_nomor, lprd_spk_nomor, lprd_panjang, lprd_lebar, 
-                    lprd_j_proof, lprd_lokasi, lprd_bahan, lprd_keterangan, lprd_no_urut
+                    lprd_j_proof, lprd_barcode, lprd_lokasi, lprd_bahan, lprd_keterangan, lprd_no_urut
                 ) VALUES ?
             `;
             const values = details.map((d, i) => [
                 nomorLhk, d.nomor_spk, d.panjang || 0, d.lebar || 0, 
-                d.aktual_proof || 0, d.lokasi, d.jenis_bahan, d.keterangan, i + 1
+                d.aktual_proof || 0, d.barcode_detail || null, d.lokasi, d.jenis_bahan, d.keterangan, i + 1
             ]);
             await conn.query(sqlDetail, [values]);
         }
 
+        // 3. LOGIKA ENGINE POTONG STOK OTOMATIS (EXACTLY MATCH LHK MESIN CETAK)
+        if (currentStatus === 'POSTED') {
+            // Lakukan looping per item detail kerja proofing
+            for (let i = 0; i < details.length; i++) {
+                const d = details[i];
+                const usedBarcode = d.barcode_detail;
+                
+                // Ambil hitungan meter terpakai (Luas m2 atau cetak meter linear)
+                // Jika data layout proof Anda linier, ganti kalkulasi di bawah sesuai preferensi operasional
+                const ambilPanjang = Number(d.panjang_roll_awal || d.panjang || 0); 
+                const sisaPanjang = Number(d.sisabahan || 0);
+                const sisaLebar = Number(d.sisabahanlebar || d.lebar || 0);
+
+                if (usedBarcode && ambilPanjang > 0) {
+                    // Ambil master cost & properties lama dari roll utama sebelum dipotong
+                    const [oldStockData] = await conn.query(`
+                        SELECT mst_brg_kode, mst_hargabeli, mst_satuan_harga, mst_lebar 
+                        FROM tmasterstok_mmt 
+                        WHERE mst_barcode = ? 
+                        LIMIT 1
+                    `, [usedBarcode]);
+
+                    if (oldStockData.length > 0) {
+                        const brgKode = oldStockData[0].mst_brg_kode;
+                        const hargaBeliLama = oldStockData[0].mst_hargabeli;
+                        const satuanHargaLama = oldStockData[0].mst_satuan_harga;
+                        const lebarAwal = oldStockData[0].mst_lebar;
+
+                        const finalLebarInput = (sisaLebar > 0) ? sisaLebar : lebarAwal;
+
+                        // A. MUTASI KELUAR (Habiskan Unit Roll Lama Dari Kartu Stok)
+                        await conn.query(`
+                            INSERT INTO tmasterstok_mmt (
+                                mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
+                                mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi,
+                                mst_hargabeli, mst_satuan_harga, mst_tanggal, mst_barcode, mst_kategori
+                            ) VALUES (?, ?, 0, 1, ?, ?, ?, ?, ?, ?, ?, ?, 'ROLL')
+                        `, [
+                            brgKode, header.gdgKode, ambilPanjang, lebarAwal, 
+                            d.nomor_spk, nomorLhk, hargaBeliLama, satuanHargaLama, formattedDate, usedBarcode
+                        ]);
+
+                        // B. MUTASI MASUK (Kembalikan Sisa Potongan Bahan Yang Masih Bisa Dipakai)
+                        if (sisaPanjang > 0) {
+                            const kategoriSisa = getKategori(sisaPanjang, finalLebarInput);
+                            await conn.query(`
+                                INSERT INTO tmasterstok_mmt (
+                                    mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
+                                    mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi,
+                                    mst_hargabeli, mst_satuan_harga, mst_tanggal, mst_barcode,
+                                    mst_kategori
+                                ) VALUES (?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            `, [
+                                brgKode, header.gdgKode, sisaPanjang, finalLebarInput, 
+                                d.nomor_spk, nomorLhk, hargaBeliLama, satuanHargaLama, formattedDate, usedBarcode,
+                                kategoriSisa
+                            ]);
+                        }
+                    }
+                }
+            }
+        }
+
         await conn.commit();
-        return { success: true, nomor: nomorLhk };
+        return { success: true, nomor: nomorLhk, status: currentStatus };
     } catch (error) {
         await conn.rollback();
+        console.error("Proses pembukuan stok LHK Proof Gagal:", error);
         throw error;
     } finally {
         conn.release();

@@ -385,9 +385,9 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
 
     // Helper Fungsi untuk menentukan kategori berdasarkan dimensi
     const getKategori = (panjang, lebar) => {
-        // ROLL jika panjang >= 3 meter DAN lebar >= 0.5 meter. Selain itu SCRAP.
+        // GANTI DI SINI: Jika memenuhi syarat roll sisa layak pakai, simpan sebagai RETUR (Sisa Produksi)
         if (panjang >= 3 && lebar >= 0.5) {
-            return 'ROLL';
+            return 'RETUR'; 
         }
         return 'SCRAP';
     };
@@ -539,7 +539,7 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
                         mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
                         mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi,
                         mst_hargabeli, mst_satuan_harga, mst_tanggal, mst_barcode, mst_kategori
-                    ) VALUES (?, ?, 0, 1, ?, ?, ?, ?, ?, ?, ?, ?, 'ROLL')
+                    ) VALUES (?, ?, 0, 1, ?, ?, ?, ?, ?, ?, ?, ?, 'RETUR')
                 `, [
                     usedKodeBahan, headerData.lgdg_prod, maxAmbilPanjang, initialLebar, 
                     combinedSpkNomor, finalNomor, hargaBeliLama, satuanHargaLama, formattedDate, usedBarcode

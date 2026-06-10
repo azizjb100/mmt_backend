@@ -481,73 +481,51 @@ const generateAppNomor = async (date, connection) => {
  * 2. Simpan Detail ke tlhk_tekstilmmt_dtl
  * 3. Update status di tlhk_mesintekstil_hdr menjadi 'APPROVED'
  */
-/**
- * Fungsi Approve: Menyalin data dari LHK Mesin ke LHK Tekstil (Rekap/Approval)
- * Tanpa memproses stok dan status diubah menjadi 'APPROVE'
- */
 const saveApproval = async (data) => {
-    const { header, details } = data;
+    // 1. Tangkap properti inkData yang dikirim dari frontend
+    const { header, details, inkData } = data; 
     const conn = await pool.getConnection();
 
     try {
         await conn.beginTransaction();
 
-        // 1. Generate Nomor Baru
+        // Generate Nomor Approval Baru
         const nomorApp = await generateAppNomor(header.tanggal, conn);
 
-        // 2. Simpan ke Header Rekap (tlhk_tekstilmmt_hdr)
+        const sampleBrgKode = details && details.length > 0 ? (details[0].brg_kode || '') : '';
+        const sampleBarcode = details && details.length > 0 ? (details[0].barcode || '') : '';
+
+        // 2. Simpan ke Header Rekap
         const sqlInsHeader = `
             INSERT INTO tlhk_tekstilmmt_hdr (
                 lth_nomor, lth_tanggal, lth_shift, lth_gdg_prod, 
                 lth_user_create, lth_date_create, lth_brg_kode, lth_barcode, lth_status
             ) VALUES (?, ?, ?, ?, ?, NOW(), ?, ?, ?)
         `;
-        
         await conn.query(sqlInsHeader, [
-            nomorApp, 
-            header.tanggal, 
-            header.shift || 1, 
-            header.gdgKode || '', 
-            header.admin || 'ADMIN', 
-            header.brg_kode || '', 
-            header.barcode_input || '', 
-            'APPROVE' 
+            nomorApp, header.tanggal, Number(header.shift) || 1, header.gdgKode || '', 
+            header.admin || 'ADMIN', sampleBrgKode, sampleBarcode, 'APPROVE' 
         ]);
 
-        // 3. Simpan Detail ke (tlhk_tekstilmmt_dtl)
+        // 3. Simpan Detail Pekerjaan
         if (details && details.length > 0) {
             const sqlDetail = `
                 INSERT INTO tlhk_tekstilmmt_dtl (
                     ltd_lth_nomor, ltd_no_urut, ltd_jns_mesin, ltd_spk_nomor, 
-                    ltd_qty_Cetak, ltd_brg_kode, ltd_panjang_pakai, ltd_lebar_pakai
+                    ltd_qty_Cetak, ltd_brg_kode, ltd_panjang_pakai, ltd_lebar_pakai,
+                    ltd_lth_mesin_nomor, ltd_shift
                 ) VALUES ?
             `;
-            
-            const values = details.map((d, i) => {
-                // PROTEKSI: Pastikan angka valid (tidak NaN)
-                const panjang = parseFloat(d.panjang_per_pcs) || 0;
-                const qty = parseFloat(d.jumlah_cetak) || 0;
-                const lebar = parseFloat(d.lebar_spk) || 0;
-                const totalPakai = panjang * qty;
-
-                return [
-                    nomorApp, 
-                    i + 1, 
-                    d.mesin || '', 
-                    d.nomor_spk || '', 
-                    qty, 
-                    header.brg_kode || '', 
-                    totalPakai, // Sudah diproteksi dari NaN
-                    lebar
-                ];
-            });
-
+            const values = details.map((d, i) => [
+                nomorApp, i + 1, d.mesin || '', d.nomor_spk || '', 
+                parseFloat(d.qty || d.jumlah_cetak) || 0, d.brg_kode || sampleBrgKode, 
+                parseFloat(d.total_m2) || 0, parseFloat(d.lebar || d.lebar_spk) || 0,
+                d.lhk_mesin || '', Number(d.shift) || Number(header.shift) || 1
+            ]);
             await conn.query(sqlDetail, [values]);
 
-            // 4. Update status di tabel ASAL (tlhk_mesintekstil_hdr)
-            // Gunakan d.lhk_nomor sesuai dengan key yang dikirim frontend
-            const lhkNomorsAsal = details.map(d => d.lhk_nomor).filter(n => n); 
-            
+            // Update status di tabel LHK Mesin asal menjadi APPROVED
+            const lhkNomorsAsal = details.map(d => d.lhk_mesin).filter(n => n && n !== "MANUAL"); 
             if (lhkNomorsAsal.length > 0) {
                 await conn.query(
                     `UPDATE tlhk_mesintekstil_hdr SET lth_status = 'APPROVED' WHERE lth_nomor IN (?)`,
@@ -556,8 +534,37 @@ const saveApproval = async (data) => {
             }
         }
 
+        // ==========================================
+        // 🔥 TAMBAHAN LOGIKA BARU: SIMPAN DATA TINTA
+        // ==========================================
+        if (inkData && inkData.length > 0) {
+    // 1. Filter ulang di backend untuk membuang item jika lci_msn_kode bernilai null/empty
+    const validInkData = inkData.filter(ink => ink.lci_msn_kode && ink.lci_msn_kode.trim() !== "");
+
+    // 2. Jika setelah difilter masih ada data yang valid, lakukan bulk insert
+    if (validInkData.length > 0) {
+        const sqlInk = `
+            INSERT INTO tlhk_cetakmmt_ink (
+                lci_lch_nomor, lci_msn_kode, lci_tipe, lci_c, lci_m, lci_y, lci_k
+            ) VALUES ?
+        `;
+        
+        const inkValues = validInkData.map((ink) => [
+            nomorApp, // Nomor approval utama rekap tekstil (lci_lch_nomor)
+            ink.lci_msn_kode, // Dijamin tidak null karena sudah lolos filter di atas
+            ink.lci_tipe || 'Tekstil',
+            parseFloat(ink.lci_c) || 0,
+            parseFloat(ink.lci_m) || 0,
+            parseFloat(ink.lci_y) || 0,
+            parseFloat(ink.lci_k) || 0
+        ]);
+
+        await conn.query(sqlInk, [inkValues]);
+    }
+}
+
         await conn.commit();
-        return { success: true, nomor: nomorApp, message: 'LHK Berhasil di-Approve' };
+        return { success: true, nomor: nomorApp, message: 'LHK Berhasil di-Approve beserta Data Tinta' };
 
     } catch (error) {
         await conn.rollback();
@@ -613,11 +620,13 @@ const getApprovalDetailsByNomor = async (nomor) => {
             d.ltd_jns_mesin AS Mesin, 
             d.ltd_spk_nomor AS Nomor_SPK, 
             x.spk_nama AS Nama_SPK,
-            d.ltd_qty_Cetak AS Jml_Cetak, 
+            d.ltd_qty_cetak AS Jml_Cetak, 
             d.ltd_brg_kode AS Kode_Bahan, 
             b.brg_nama AS Nama_Bahan,
             d.ltd_panjang_pakai AS Total_Panjang,
-            d.ltd_lebar_pakai AS Lebar
+            d.ltd_lebar_pakai AS Lebar,
+            d.ltd_lth_mesin_nomor AS Nomor_Lhk_Mesin, -- Ambil nomor LHK Mesin asal
+            d.ltd_shift AS ShiftDetail                 -- Ambil shift detail
         FROM tlhk_tekstilmmt_dtl d
         LEFT JOIN tbarang_mmt b ON d.ltd_brg_kode = b.brg_kode
         LEFT JOIN (

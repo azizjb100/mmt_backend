@@ -9,6 +9,8 @@ router.get('/lookup', spkController.getSpkLookup);
 
 router.get('/lookup-jadwal', spkController.lookupSpkForJadwal);
 
+router.get('/lookup-mesin', spkController.getSpkForMesinLookup);
+
 router.get('/detail-size/:nomor', spkController.getSpkDetailSize);
 router.get('/print/:nomor', spkController.printSpk);
 router.get('/:nomor', spkController.getSpkDetail); // Letakkan paling bawah dari group SPK

@@ -398,3 +398,84 @@ exports.getSpkForPrint = async (nomor) => {
         throwDbError(`Gagal memproses data cetak SPK ${nomor}`, error);
     }
 };
+
+
+const getBaseSpkRegulerOnlyQuery = (whereClause = "1=1") => {
+    return `
+        SELECT x.*,
+            /* Logika Warna/Status PIN (Ngedit) untuk Frontend */
+            IFNULL(
+                IF(x.ppin='N', 'TOLAK',
+                    IF(x.ppin='Y' AND x.ppakai='', 'ACC',
+                        IF(x.ppin='Y' AND x.ppakai='Y', '', 
+                            IF(x.ppin='WAIT', 'WAIT', '')
+                        )
+                    )
+                ), ''
+            ) AS Ngedit
+        FROM (
+            SELECT 
+                t.spk_nomor AS SPK, 
+                t.spk_nama AS Nama, 
+                v.divisi AS Divisi, 
+                t.spk_tanggal AS Tanggal, 
+                t.spk_jumlah AS Jumlah,
+                t.spk_ukuran AS Ukuran, 
+                t.spk_kain AS Bahan, 
+                t.spk_gramasi AS Gramasi,
+                IFNULL(t.spk_panjang, 0) AS Panjang, 
+                IFNULL(t.spk_lebar, 0) AS Lebar,
+                t.spk_statuskerja AS Kepentingan,
+                t.spk_cmo AS CMO,
+                IF(t.spk_close=1, 'Closed', 'Open') AS STATUS,
+                t.spk_aktif AS Aktif,
+                t.spk_pending AS Pending,
+                t.spk_accpending AS AccPending,
+                t.spk_newdesign AS design_baru,
+                t.spk_designdone AS design_done,
+
+                /* PIN System (Logika Ngedit) */
+                IFNULL((SELECT pin_acc FROM tspk_pin5 WHERE pin_trs="SPK" AND pin_nomor=t.spk_nomor ORDER BY pin_urut DESC LIMIT 1), "NULL") as ppin,
+                IFNULL((SELECT pin_dipakai FROM tspk_pin5 WHERE pin_trs="SPK" AND pin_nomor=t.spk_nomor ORDER BY pin_urut DESC LIMIT 1), "NULL") as ppakai,
+
+                /* Akumulasi Produksi (Sudah Cetak) */
+                CAST(IFNULL(prod.total_pernah_cetak, 0) AS UNSIGNED) AS Sudah_Cetak,
+                CAST(GREATEST(0, t.spk_jumlah - IFNULL(prod.total_pernah_cetak, 0)) AS UNSIGNED) AS Kurang_Cetak,
+                'REGULER' as Tipe_SPK
+            FROM tspk t
+            LEFT JOIN v_help_spk v ON v.Spk = t.spk_nomor
+            LEFT JOIN (
+                SELECT ld_spk_nomor, SUM(ld_total_qtycetak) as total_pernah_cetak
+                FROM tlhk_mesin_dtl
+                GROUP BY ld_spk_nomor
+            ) prod ON prod.ld_spk_nomor = t.spk_nomor
+            WHERE ${whereClause}
+        ) x
+    `;
+};
+
+/**
+ * Mengambil data SPK Reguler untuk kebutuhan Mesin / LHK Mesin
+ * Menyediakan fitur pencarian keyword dan pembatasan limit
+ */
+exports.getSpkForMesin = async (keyword) => {
+    try {
+        let sql = `SELECT * FROM (${getBaseSpkRegulerOnlyQuery("t.spk_aktif = 'Y'")}) AS spk_mesin`;
+        const params = [];
+
+        // Jika ada pencarian berdasarkan nomor SPK atau nama order
+        if (keyword) {
+            sql += ` WHERE (SPK LIKE ? OR Nama LIKE ?)`;
+            const searchKeyword = `%${keyword}%`;
+            params.push(searchKeyword, searchKeyword);
+        }
+
+        // Urutkan dari yang terbaru dan batasi row agar lookup tetap enteng
+        sql += ` ORDER BY Tanggal DESC LIMIT 100`;
+        
+        const [rows] = await pool.query(sql, params);
+        return rows;
+    } catch (error) {
+        throwDbError('Gagal mengambil data SPK khusus Mesin', error);
+    }
+};

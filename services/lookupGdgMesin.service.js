@@ -50,17 +50,21 @@ const getGudangLookup = async (mode, divisi) => {
     let whereClause = "";
     let params = [];
 
-    if (mode === 'jadi') {
-        // Logika Delphi: Filter berdasarkan zdivisi
-        if (divisi == '1') {
-            whereClause = "WHERE gdg_jadi = 1";
-        } else if (divisi == '4') {
+    // 1. KUNCI UTAMA: Jika user adalah divisi 1, PAKSA hanya bisa melihat gdg_jadi = 1
+    // Ini akan berjalan di mode 'jadi' maupun mode 'all'
+    if (divisi == '1') {
+        whereClause = "WHERE gdg_jadi = 1";
+    } 
+    // 2. UNTUK DIVISI SELAIN 1
+    else if (mode === 'jadi') {
+        // Logika Delphi bawaan untuk divisi lain
+        if (divisi == '4') {
             whereClause = "WHERE gdg_jadi = 4";
         } else {
             whereClause = "WHERE gdg_jadi <> 0";
         }
     } else {
-        // Mode 'all': Tampilkan semua tanpa filter gdg_jadi
+        // Mode 'all' untuk divisi selain 1: Tampilkan semua gudang
         whereClause = ""; 
     }
 

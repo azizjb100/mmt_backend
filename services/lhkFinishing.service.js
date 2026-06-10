@@ -97,7 +97,7 @@ const finalizeBundling = async (headerData, detailItems, userLogin) => {
             // Destructuring untuk menghapus field temporary dari frontend
             const { lfh_total_ma, lfh_total_koli, ...headerToInsert } = headerData;
 
-            // PERBAIKAN: Masukkan lfh_nomor dan lfh_user_create secara eksplisit
+            // Masukkan lfh_nomor dan lfh_user_create secara eksplisit
             const finalHeader = { 
                 ...headerToInsert, 
                 lfh_nomor: lfh_nomor,
@@ -113,11 +113,12 @@ const finalizeBundling = async (headerData, detailItems, userLogin) => {
         for (const item of detailItems) {
             const kategori = (item.proses_kategori || '').toUpperCase().replace(/\s+/g, '_');
             
-            // Kumpulkan ID Pra-LHK untuk update status bundling nanti
+            // PERBAIKAN: Pastikan ID yang di-push berupa tipe data Number/Integer agar query IN (?) tidak gagal
             if (item.ids) {
-                allOriginalIds.push(...String(item.ids).split(','));
+                const splitIds = String(item.ids).split(',').map(id => Number(id.trim())).filter(id => !isNaN(id));
+                allOriginalIds.push(...splitIds);
             } else if (item.id) {
-                allOriginalIds.push(item.id);
+                allOriginalIds.push(Number(item.id));
             }
 
             // Tentukan kolom mana yang akan diupdate berdasarkan kategori proses
@@ -143,15 +144,23 @@ const finalizeBundling = async (headerData, detailItems, userLogin) => {
 
             if (existingDtl.length > 0) {
                 // --- JIKA SUDAH ADA: UPDATE ---
+                // Pastikan kolomTarget valid sebelum digabungkan ke query string untuk menghindari SQL Injection
+                const setKolomTarget = kolomTarget ? `${kolomTarget} = ${kolomTarget} + ?,` : '';
+                
                 const sqlUpdate = `
                     UPDATE tlhk_finishingmmt_dtl 
-                    SET ${kolomTarget} = ${kolomTarget} + ?,
+                    SET ${setKolomTarget}
                         lfd_j_bs = lfd_j_bs + ?,
                         lfd_mataayam_qty = lfd_mataayam_qty + ?,
                         lfd_karung_qty = lfd_karung_qty + ?
                     WHERE lfd_lfh_nomor = ? AND lfd_spk_nomor = ?
                 `;
-                await conn.query(sqlUpdate, [qtyHasil, qtyBs, qtyMa, qtyKr, lfh_nomor, item.spk_nomor]);
+
+                const updateValues = [];
+                if (kolomTarget) updateValues.push(qtyHasil);
+                updateValues.push(qtyBs, qtyMa, qtyKr, lfh_nomor, item.spk_nomor);
+
+                await conn.query(sqlUpdate, updateValues);
             } else {
                 // --- JIKA BELUM ADA: INSERT BARU ---
                 const [lastSeq] = await conn.query(
@@ -181,11 +190,11 @@ const finalizeBundling = async (headerData, detailItems, userLogin) => {
                 await conn.query(sqlInsert, values);
             }
 
-            // 4. LOGIKA POTONG STOK
+            // 4. LOGIKA POTONG STOK (Mata Ayam / Karung Koli)
             let qtyPakaiStok = (kategori === 'MATA_AYAM') ? qtyMa : (kategori === 'KOLI' ? qtyKr : 0);
             if (qtyPakaiStok > 0 && item.material_kode) {
                 const dataStokOut = {
-                    mst_brg_kode: item.material_kode,
+                    brg_kode: item.material_kode, // Menggunakan prefix brg_ sesuai standardisasi backend baru
                     mst_gdg_kode: 'GPM',
                     mst_barcode: '-',
                     mst_stok_in: 0,
@@ -197,6 +206,9 @@ const finalizeBundling = async (headerData, detailItems, userLogin) => {
                 };
                 await conn.query(`INSERT INTO tmasterstok_mmt SET ?`, [dataStokOut]);
             }
+
+            // OPTIONAL: Jika proses Cetak/Potong menghasilkan BS dan mengurangi bahan MMT utama,
+            // Anda bisa menyisipkan query potong stok tambahan untuk `qtyBs` di sini apabila diperlukan.
         }
 
         // 5. UPDATE STATUS DI TABEL PRA-LHK
