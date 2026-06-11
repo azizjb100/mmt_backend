@@ -44,6 +44,7 @@ const getBaseSpkQuery = (whereClauseReguler = "1=1", whereClauseMemo = "1=1") =>
                 'REGULER' AS Tipe_SPK,
                 IFNULL(t.spk_panjang, 0) AS Panjang, 
                 IFNULL(t.spk_lebar, 0) AS Lebar,
+                t.spk_ukuran AS Ukuran,
                 t.spk_gramasi AS Gramasi,
                 t.spk_kain AS Bahan, 
                 t.spk_finishing AS Finishing,
@@ -142,7 +143,9 @@ const getBaseSpkQuery = (whereClauseReguler = "1=1", whereClauseMemo = "1=1") =>
                 'MEMO' AS Tipe_SPK,
                 IFNULL(m.mspk_panjang, 0) AS Panjang, 
                 IFNULL(m.mspk_lebar, 0) AS Lebar,
+                m.mspk_ukuran AS Ukuran,
                 m.mspk_gramasi AS Gramasi,
+
                 m.mspk_kain AS Bahan,                 
                 m.mspk_finishing AS Finishing,        
                 m.mspk_keterangan AS Pesan,           

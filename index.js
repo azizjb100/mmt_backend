@@ -4,6 +4,7 @@ const cookieParser = require("cookie-parser");
 const fs = require("fs");
 const path = require("path");
 const clientCertAuth = require("./middleware/clientCertAuth");
+const imageFolderPath = "/mnt/image"; 
 
 require("dotenv").config();
 
@@ -80,7 +81,7 @@ const allowedOrigins = [
 ];
 
 // Folder dan direktori yang dibutuhkan
-const imageFolderPath = path.join(process.cwd(), "public", "images");
+app.use("/images", express.static(imageFolderPath));
 const requiredDirs = [
     path.join(process.cwd(), "temp"),
     path.join(process.cwd(), "public"),
@@ -109,7 +110,6 @@ app.use(
 app.use(express.json());
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
-app.use("/images", express.static(imageFolderPath));
 app.disable("etag");
 
 requiredDirs.forEach((dir) => {
