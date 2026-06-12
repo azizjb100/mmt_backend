@@ -360,6 +360,8 @@ exports.getStbjFullDetail = async (nomorStbj) => {
 
 exports.getSpkForJadwalKirimLookup = async (keyword) => {
     try {
+        // PERBAIKAN UTAMA: Ditambahkan tanda $ pada fungsi di bawah ini
+        const baseQuery = getBaseSpkQuery();
         const sql = `
             SELECT 
                 combined.SPK,
@@ -372,9 +374,7 @@ exports.getSpkForJadwalKirimLookup = async (keyword) => {
                 CAST(GREATEST(0, combined.Jumlah - IFNULL(jdwl.total_terjadwal, 0)) AS UNSIGNED) AS Belum_Kirim,
                 combined.Tipe_SPK,
                 combined.Ngedit
-            FROM (
-                ${getBaseSpkQuery()}
-            ) AS combined
+            FROM (${baseQuery}) AS combined
             LEFT JOIN (
                 SELECT spk_nomor, SUM(jumlah) AS total_terjadwal
                 FROM tjadwalkirim
@@ -519,14 +519,17 @@ const getBaseSpkRegulerOnlyQuery = (whereClause = "1=1") => {
                 FROM tlhk_mesin_dtl
                 GROUP BY ld_spk_nomor
             ) prod ON prod.ld_spk_nomor = t.spk_nomor
-            WHERE \${whereClause}
+            WHERE ${whereClause}
         ) x
     `;
 };
 
 exports.getSpkForMesin = async (keyword) => {
     try {
-        let sql = `SELECT * FROM (\${getBaseSpkRegulerOnlyQuery("t.spk_aktif = 'Y'")}) AS spk_mesin`;
+        // Menggunakan variabel terpisah agar string SQL ter-compile dengan sempurna oleh Node.js
+        const baseQuery = getBaseSpkRegulerOnlyQuery("t.spk_aktif = 'Y'");
+        let sql = `SELECT * FROM (${baseQuery}) AS spk_mesin`;
+        
         const params = [];
 
         if (keyword) {
