@@ -3,6 +3,18 @@ const { format } = require('date-fns');
 
 const NOMERATOR = 'MMT-LHK-P';
 
+// 🔥 HELPER FUNCTION: Menentukan kategori sisa potongan bahan otomatis
+const getKategori = (panjang, lebar) => {
+    // Anda bisa menyesuaikan threshold (batas) ini sesuai aturan operasional gudang Anda
+    if (panjang >= 10) {
+        return 'ROLL';   // Jika sisa panjang masih besar, masuk kategori Roll kembali
+    } else if (panjang >= 1 && panjang < 10) {
+        return 'RETUR';  // Sisa potongan tanggung yang masih bisa dipakai printing retail
+    } else {
+        return 'SCRAP';  // Sisa ukuran kecil / afal nyempil
+    }
+};
+
 /**
  * Mengambil daftar master LHK Proof (Browse)
  */
@@ -148,7 +160,6 @@ const saveLhk = async (data) => {
                 header.keterangan, userAction, currentStatus
             ]);
         } else {
-            // Jika mode edit, bersihkan histori stok lama yang bersumber dari nomor referensi ini
             const sqlUpdHeader = `
                 UPDATE tlhk_proofmmt_hdr SET 
                     lpr_tanggal = ?, lpr_gdg_kode = ?, lpr_jenis = ?, 
@@ -160,7 +171,6 @@ const saveLhk = async (data) => {
                 header.keterangan, userAction, currentStatus, nomorLhk
             ]);
 
-            // Bersihkan data dtl & stok lama sebelum di-overwrite (Anti duplikasi data ganda)
             await conn.query('DELETE FROM tlhk_proofmmt_dtl WHERE lprd_lpr_nomor = ?', [nomorLhk]);
             await conn.query('DELETE FROM tmasterstok_mmt WHERE mst_noreferensi = ?', [nomorLhk]);
         }
@@ -180,18 +190,15 @@ const saveLhk = async (data) => {
             await conn.query(sqlDetail, [values]);
         }
 
-        // 3. LOGIKA ENGINE POTONG STOK OTOMATIS (EXACTLY MATCH LHK MESIN CETAK)
+        // 3. LOGIKA ENGINE POTONG STOK OTOMATIS
         if (currentStatus === 'POSTED') {
-            // Lakukan looping per item detail kerja proofing
             for (let i = 0; i < details.length; i++) {
                 const d = details[i];
                 const usedBarcode = d.barcode_detail;
                 
-                // Ambil hitungan meter terpakai (Luas m2 atau cetak meter linear)
-                // Jika data layout proof Anda linier, ganti kalkulasi di bawah sesuai preferensi operasional
-                const ambilPanjang = Number(d.panjang_roll_awal || d.panjang || 0); 
+                const ambilPanjang = Number(d.panjang_roll_awal || 0); 
                 const sisaPanjang = Number(d.sisabahan || 0);
-                const sisaLebar = Number(d.sisabahanlebar || d.lebar || 0);
+                const sisaLebar = Number(d.sisabahanlebar || 0);
 
                 if (usedBarcode && ambilPanjang > 0) {
                     // Ambil master cost & properties lama dari roll utama sebelum dipotong
@@ -210,7 +217,7 @@ const saveLhk = async (data) => {
 
                         const finalLebarInput = (sisaLebar > 0) ? sisaLebar : lebarAwal;
 
-                        // A. MUTASI KELUAR (Habiskan Unit Roll Lama Dari Kartu Stok)
+                        // A. MUTASI KELUAR (Habiskan unit roll awal sebelum dipecah sisa potongan barunya)
                         await conn.query(`
                             INSERT INTO tmasterstok_mmt (
                                 mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
@@ -222,7 +229,7 @@ const saveLhk = async (data) => {
                             d.nomor_spk, nomorLhk, hargaBeliLama, satuanHargaLama, formattedDate, usedBarcode
                         ]);
 
-                        // B. MUTASI MASUK (Kembalikan Sisa Potongan Bahan Yang Masih Bisa Dipakai)
+                        // B. MUTASI MASUK (Kembalikan sisa panjang meter gulungan yang belum terpakai)
                         if (sisaPanjang > 0) {
                             const kategoriSisa = getKategori(sisaPanjang, finalLebarInput);
                             await conn.query(`

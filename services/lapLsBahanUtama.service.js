@@ -16,11 +16,13 @@ const getReport = async (startDate, endDate, gdgKode) => {
       a.brg_kode AS kode, 
       a.brg_nama AS Nama, 
       jb.jb_nama, 
+      
+      /* ================= DYNAMIC STATUS BARANG ================= */
       CASE 
-          WHEN a.brg_status = 'F' THEN 'Fast Moving'
-          WHEN a.brg_status = 'S' THEN 'Slow Moving'
-          WHEN a.brg_status = 'R' THEN 'Regular'
-          ELSE ''
+          WHEN c.tgl_terakhir_mutasi IS NULL THEN 'Slow Moving' -- Tidak pernah ada mutasi sama sekali
+          WHEN TIMESTAMPDIFF(MONTH, c.tgl_terakhir_mutasi, ?) < 3 THEN 'Fast Moving'
+          WHEN TIMESTAMPDIFF(MONTH, c.tgl_terakhir_mutasi, ?) BETWEEN 3 AND 12 THEN 'Regular'
+          ELSE 'Slow Moving' -- Lebih dari 12 bulan (1 tahun) tidak bergerak
       END AS status_barang,
 
       CASE 
@@ -59,18 +61,13 @@ const getReport = async (startDate, endDate, gdgKode) => {
       IFNULL(c.keluar_m, 0) * IFNULL(c.harga_referensi, 0) AS keluar_nominal,
 
       /* ================= STOK AKHIR ================= */
-      -- Di hilangkan fungsi SUM() nya agar tidak bentrok dengan row individual barang
       IFNULL(d.stok_akhir_q, 0) AS stok_akhir_q,
-    
-      -- PERBAIKAN: Formula balancing murni antar-kolom per baris barang (Awal + Terima + Retur - Keluar)
       (IFNULL(b.stok_awal_m, 0) + IFNULL(c.terima_m, 0) + IFNULL(c.retur_m, 0) - IFNULL(c.keluar_m, 0)) AS stok_akhir_m,
-    
-      -- Nominal Akhir dikalikan hasil balancing di atas
       (IFNULL(b.stok_awal_m, 0) + IFNULL(c.terima_m, 0) + IFNULL(c.retur_m, 0) - IFNULL(c.keluar_m, 0)) * IFNULL(c.harga_referensi, 0) AS stok_akhir_nominal
 
     FROM tbarang_mmt a
 
-    /* Subquery b: Stok Awal (Mencakup ROLL, RETUR, dan SCRAP) */
+    /* Subquery b: Stok Awal */
     LEFT JOIN (
       SELECT 
         s.mst_brg_kode, 
@@ -88,13 +85,16 @@ const getReport = async (startDate, endDate, gdgKode) => {
       GROUP BY s.mst_brg_kode
     ) b ON b.mst_brg_kode = a.brg_kode
 
-    /* Subquery c: Mutasi Terpisah & Harga */
+    /* Subquery c: Mutasi Terpisah, Harga, & Tanggal Terakhir Bergerak */
     LEFT JOIN (
       SELECT 
         s.mst_brg_kode,
+        
+        /* PENTING: Mencari tanggal terakhir barang bergerak (in / out) sampai batas tglSelesai */
+        MAX(s.mst_tanggal) AS tgl_terakhir_mutasi,
+
         SUM(CASE WHEN (s.mst_tanggal BETWEEN ? AND ?) AND (s.mst_kategori NOT IN ('RETUR', 'SCRAP') OR s.mst_kategori IS NULL) THEN s.mst_stok_in ELSE 0 END) AS terima_q,
         SUM(CASE WHEN (s.mst_tanggal BETWEEN ? AND ?) AND (s.mst_kategori NOT IN ('RETUR', 'SCRAP') OR s.mst_kategori IS NULL) THEN s.mst_stok_out ELSE 0 END) AS keluar_q,
-        
         SUM(CASE WHEN (s.mst_tanggal BETWEEN ? AND ?) AND s.mst_kategori = 'RETUR' THEN s.mst_stok_in ELSE 0 END) AS retur_q,
 
         SUM(CASE WHEN (s.mst_tanggal BETWEEN ? AND ?) AND (s.mst_kategori NOT IN ('RETUR', 'SCRAP') OR s.mst_kategori IS NULL) THEN 
@@ -153,7 +153,7 @@ const getReport = async (startDate, endDate, gdgKode) => {
       GROUP BY s.mst_brg_kode
     ) c ON c.mst_brg_kode = a.brg_kode
 
-    /* Subquery d: Stok Akhir (Mencakup ROLL, RETUR, dan SCRAP) */
+    /* Subquery d: Stok Akhir */
     LEFT JOIN (
       SELECT 
         s.mst_brg_kode, 
@@ -176,7 +176,9 @@ const getReport = async (startDate, endDate, gdgKode) => {
     ORDER BY a.brg_nama ASC
   `;
 
+  // PERHATIKAN: Ada tambahan 2 buah parameter tglSelesai di awal array untuk pengkondisian CASE WHEN status_barang
   const params = [
+    tglSelesai, tglSelesai,                             // Penentu status_barang di SELECT utama
     tglMulai, kodeGudang,                               // Subquery b
     tglMulai, tglSelesai,                               // Subquery c (terima_q)
     tglMulai, tglSelesai,                               // Subquery c (keluar_q)
