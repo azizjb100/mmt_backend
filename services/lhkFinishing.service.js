@@ -194,7 +194,7 @@ const finalizeBundling = async (headerData, detailItems, userLogin) => {
             let qtyPakaiStok = (kategori === 'MATA_AYAM') ? qtyMa : (kategori === 'KOLI' ? qtyKr : 0);
             if (qtyPakaiStok > 0 && item.material_kode) {
                 const dataStokOut = {
-                    brg_kode: item.material_kode, // Menggunakan prefix brg_ sesuai standardisasi backend baru
+                    mst_brg_kode: item.material_kode, // Menggunakan prefix brg_ sesuai standardisasi backend baru
                     mst_gdg_kode: 'GPM',
                     mst_barcode: '-',
                     mst_stok_in: 0,
