@@ -7,7 +7,7 @@ const throwDbError = (message, error) => { throw new Error(message + ': ' + erro
 
 /**
  * Logika Utama: Menggabungkan TSPK, TMEMOSPK, dan Kalkulasi Produksi
- * Diperbaiki agar menyertakan status 'Ngedit' (PIN), Approval, dan Akumulasi 
+ * Diperbaiki agar menyertakan status 'Ngedit' (PIN), Approval, Akumulasi, dan DATA GAMBAR/QR sesuai Delphi
  */
 const getBaseSpkQuery = (whereClauseReguler = "1=1", whereClauseMemo = "1=1") => {
     return `
@@ -49,8 +49,8 @@ const getBaseSpkQuery = (whereClauseReguler = "1=1", whereClauseMemo = "1=1") =>
                 t.spk_kain AS Bahan, 
                 t.spk_finishing AS Finishing,
                 t.spk_keterangan AS Pesan,            
-                0 AS PraSJ,                           
-                0 AS Kirim,                           
+                0 AS PraSJ,                                           
+                0 AS Kirim,                                           
                 t.user_create AS Created,
                 t.spk_nomor_po AS PO,
                 t.spk_ketpo AS Ket_PO,
@@ -101,6 +101,10 @@ const getBaseSpkQuery = (whereClauseReguler = "1=1", whereClauseMemo = "1=1") =>
                 t.spk_newdesign AS design_baru,
                 t.spk_desain AS design_done,          
 
+                /* PERBAIKAN: Mapping Image & QR Code Sesuai Alur Penyimpanan File Delphi */
+                CONCAT(t.spk_nomor, '.jpg') AS Design_Image,
+                t.spk_nomor AS QR_Data,
+
                 /* PIN System */
                 IFNULL((SELECT pin_acc FROM tspk_pin5 WHERE pin_trs="SPK" AND pin_nomor=t.spk_nomor ORDER BY pin_urut DESC LIMIT 1), "") as ppin,
                 IFNULL((SELECT pin_dipakai FROM tspk_pin5 WHERE pin_trs="SPK" AND pin_nomor=t.spk_nomor ORDER BY pin_urut DESC LIMIT 1), "") as ppakai,
@@ -136,7 +140,7 @@ const getBaseSpkQuery = (whereClauseReguler = "1=1", whereClauseMemo = "1=1") =>
                 'INTERNAL' AS Kepentingan,
                 m.mspk_divisi AS Divisi,              
                 m.mspk_nama AS Nama, 
-                m.mspk_cab AS Cabang,                 
+                m.mspk_cab AS Cabang,                
                 m.mspk_workshop AS Workshop,          
                 'NORMAL' AS Pending,
                 '' AS Ket_Pending,
@@ -146,7 +150,7 @@ const getBaseSpkQuery = (whereClauseReguler = "1=1", whereClauseMemo = "1=1") =>
                 m.mspk_ukuran AS Ukuran,
                 m.mspk_gramasi AS Gramasi,
 
-                m.mspk_kain AS Bahan,                 
+                m.mspk_kain AS Bahan,                
                 m.mspk_finishing AS Finishing,        
                 m.mspk_keterangan AS Pesan,           
                 0 AS PraSJ,
@@ -178,9 +182,14 @@ const getBaseSpkQuery = (whereClauseReguler = "1=1", whereClauseMemo = "1=1") =>
                 0 AS Kurang_Jahit,
                 0 AS Kurang_Lipat,
                 m.mspk_aktif AS Aktif,                
-                '' AS Acc_MO, /* Kosong untuk Memo karena tidak melalui approval CMO marketing */
+                '' AS Acc_MO, 
                 'N' AS design_baru,
                 'Y' AS design_done,
+
+                /* PERBAIKAN: Samakan struktur kolom untuk UNION file Memo */
+                CONCAT(m.mspk_nomor, '.jpg') AS Design_Image,
+                m.mspk_nomor AS QR_Data,
+
                 '' as ppin,
                 '' as ppakai,
                 m.mspk_rencana_order AS Jumlah        
@@ -194,8 +203,9 @@ const getBaseSpkQuery = (whereClauseReguler = "1=1", whereClauseMemo = "1=1") =>
         ) x
     `;
 };
+
 // ===================================
-// BROWSE DATA (UTAMA) - Menggunakan Query Perbaikan
+// BROWSE DATA (UTAMA) 
 // ===================================
 exports.getAllSpkData = async (filters) => {
     try {
@@ -205,24 +215,20 @@ exports.getAllSpkData = async (filters) => {
         let whereMemo = "1=1";
         const params = [];
 
-        // Masukkan parameter filter tanggal jika ada
         if (startDate && endDate) {
             whereReguler += ` AND t.spk_tanggal BETWEEN ? AND ?`;
             whereMemo += ` AND m.mspk_tanggal BETWEEN ? AND ?`;
             params.push(startDate, endDate, startDate, endDate);
         }
 
-        // Masukkan parameter filter cabang jika dipilih selain 'ALL'
         if (cabang && cabang !== 'ALL') {
             whereReguler += ` AND t.spk_cab = ?`;
-            // Karena tabel tmemospk tidak punya kolom cabang, kita matikan atau bypass data memo jika filter cabang aktif
             whereMemo += ` AND 'ALL' = ?`; 
             params.push(cabang, cabang);
         }
 
         let sql = getBaseSpkQuery(whereReguler, whereMemo);
 
-        // Pencarian global berdasarkan keyword (SPK / Nama)
         if (keyword) {
             sql = `SELECT * FROM (${sql}) as sub WHERE SPK LIKE ? OR Nama LIKE ?`;
             params.push(`%${keyword}%`, `%${keyword}%`);
@@ -237,12 +243,9 @@ exports.getAllSpkData = async (filters) => {
     }
 };
 
-/**
- * Logika Utama: Mengambil data STBJ dengan agregat jumlah item per transaksi
- */
-/**
- * Logika Utama: Mengambil data STBJ dengan join ke gudang atau checker jika diperlukan
- */
+// ===================================
+// LOOKUP STBJ (Untuk Modal Pencarian)
+// ===================================
 const getBaseStbjQuery = (whereClause = "1=1") => {
     return `
         SELECT 
@@ -253,7 +256,6 @@ const getBaseStbjQuery = (whereClause = "1=1") => {
             h.stbj_gdgp_kode AS Gudang_Tujuan,
             h.stbj_checker AS Checker,
             h.stbj_ts_nomor AS No_TS,
-            /* Menghitung akumulasi Qty dan Koli dari detail */
             IFNULL(dtl.total_qty, 0) AS Total_Qty,
             IFNULL(dtl.total_koli, 0) AS Total_Koli
         FROM tstbj_hdr h
@@ -269,17 +271,12 @@ const getBaseStbjQuery = (whereClause = "1=1") => {
     `;
 };
 
-
-// ===================================
-// LOOKUP STBJ (Untuk Modal Pencarian)
-// ===================================
 exports.getStbjLookupData = async (keyword) => {
     try {
         let sql = `SELECT * FROM (${getBaseStbjQuery()}) AS stbj_combined`;
         const params = [];
 
         if (keyword) {
-            // Mencari berdasarkan nomor STBJ, Keterangan, atau Nomor TS
             sql += ` WHERE (Nomor LIKE ? OR Keterangan LIKE ? OR No_TS LIKE ?)`;
             const searchKeyword = `%${keyword}%`;
             params.push(searchKeyword, searchKeyword, searchKeyword);
@@ -294,12 +291,8 @@ exports.getStbjLookupData = async (keyword) => {
     }
 };
 
-
-// backend/src/services/spk.service.js
-
 /**
- * Mendapatkan data SPK dengan perhitungan realisasi STBJ
- * Menjawab: Order Berapa (Jumlah), Sudah STBJ Berapa, Kurang Berapa
+ * PERBAIKAN: Mengganti spk_close menjadi spk_aktif agar sinkron dengan alor data Open/Closed Delphi & Web
  */
 exports.getSpkForStbjLookup = async (keyword) => {
     try {
@@ -309,18 +302,12 @@ exports.getSpkForStbjLookup = async (keyword) => {
                 t.spk_nama AS Nama,
                 t.spk_tanggal AS Tanggal,
                 t.spk_jumlah AS Qty_Order,
-                
-                /* Ambil akumulasi yang sudah dibikinkan STBJ */
                 CAST(IFNULL(stbj.total_stbj, 0) AS UNSIGNED) AS Sudah_STBJ,
-                
-                /* Hitung Sisa (Order - Sudah STBJ) */
                 CAST(GREATEST(0, t.spk_jumlah - IFNULL(stbj.total_stbj, 0)) AS UNSIGNED) AS Kurang_STBJ,
-                
                 t.spk_statuskerja AS Kepentingan,
-                IF(t.spk_close=1, 'Closed', 'Open') AS STATUS
+                IF(t.spk_aktif='Y', 'Open', 'Closed') AS STATUS
             FROM tspk t
             LEFT JOIN (
-                /* Subquery untuk menjumlahkan semua STBJ yang pernah dibuat untuk SPK ini */
                 SELECT stbjd_spk_nomor, SUM(stbjd_jumlah) AS total_stbj
                 FROM tstbj_dtl
                 GROUP BY stbjd_spk_nomor
@@ -337,16 +324,15 @@ exports.getSpkForStbjLookup = async (keyword) => {
         throwDbError('Gagal mengambil perhitungan SPK vs STBJ', error);
     }
 };
+
 // ===================================
 // DETAIL STBJ (Header & Rincian Item)
 // ===================================
 exports.getStbjFullDetail = async (nomorStbj) => {
     try {
-        // 1. Ambil Data Header
         const [header] = await pool.query(getBaseStbjQuery("h.stbj_nomor = ?"), [nomorStbj]);
         if (header.length === 0) throw new Error(`STBJ ${nomorStbj} tidak ditemukan.`);
 
-        // 2. Ambil Data Detail sesuai struktur gambar (stbjd_...)
         const sqlItems = `
             SELECT 
                 d.stbjd_spk_nomor AS No_SPK,
@@ -372,10 +358,6 @@ exports.getStbjFullDetail = async (nomorStbj) => {
     }
 };
 
-/**
- * Mendapatkan data SPK (Reguler/Memo) khusus untuk Modal Lookup Jadwal Kirim
- * Menghitung: Total Order, Sudah Dijadwalkan, dan Sisa Saldo
- */
 exports.getSpkForJadwalKirimLookup = async (keyword) => {
     try {
         const sql = `
@@ -386,27 +368,19 @@ exports.getSpkForJadwalKirimLookup = async (keyword) => {
                 combined.Ukuran,
                 combined.Bahan,
                 combined.Jumlah AS Total_Order,
-                
-                /* Hitung akumulasi Qty yang sudah masuk ke Jadwal Kirim */
                 CAST(IFNULL(jdwl.total_terjadwal, 0) AS UNSIGNED) AS Sudah_Kirim,
-                
-                /* Hitung Sisa Saldo (Total - Sudah Terjadwal) */
                 CAST(GREATEST(0, combined.Jumlah - IFNULL(jdwl.total_terjadwal, 0)) AS UNSIGNED) AS Belum_Kirim,
-                
                 combined.Tipe_SPK,
                 combined.Ngedit
             FROM (
-                /* Memanggil base query yang menggabungkan TSPK dan TMEMOSPK */
                 ${getBaseSpkQuery()}
             ) AS combined
             LEFT JOIN (
-                /* Subquery akumulasi jadwal kirim berdasarkan nomor SPK */
                 SELECT spk_nomor, SUM(jumlah) AS total_terjadwal
                 FROM tjadwalkirim
                 GROUP BY spk_nomor
             ) jdwl ON jdwl.spk_nomor = combined.SPK
             WHERE (combined.SPK LIKE ? OR combined.Nama LIKE ?)
-              /* Kondisi Ngedit = 'ACC' telah dihapus agar semua data (MT, MX, dll) muncul */
             ORDER BY combined.Tanggal DESC
             LIMIT 100
         `;
@@ -421,12 +395,7 @@ exports.getSpkForJadwalKirimLookup = async (keyword) => {
 
 exports.getSpkLookupData = async (keyword) => {
     try {
-        let sql = `
-            SELECT * FROM (
-                ${getBaseSpkQuery()}
-            ) AS combined_spk
-        `; 
-
+        let sql = `SELECT * FROM (${getBaseSpkQuery()}) AS combined_spk`; 
         const params = [];
         if (keyword) {
             sql += ` WHERE (SPK LIKE ? OR Nama LIKE ?)`;
@@ -435,16 +404,12 @@ exports.getSpkLookupData = async (keyword) => {
         }
 
         sql += ` ORDER BY Tanggal DESC LIMIT 50`;
-        
         const [rows] = await pool.query(sql, params);
         return rows; 
-
     } catch (error) {
         throwDbError('Gagal mengambil data SPK untuk lookup', error);
     }
 };
-
-
 
 // ===================================
 // 2. DETAIL SIZE (Expanded Row Logic)
@@ -477,21 +442,24 @@ exports.getSpkDetailByNomor = async (nomor) => {
     try {
         const sql = `SELECT * FROM (${getBaseSpkQuery("t.spk_nomor = ?")}) AS combined_spk`;
         const [rows] = await pool.query(sql, [nomor]);
-        
-        if (rows.length === 0) throw new Error(`Nomor SPK ${nomor} tidak ditemukan.`);
+        if (rows.length === 0) throw new Error(`Nomor SPK \${nomor} tidak ditemukan.`);
         return rows[0]; 
     } catch (error) {
-        throwDbError(`Gagal memuat detail SPK ${nomor}`, error);
+        throwDbError(`Gagal memuat detail SPK \${nomor}`, error);
     }
 };
 
+/**
+ * PERBAIKAN: Mengganti pemanggilan konteks 'this' menjadi 'exports' langsung 
+ * untuk mencegah error runtime Node.js saat dipanggil di routing controller.
+ */
 exports.getSpkForPrint = async (nomor) => {
     try {
-        // 1. Ambil Header (Gunakan fungsi yang sudah ada)
-        const header = await this.getSpkDetailByNomor(nomor);
+        // 1. Ambil Header (Aman menggunakan exports)
+        const header = await exports.getSpkDetailByNomor(nomor);
 
         // 2. Ambil Detail Size
-        const details = await this.getSpkDetailSize(nomor);
+        const details = await exports.getSpkDetailSize(nomor);
 
         // 3. Gabungkan
         return {
@@ -499,15 +467,13 @@ exports.getSpkForPrint = async (nomor) => {
             details: details
         };
     } catch (error) {
-        throwDbError(`Gagal memproses data cetak SPK ${nomor}`, error);
+        throwDbError(`Gagal memproses data cetak SPK \${nomor}`, error);
     }
 };
-
 
 const getBaseSpkRegulerOnlyQuery = (whereClause = "1=1") => {
     return `
         SELECT x.*,
-            /* Logika Warna/Status PIN (Ngedit) untuk Frontend */
             IFNULL(
                 IF(x.ppin='N', 'TOLAK',
                     IF(x.ppin='Y' AND x.ppakai='', 'ACC',
@@ -531,7 +497,7 @@ const getBaseSpkRegulerOnlyQuery = (whereClause = "1=1") => {
                 IFNULL(t.spk_lebar, 0) AS Lebar,
                 t.spk_statuskerja AS Kepentingan,
                 t.spk_cmo AS CMO,
-                IF(t.spk_close=1, 'Closed', 'Open') AS STATUS,
+                IF(t.spk_aktif='Y', 'Open', 'Closed') AS STATUS,
                 t.spk_aktif AS Aktif,
                 t.spk_pending AS Pending,
                 t.spk_accpending AS AccPending,
@@ -553,28 +519,22 @@ const getBaseSpkRegulerOnlyQuery = (whereClause = "1=1") => {
                 FROM tlhk_mesin_dtl
                 GROUP BY ld_spk_nomor
             ) prod ON prod.ld_spk_nomor = t.spk_nomor
-            WHERE ${whereClause}
+            WHERE \${whereClause}
         ) x
     `;
 };
 
-/**
- * Mengambil data SPK Reguler untuk kebutuhan Mesin / LHK Mesin
- * Menyediakan fitur pencarian keyword dan pembatasan limit
- */
 exports.getSpkForMesin = async (keyword) => {
     try {
-        let sql = `SELECT * FROM (${getBaseSpkRegulerOnlyQuery("t.spk_aktif = 'Y'")}) AS spk_mesin`;
+        let sql = `SELECT * FROM (\${getBaseSpkRegulerOnlyQuery("t.spk_aktif = 'Y'")}) AS spk_mesin`;
         const params = [];
 
-        // Jika ada pencarian berdasarkan nomor SPK atau nama order
         if (keyword) {
             sql += ` WHERE (SPK LIKE ? OR Nama LIKE ?)`;
             const searchKeyword = `%${keyword}%`;
             params.push(searchKeyword, searchKeyword);
         }
 
-        // Urutkan dari yang terbaru dan batasi row agar lookup tetap enteng
         sql += ` ORDER BY Tanggal DESC LIMIT 100`;
         
         const [rows] = await pool.query(sql, params);

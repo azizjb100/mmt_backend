@@ -87,7 +87,6 @@ const requiredDirs = [
     path.join(process.cwd(), "public"),
     path.join(process.cwd(), "public", "images"),
 ];
-
 // Middleware
 app.use(
     cors({
