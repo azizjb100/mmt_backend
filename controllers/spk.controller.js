@@ -56,6 +56,16 @@ exports.getSpkForMesinLookup = async (req, res) => {
     }
 };
 
+exports.getMemoSpkLookup = async (req, res) => {
+    const keyword = req.query.keyword || '';
+    try {
+        const data = await spkService.getMemoSpkLookupData(keyword);
+        res.status(200).json({ success: true, data: data });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 exports.printSpk = async (req, res) => {
     try {
         const { nomor } = req.params;

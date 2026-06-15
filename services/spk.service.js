@@ -546,3 +546,54 @@ exports.getSpkForMesin = async (keyword) => {
         throwDbError('Gagal mengambil data SPK khusus Mesin', error);
     }
 };
+
+exports.getMemoSpkLookupData = async (keyword) => {
+    try {
+        let sql = `
+            SELECT 
+                m.mspk_nomor AS SPK, 
+                m.mspk_tanggal AS Tanggal,
+                m.mspk_dateline AS Deadline,
+                m.mspk_divisi AS Divisi,              
+                m.mspk_nama AS Nama, 
+                m.mspk_cab AS Cabang,                
+                m.mspk_workshop AS Workshop,          
+                'MEMO' AS Tipe_SPK,
+                IFNULL(m.mspk_panjang, 0) AS Panjang, 
+                IFNULL(m.mspk_lebar, 0) AS Lebar,
+                m.mspk_ukuran AS Ukuran,
+                m.mspk_gramasi AS Gramasi,
+                m.mspk_kain AS Bahan,                
+                m.mspk_finishing AS Finishing,        
+                m.mspk_keterangan AS Pesan,           
+                'Open' AS STATUS,
+                m.mspk_aktif AS Aktif,
+                m.mspk_rencana_order AS Jumlah,
+                CAST(IFNULL(prod_m.total_pernah_cetak, 0) AS UNSIGNED) AS Sudah_Cetak,
+                CAST(GREATEST(0, m.mspk_rencana_order - IFNULL(prod_m.total_pernah_cetak, 0)) AS UNSIGNED) AS Kurang_Cetak
+            FROM tmemospk m
+            LEFT JOIN (
+                SELECT ld_spk_nomor, SUM(ld_total_qtycetak) as total_pernah_cetak
+                FROM tlhk_mesin_dtl
+                GROUP BY ld_spk_nomor
+            ) prod_m ON prod_m.ld_spk_nomor = m.mspk_nomor
+            WHERE 1=1
+        `;
+
+        const params = [];
+
+        // Jika ada keyword pencarian berdasarkan Nomor SPK atau Nama
+        if (keyword) {
+            sql += ` AND (m.mspk_nomor LIKE ? OR m.mspk_nama LIKE ?)`;
+            const searchKeyword = `%${keyword}%`;
+            params.push(searchKeyword, searchKeyword);
+        }
+
+        sql += ` ORDER BY m.mspk_tanggal DESC LIMIT 50`;
+
+        const [rows] = await pool.query(sql, params);
+        return rows;
+    } catch (error) {
+        throwDbError('Gagal mengambil data lookup Memo SPK', error);
+    }
+};

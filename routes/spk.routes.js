@@ -6,14 +6,14 @@ const spkController = require('../controllers/spk.controller');
 // --- Routes untuk SPK ---
 router.get('/browse', spkController.getSpkBrowse);
 router.get('/lookup', spkController.getSpkLookup);
+router.get('/lookup-memo', spkController.getMemoSpkLookup); // <- Ditambahkan di sini
 
 router.get('/lookup-jadwal', spkController.lookupSpkForJadwal);
-
 router.get('/lookup-mesin', spkController.getSpkForMesinLookup);
 
 router.get('/detail-size/:nomor', spkController.getSpkDetailSize);
 router.get('/print/:nomor', spkController.printSpk);
-router.get('/:nomor', spkController.getSpkDetail); // Letakkan paling bawah dari group SPK
+router.get('/:nomor', spkController.getSpkDetail);; // Letakkan paling bawah dari group SPK
 
 // --- Routes untuk STBJ ---
 router.get('/stbj/lookup', spkController.getStbjLookup);
