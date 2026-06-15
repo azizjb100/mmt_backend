@@ -58,7 +58,8 @@ const getBaseSpkQuery = (whereClauseReguler = "1=1", whereClauseMemo = "1=1") =>
                 IF(t.spk_aktif='Y', 'Open', 'Closed') AS STATUS, 
                 '' AS Alasan_Close,
                 t.spk_pen_nomor AS No_Penawaran,
-                t.spk_memo AS MAP,                    
+                t.spk_memo AS MAP,                                        
+                IFNULL(t.spk_alokasi, 'TIDAK') AS Alokasi,                 
                 
                 /* Progress Jalur Kerja Internal (Realisasi) */
                 IFNULL(t.spk_mpotong, 'N') AS Potong,
@@ -163,6 +164,7 @@ const getBaseSpkQuery = (whereClauseReguler = "1=1", whereClauseMemo = "1=1") =>
                 '' AS Alasan_Close,
                 '' AS No_Penawaran,
                 '' AS MAP,
+                'TIDAK' AS Alokasi,
                 'N' AS Potong,                        
                 'N' AS "Repeat",
                 'N' AS QC_Potong,
@@ -455,19 +457,36 @@ exports.getSpkDetailByNomor = async (nomor) => {
  */
 exports.getSpkForPrint = async (nomor) => {
     try {
-        // 1. Ambil Header (Aman menggunakan exports)
+        // 1. Ambil Header
         const header = await exports.getSpkDetailByNomor(nomor);
 
-        // 2. Ambil Detail Size
+        // 2. Ambil Detail Size (Untuk kebutuhan garmen/fitur size lainnya)
         const details = await exports.getSpkDetailSize(nomor);
 
-        // 3. Gabungkan
+        // 3. AMBIL DETAIL ALOKASI (Dari tabel tspk_sb seperti di Delphi)
+        let alokasiDetails = [];
+        if (header.Alokasi === 'YA') {
+            const sqlAlokasi = `
+                SELECT 
+                    spksb_ket AS Lokasi,
+                    (spksb_panjang * spksb_lebar) AS Jumlah_M2, -- Sesuaikan rumus jumlah Anda jika dihitung M2
+                    spksb_ket AS Keterangan -- Sesuai kolom spksb_ket di Delphi
+                FROM tspk_sb
+                WHERE spksb_nomor = ?
+                ORDER BY spksb_nourut ASC
+            `;
+            const [rowsAlokasi] = await pool.query(sqlAlokasi, [nomor]);
+            alokasiDetails = rowsAlokasi;
+        }
+
+        // 4. Gabungkan seluruh data ke frontend
         return {
             ...header,
-            details: details
+            details: details,
+            alokasiDetails: alokasiDetails // <-- Kirim array ini ke Vue
         };
     } catch (error) {
-        throwDbError(`Gagal memproses data cetak SPK \${nomor}`, error);
+        throwDbError(`Gagal memproses data cetak SPK ${nomor}`, error);
     }
 };
 
