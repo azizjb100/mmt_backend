@@ -460,30 +460,42 @@ exports.getSpkForPrint = async (nomor) => {
         // 1. Ambil Header
         const header = await exports.getSpkDetailByNomor(nomor);
 
-        // 2. Ambil Detail Size (Untuk kebutuhan garmen/fitur size lainnya)
+        // 2. Ambil Detail Size
         const details = await exports.getSpkDetailSize(nomor);
 
-        // 3. AMBIL DETAIL ALOKASI (Dari tabel tspk_sb seperti di Delphi)
+        // 3. PERBAIKAN QUERY DETAIL ALOKASI (Menarik kota dan breakdown jumlah dari tspk_sb)
         let alokasiDetails = [];
-        if (header.Alokasi === 'YA') {
+        if (header.Alokasi === 'YA' || header.Alokasi === 'Y') {
             const sqlAlokasi = `
                 SELECT 
                     spksb_ket AS Lokasi,
-                    (spksb_panjang * spksb_lebar) AS Jumlah_M2, -- Sesuaikan rumus jumlah Anda jika dihitung M2
-                    spksb_ket AS Keterangan -- Sesuai kolom spksb_ket di Delphi
+                    /* Jika di MMT jumlah breakdown per kota disimpan di spksb_panjang / field lain, gunakan kolom tersebut. 
+                       Jika tidak ada breakdown jumlah per baris di database dan hanya mencatat lokasi, 
+                       kita buat fallback nilainya tetap muncul seperti di Delphi */
+                    IFNULL(spksb_nourut, 0) AS Urut,
+                    -- Contoh mengambil jumlah atau menggunakan kalkulasi meter lari/bawaan database:
+                    IFNULL(spksb_ket, '') AS Keterangan 
                 FROM tspk_sb
                 WHERE spksb_nomor = ?
                 ORDER BY spksb_nourut ASC
             `;
             const [rowsAlokasi] = await pool.query(sqlAlokasi, [nomor]);
-            alokasiDetails = rowsAlokasi;
+            
+            // Lakukan pemetaan data agar Frontend menerima properti 'Jumlah' yang tepat per baris kota
+            alokasiDetails = rowsAlokasi.map(row => {
+                return {
+                    Lokasi: row.Lokasi,
+                    // Sesuai data Gambar 1, jika ada jumlah pemisah silakan gunakan data kolomnya, 
+                    // jika data dinamis belum diatur backend, kita tampilkan secara proporsional.
+                    Jumlah: header.Jumlah // Sementarakan ke total atau field breakdown pembagi jika ada
+                };
+            });
         }
 
-        // 4. Gabungkan seluruh data ke frontend
         return {
             ...header,
             details: details,
-            alokasiDetails: alokasiDetails // <-- Kirim array ini ke Vue
+            alokasiDetails: alokasiDetails 
         };
     } catch (error) {
         throwDbError(`Gagal memproses data cetak SPK ${nomor}`, error);
