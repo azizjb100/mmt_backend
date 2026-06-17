@@ -457,46 +457,49 @@ exports.getSpkDetailByNomor = async (nomor) => {
  */
 exports.getSpkForPrint = async (nomor) => {
     try {
-        // 1. Ambil Header
-        const header = await exports.getSpkDetailByNomor(nomor);
+      // 1. Ambil Header Data SPK Utama
+      const header = await exports.getSpkDetailByNomor(nomor);
 
-        // 2. Ambil Detail Size
-        const details = await exports.getSpkDetailSize(nomor);
+      // 2. Ambil Detail Size (jika ada)
+      const details = await exports.getSpkDetailSize(nomor);
 
-        // 3. PERBAIKAN QUERY DETAIL ALOKASI (Menarik kota dan breakdown jumlah dari tspk_sb)
-        let alokasiDetails = [];
-        if (header.Alokasi === 'YA' || header.Alokasi === 'Y') {
-            const sqlAlokasi = `
-                SELECT 
-                    spksb_ket AS Lokasi,
-                    /* Jika di MMT jumlah breakdown per kota disimpan di spksb_panjang / field lain, gunakan kolom tersebut. 
-                       Jika tidak ada breakdown jumlah per baris di database dan hanya mencatat lokasi, 
-                       kita buat fallback nilainya tetap muncul seperti di Delphi */
-                    IFNULL(spksb_nourut, 0) AS Urut,
-                    -- Contoh mengambil jumlah atau menggunakan kalkulasi meter lari/bawaan database:
-                    IFNULL(spksb_ket, '') AS Keterangan 
-                FROM tspk_sb
-                WHERE spksb_nomor = ?
-                ORDER BY spksb_nourut ASC
-            `;
-            const [rowsAlokasi] = await pool.query(sqlAlokasi, [nomor]);
-            
-            // Lakukan pemetaan data agar Frontend menerima properti 'Jumlah' yang tepat per baris kota
-            alokasiDetails = rowsAlokasi.map(row => {
-                return {
-                    Lokasi: row.Lokasi,
-                    // Sesuai data Gambar 1, jika ada jumlah pemisah silakan gunakan data kolomnya, 
-                    // jika data dinamis belum diatur backend, kita tampilkan secara proporsional.
-                    Jumlah: header.Jumlah // Sementarakan ke total atau field breakdown pembagi jika ada
-                };
-            });
-        }
+      // 3. PERBAIKAN UTAMA: Mengambil data distribusi pengiriman asli dari tabel talokasi
+      let alokasiDetails = [];
+      if (header.Alokasi === 'YA' || header.Alokasi === 'Y') {
+          const sqlAlokasi = `
+              SELECT 
+                  IFNULL(alamat, '') AS Alamat,
+                  IFNULL(kota, '') AS Kota,
+                  IFNULL(person, '') AS Person,
+                  IFNULL(hp, '') AS Hp,
+                  IFNULL(jumlah, 0) AS Jumlah
+              FROM talokasi
+              WHERE spk_nomor = ?
+              ORDER BY urut ASC
+          `;
+          const [rowsAlokasi] = await pool.query(sqlAlokasi, [nomor]);
+          
+          // Lakukan pemetaan (mapping) data agar dibaca dengan seragam oleh Frontend Vue
+          alokasiDetails = rowsAlokasi.map(row => {
+              return {
+                  // Jika alamat kosong, fallback tampilkan nama Kota (Sesuai Gambar 1: CILACAP, JEMBER, dll.)
+                  Alokasi: row.Kota ? row.Kota.toUpperCase() : (row.Alamat ? row.Alamat : "-"),
+                  Jumlah: Number(row.Jumlah),
+                  Detail_Lengkap: {
+                      Alamat: row.Alamat,
+                      Kota: row.Kota,
+                      Person: row.Person,
+                      Hp: row.Hp
+                  }
+              };
+          });
+      }
 
-        return {
-            ...header,
-            details: details,
-            alokasiDetails: alokasiDetails 
-        };
+      return {
+          ...header,
+          details: details,
+          Daftar_Alokasi: alokasiDetails // Menggunakan nama properti array 'Daftar_Alokasi'
+      };
     } catch (error) {
         throwDbError(`Gagal memproses data cetak SPK ${nomor}`, error);
     }

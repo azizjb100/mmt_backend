@@ -70,12 +70,15 @@ exports.printSpk = async (req, res) => {
     try {
         const { nomor } = req.params;
         const data = await spkService.getSpkForPrint(nomor);
-        res.json(data);
+        
+        // Langsung mengirimkan objek utuh (termasuk properti Daftar_Alokasi yang baru saja kita buat)
+        res.status(200).json(data);
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        // PERBAIKAN: Jika pesan error dari service menyatakan tidak ditemukan, kirim status 404
+        const statusCode = error.message.includes('tidak ditemukan') ? 404 : 500;
+        res.status(statusCode).json({ message: error.message });
     }
 };
-
 // ==========================================
 // STBJ HANDLERS (Baru)
 // ==========================================
