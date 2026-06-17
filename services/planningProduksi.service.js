@@ -110,31 +110,31 @@ exports.getPlanningByNomor = async (nomor) => {
 
 exports.savePlanningProduksi = async (payload) => {
     const { spk_nomor, panjang, lebar, details, forceSave = false } = payload;
-    const connection = await pool.getConnection(); // Ambil koneksi manual untuk Transaksi
+    const connection = await pool.getConnection();
     
     try {
         await connection.beginTransaction();
 
         // -----------------------------------------------------------------
-        // LAHNGKAH 1: Validasi Kapasitas Harian Mesin (Kecuali jika forceSave = true)
+        // LANGKAH 1: Validasi Kapasitas Produksi (Kecuali jika dipaksa/forceSave)
         // -----------------------------------------------------------------
         if (!forceSave) {
-            // Ambil kapasitas maksimal semua mesin cetak dari tmesin_mmt
             const [mesinKapasitas] = await connection.query(
                 'SELECT msn_kode, msn_kapasitas FROM tmesin_mmt WHERE msn_jenis = "C" AND msn_note = "CETAK"'
             );
 
-            // Mapping kapasitas ke object key-value agar mudah diakses: { MT01: 500, MT02: 400, ... }
             const kapasitasMap = {};
             mesinKapasitas.forEach(m => {
                 kapasitasMap[m.msn_kode] = parseFloat(m.msn_kapasitas) || 0;
             });
 
-            // Loop setiap detail yang dikirim dari Vue untuk divalidasi kapasitasnya
+            const pj = parseFloat(panjang) || 0;
+            const lb = parseFloat(lebar) || 0;
+
             for (const row of details) {
                 if (!row.mesin || !row.tanggal) continue;
 
-                // Hitung total plan_cetak yang SUDAH ADA di database untuk tanggal & mesin tersebut (milik SPK lain)
+                // Hitung kumulatif target cetak terjadwal di hari tersebut dari database
                 const [existingPlan] = await connection.query(
                     `SELECT SUM(plan_cetak) AS total_cetak 
                      FROM tplanningspk_mmt 
@@ -143,35 +143,49 @@ exports.savePlanningProduksi = async (payload) => {
                 );
 
                 const currentCetakDb = parseFloat(existingPlan[0].total_cetak) || 0;
-                const inputCetakBaru = parseFloat(row.cetak) || 0;
+                const jmlInputBaru = parseFloat(row.cetak) || 0;
                 const kapasitasMax = kapasitasMap[row.mesin] || 0;
 
-                // Formula Delphi: (Total database + input baru) jika melebihi kapasitas
-                if (kapasitasMax > 0 && (currentCetakDb + inputCetakBaru) > kapasitasMax) {
-                    // Hitung Luas Planning dalam M2 berdasarkan rumus Delphi: (jml * panjang * lebar)
-                    const totalM2Planning = (currentCetakDb + inputCetakBaru) * parseFloat(panjang) * parseFloat(lebar);
-                    
-                    // Kembalikan flag alert ke frontend (Vue) agar memicu confirm dialog
-                    await connection.rollback();
-                    connection.release();
-                    return {
-                        overCapacityAlert: true,
-                        message: `Tanggal ${row.tanggal}, Mesin: ${row.mesin} Melebihi Kapasitas produksi!\n` +
-                                 `Kapasitas/Hari = ${kapasitasMax} M2\n` +
-                                 `Planning cetak saat ini = ${totalM2Planning.toFixed(2)} M2`
-                    };
+                const totalUnitJml = currentCetakDb + jmlInputBaru;
+
+                if (totalUnitJml > kapasitasMax) {
+                    let totalM2Planning = 0;
+                    let isOver = false;
+
+                    // Replikasi Blok Percabangan Mesin di Delphi 7
+                    if (row.mesin === 'MT01' || row.mesin === 'MT03' || row.mesin === 'MT04' || row.mesin === 'MT05') {
+                        totalM2Planning = totalUnitJml * pj * lb;
+                        isOver = true; // Kondisi di Delphi: totalUnitJml > kapasitasMax memicu Over
+                    } else if (row.mesin === 'MT02') {
+                        totalM2Planning = totalUnitJml; // MT02 di Delphi tidak dikali pj * lb pada pesan text-nya
+                        isOver = true;
+                    }
+
+                    if (isOver) {
+                        await connection.rollback();
+                        connection.release();
+
+                        // Formatter pesan disesuaikan dengan format string MessageDlg Delphi
+                        const formattedDate = new Date(row.tanggal).toLocaleDateString('id-ID', {
+                            day: '2-digit', month: '2-digit', year: 'numeric'
+                        }).replace(/\//g, '-');
+
+                        return {
+                            overCapacityAlert: true,
+                            message: `Tanggal ${formattedDate} Mesin:${row.mesin} Melebihi Kapasitas produksi\n` +
+                                     `Kapasitas/Hari=${kapasitasMax} M2\n` +
+                                     `Planning cetak=${totalM2Planning.toFixed(2)} M2\n`
+                        };
+                    }
                 }
             }
         }
 
         // -----------------------------------------------------------------
-        // LANGKAH 2: Bersihkan data lama berdasarkan nomor SPK (Delete Old Record)
+        // LANGKAH 2: Bersihkan data lama & Insert Baru (Reset-Insert Method)
         // -----------------------------------------------------------------
         await connection.query("DELETE FROM tplanningspk_mmt WHERE plan_spk = ?", [spk_nomor]);
 
-        // -----------------------------------------------------------------
-        // LANGKAH 3: Simpan Data Baru (Insert New Detail Loops)
-        // -----------------------------------------------------------------
         const insertSql = `
             INSERT INTO tplanningspk_mmt 
             (plan_spk, plan_tanggal, plan_datang, plan_mesin, plan_cetak, plan_finishing, plan_kirim, plan_ketcetak, plan_ketfinishing, plan_ketkirim, plan_usr, plan_dtusr)
@@ -179,8 +193,7 @@ exports.savePlanningProduksi = async (payload) => {
         `;
 
         for (const row of details) {
-            // Abaikan jika baris kosong / tidak ada mesin terpilih
-            if (!row.mesin) continue; 
+            if (!row.mesin || !row.tanggal) continue;
 
             await connection.query(insertSql, [
                 spk_nomor,
@@ -200,12 +213,49 @@ exports.savePlanningProduksi = async (payload) => {
 
         await connection.commit();
         connection.release();
-        return { success: true, message: "Planning berhasil disimpan" };
+        return { success: true, message: "Berhasil disimpan." };
 
     } catch (error) {
         await connection.rollback();
         connection.release();
         console.error("Error in savePlanningProduksi:", error);
-        throw new Error(error.message);
+        throw new Error(`Gagal Simpan. ${error.message}`);
+    }
+};
+
+exports.loadSpkDetailForPlanning = async (req, res) => {
+    try {
+        const { nomorSpk } = req.params;
+        if (!nomorSpk) {
+            return res.status(400).json({ success: false, message: "Nomor SPK tidak valid." });
+        }
+
+        const data = await service.getPlanningByNomor(nomorSpk);
+        
+        return res.status(200).json({
+            success: true,
+            data: {
+                header: data.header ? {
+                    spk_nomor: data.header.spk_nomor,
+                    spk_Nama: data.header.spk_nama, // Menyesuaikan nama kolom lower/uppercase database
+                    tgl: data.header.tgl,           // Hasil DATE_FORMAT dari service
+                    dateline: data.header.dateline, // Hasil DATE_FORMAT dari service
+                    spk_jumlah: data.header.spk_jumlah,
+                    spk_panjang: data.header.spk_panjang,
+                    spk_lebar: data.header.spk_lebar,
+                    spk_cab: data.header.spk_cab,
+                    spk_workshop: data.header.spk_workshop,
+                    spk_tipe: data.header.spk_tipe,
+                    spk_kain: data.header.spk_kain,
+                    spk_Finishing: data.header.spk_finishing,
+                    spk_sablon: data.header.spk_sablon,
+                    spk_sublim: data.header.spk_sublim,
+                    spk_bordir: data.header.spk_bordir
+                } : null,
+                detail: data.detail || []
+            }
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
     }
 };

@@ -57,8 +57,11 @@ exports.saveMutasiGudang = async (data, isUpdate = false, userLogin) => {
                  WHERE mut_nomor=?`,
                 [Tanggal, GudangAsal, GudangTujuan, Keterangan, Type, activeUser, serverTime, Nomor]
             );
-            // Hapus detail lama
+
+            // JIKA UPDATE: Bersihkan data lama
             await connection.query('DELETE FROM tmutasi_dtl_mmt WHERE mutd_mut_nomor = ?', [Nomor]);
+            await connection.query('DELETE FROM tmasterstok_bahan WHERE mst_noreferensi = ?', [Nomor]);
+            await connection.query('DELETE FROM tmasterstok_mmt WHERE mst_noreferensi = ?', [Nomor]);
         } else {
             // 2. Insert Header
             await connection.query(
@@ -69,23 +72,82 @@ exports.saveMutasiGudang = async (data, isUpdate = false, userLogin) => {
             );
         }
 
-        // 3. Insert Details (Sesuai tmutasi_dtl_mmt)
+        // 3. Insert Details & Handle Kartu Stok (tmasterstok)
         if (Details && Details.length > 0) {
-            const detailValues = Details.map((d, index) => [
+            
+            // =========================================================================
+            // PERBAIKAN UTAMA: Grouping data detail jika kode_barang sama (Khusus / Umum)
+            // =========================================================================
+            const groupedDetailsMap = new Map();
+
+            for (const d of Details) {
+                const key = `${d.kode_barang}_${d.expired || 'null'}`;
+                if (groupedDetailsMap.has(key)) {
+                    const existing = groupedDetailsMap.get(key);
+                    // Tambahkan QTY nya (di-count akumulasi)
+                    existing.qty += Number(d.qty);
+                    // Untuk keterangan atau barcode, gabungkan dengan koma jika berbeda
+                    if (d.barcode && !existing.barcode.includes(d.barcode)) {
+                        existing.barcode += `, ${d.barcode}`;
+                    }
+                } else {
+                    // Jika belum ada, masukkan data baru (clone agar tidak merubah data asli klien)
+                    groupedDetailsMap.set(key, { ...d, qty: Number(d.qty) });
+                }
+            }
+
+            // Ubah kembali Map hasil grouping menjadi Array untuk diproses query
+            const finalDetails = Array.from(groupedDetailsMap.values());
+            // =========================================================================
+
+            // Siapkan bulk values untuk tmutasi_dtl_mmt berdasarkan data yang sudah di-group
+            const detailValues = finalDetails.map((d, index) => [
                 Nomor,              // mutd_mut_nomor (PK)
                 d.kode_barang,      // mutd_brg_kode (PK)
-                d.qty,              // mutd_qty
+                d.qty,              // mutd_qty (Sudah terakumulasi)
                 d.expired || null,  // mutd_expired (PK)
                 d.keterangan || '', // mutd_keterangan
                 d.nourut || (index + 1), // mutd_nourut
                 GudangAsal          // mutd_gdg_kode
             ]);
 
+            // Insert ke detail mutasi (Aman dari duplicate entry)
             await connection.query(
                 `INSERT INTO tmutasi_dtl_mmt 
                     (mutd_mut_nomor, mutd_brg_kode, mutd_qty, mutd_expired, mutd_keterangan, mutd_nourut, mutd_gdg_kode) 
                  VALUES ?`, [detailValues]
             );
+
+            // --- LOGIKA KARTU STOK OTOMATIS MENGGUNAKAN DATA YANG SUDAH DI-GROUP ---
+            for (const item of finalDetails) {
+                
+                // A. KONDISI MASUK KE TABEL BARU (tmasterstok_bahan) JIKA TUJUAN KE 'GB001'
+                if (GudangTujuan === 'GB001') {
+                    await connection.query(
+                        `INSERT INTO tmasterstok_bahan 
+                            (mst_gdg_kode, mst_noreferensi, mst_brg_kode, mst_tanggal, mst_stok_in, mst_stok_out, mst_hargabeli, date_create, mst_aktif)
+                         VALUES (?, ?, ?, ?, ?, 0, 0, ?, 'Y')
+                         ON DUPLICATE KEY UPDATE 
+                            mst_tanggal = VALUES(mst_tanggal),
+                            mst_stok_in = VALUES(mst_stok_in),
+                            date_create = VALUES(date_create),
+                            mst_aktif = 'Y'`,
+                        ['GB001', Nomor, item.kode_barang, Tanggal, item.qty, serverTime]
+                    );
+                }
+
+                // B. KONDISI POTONG STOK (OUT) DI GUDANG ASAL (tmasterstok_mmt)
+                await connection.query(
+                    `INSERT INTO tmasterstok_mmt 
+                        (mst_gdg_kode, mst_noreferensi, mst_brg_kode, mst_barcode, mst_tanggal, mst_stok_in, mst_stok_out, date_create)
+                     VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+                     ON DUPLICATE KEY UPDATE 
+                        mst_stok_out = VALUES(mst_stok_out),
+                        mst_tanggal = VALUES(mst_tanggal),
+                        mst_barcode = VALUES(mst_barcode)`,
+                    [GudangAsal, Nomor, item.kode_barang, item.barcode || '', Tanggal, item.qty, serverTime]
+                );
+            }
         }
 
         await connection.commit();
