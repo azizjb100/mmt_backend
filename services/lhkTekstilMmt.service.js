@@ -60,6 +60,24 @@ const getAllHeaders = async (startDate, endDate) => {
     return rows;
 };
 
+
+const getInksByNomor = async (nomor) => {
+    const sqlInk = `
+        SELECT 
+            lci_msn_kode AS msn_kode,
+            lci_msn_kode AS Mesin,      -- Alias tambahan untuk fleksibilitas frontend
+            lci_tipe AS tipe,
+            lci_c AS c,
+            lci_m AS m,
+            lci_y AS y,
+            lci_k AS k
+        FROM tlhk_cetakmmt_ink
+        WHERE lci_lch_nomor = ?
+    `;
+    const [rows] = await pool.query(sqlInk, [nomor]);
+    return rows;
+};
+
 /**
  * Mengambil detail LHK berdasarkan nomor (Tetap dipertahankan jika komponen expander Vue membutuhkan detail breakdown)
  */
@@ -489,43 +507,77 @@ const saveApproval = async (data) => {
     try {
         await conn.beginTransaction();
 
-        // Generate Nomor Approval Baru
-        const nomorApp = await generateAppNomor(header.tanggal, conn);
+        // Antisipasi kapitalisasi nama property nomor dari frontend
+        let nomorApp = header.nomor || header.Nomor;
+        let isActuallyNew = false;
+
+        // 2. Tentukan apakah data BARU atau EDIT
+        if (!nomorApp || nomorApp === 'AUTO') {
+            nomorApp = await generateAppNomor(header.tanggal, conn);
+            isActuallyNew = true;
+        } else {
+            // Cek apakah nomor approval ini sudah ada di tabel rekap tekstil
+            const [rows] = await conn.query('SELECT lth_nomor FROM tlhk_tekstilmmt_hdr WHERE lth_nomor = ?', [nomorApp]);
+            isActuallyNew = (rows.length === 0);
+        }
 
         const sampleBrgKode = details && details.length > 0 ? (details[0].brg_kode || '') : '';
         const sampleBarcode = details && details.length > 0 ? (details[0].barcode || '') : '';
 
-        // 2. Simpan ke Header Rekap
-        const sqlInsHeader = `
-            INSERT INTO tlhk_tekstilmmt_hdr (
-                lth_nomor, lth_tanggal, lth_shift, lth_gdg_prod, 
-                lth_user_create, lth_date_create, lth_brg_kode, lth_barcode, lth_status
-            ) VALUES (?, ?, ?, ?, ?, NOW(), ?, ?, ?)
-        `;
-        await conn.query(sqlInsHeader, [
-            nomorApp, header.tanggal, Number(header.shift) || 1, header.gdgKode || '', 
-            header.admin || 'ADMIN', sampleBrgKode, sampleBarcode, 'APPROVE' 
-        ]);
+        // 3. Simpan atau Update ke Header Rekap Tekstil
+        if (isActuallyNew) {
+            const sqlInsHeader = `
+                INSERT INTO tlhk_tekstilmmt_hdr (
+                    lth_nomor, lth_tanggal, lth_shift, lth_gdg_prod, 
+                    lth_user_create, lth_date_create, lth_brg_kode, lth_barcode, lth_status
+                ) VALUES (?, ?, ?, ?, ?, NOW(), ?, ?, ?)
+            `;
+            await conn.query(sqlInsHeader, [
+                nomorApp, header.tanggal, Number(header.shift) || 1, header.gdgKode || '', 
+                header.admin || 'ADMIN', sampleBrgKode, sampleBarcode, 'APPROVE' 
+            ]);
+        } else {
+            const sqlUpdHeader = `
+                UPDATE tlhk_tekstilmmt_hdr SET 
+                    lth_tanggal = ?, lth_shift = ?, lth_gdg_prod = ?, 
+                    lth_user_create = ?, lth_brg_kode = ?, lth_barcode = ?
+                WHERE lth_nomor = ?
+            `;
+            await conn.query(sqlUpdHeader, [
+                header.tanggal, Number(header.shift) || 1, header.gdgKode || '', 
+                header.admin || 'ADMIN', sampleBrgKode, sampleBarcode, nomorApp
+            ]);
 
-        // 3. Simpan Detail Pekerjaan
+            // Mode EDIT: Bersihkan data lama detail pekerjaan & data tinta lama agar tidak double
+            await conn.query('DELETE FROM tlhk_tekstilmmt_dtl WHERE ltd_lth_nomor = ?', [nomorApp]);
+            await conn.query('DELETE FROM tlhk_cetakmmt_ink WHERE lci_lch_nomor = ?', [nomorApp]);
+        }
+
+        // 4. Simpan Detail Pekerjaan
         if (details && details.length > 0) {
             const sqlDetail = `
                 INSERT INTO tlhk_tekstilmmt_dtl (
                     ltd_lth_nomor, ltd_no_urut, ltd_jns_mesin, ltd_spk_nomor, 
-                    ltd_qty_Cetak, ltd_brg_kode, ltd_panjang_pakai, ltd_lebar_pakai,
+                    ltd_qty_cetak, ltd_brg_kode, ltd_panjang_pakai, ltd_lebar_pakai,
                     ltd_lth_mesin_nomor, ltd_shift
                 ) VALUES ?
             `;
             const values = details.map((d, i) => [
-                nomorApp, i + 1, d.mesin || '', d.nomor_spk || '', 
-                parseFloat(d.qty || d.jumlah_cetak) || 0, d.brg_kode || sampleBrgKode, 
-                parseFloat(d.total_m2) || 0, parseFloat(d.lebar || d.lebar_spk) || 0,
-                d.lhk_mesin || '', Number(d.shift) || Number(header.shift) || 1
+                nomorApp, 
+                i + 1, 
+                d.mesin || d.Mesin || '', 
+                d.nomor_spk || d.Nomor_SPK || '', 
+                parseFloat(d.qty || d.jumlah_cetak || d.Jml_Cetak) || 0, 
+                d.brg_kode || d.Kode_Bahan || sampleBrgKode, 
+                parseFloat(d.total_m2 || d.Total_Panjang) || 0, 
+                parseFloat(d.lebar || d.lebar_spk || d.Lebar) || 0,
+                d.lhk_mesin || d.Nomor_Lhk_Mesin || '', 
+                Number(d.shift || d.ShiftDetail) || Number(header.shift) || 1
             ]);
             await conn.query(sqlDetail, [values]);
 
             // Update status di tabel LHK Mesin asal menjadi APPROVED
-            const lhkNomorsAsal = details.map(d => d.lhk_mesin).filter(n => n && n !== "MANUAL"); 
+            const lhkNomorsAsal = details.map(d => d.lhk_mesin || d.Nomor_Lhk_Mesin).filter(n => n && n !== "MANUAL"); 
             if (lhkNomorsAsal.length > 0) {
                 await conn.query(
                     `UPDATE tlhk_mesintekstil_hdr SET lth_status = 'APPROVED' WHERE lth_nomor IN (?)`,
@@ -534,37 +586,40 @@ const saveApproval = async (data) => {
             }
         }
 
-        // ==========================================
-        // 🔥 TAMBAHAN LOGIKA BARU: SIMPAN DATA TINTA
-        // ==========================================
+        // 5. Simpan Data Tinta
         if (inkData && inkData.length > 0) {
-    // 1. Filter ulang di backend untuk membuang item jika lci_msn_kode bernilai null/empty
-    const validInkData = inkData.filter(ink => ink.lci_msn_kode && ink.lci_msn_kode.trim() !== "");
+            // Filter ulang untuk memastikan properti msn_kode ada isinya
+            const validInkData = inkData.filter(ink => (ink.lci_msn_kode || ink.msn_kode || ink.Mesin));
 
-    // 2. Jika setelah difilter masih ada data yang valid, lakukan bulk insert
-    if (validInkData.length > 0) {
-        const sqlInk = `
-            INSERT INTO tlhk_cetakmmt_ink (
-                lci_lch_nomor, lci_msn_kode, lci_tipe, lci_c, lci_m, lci_y, lci_k
-            ) VALUES ?
-        `;
-        
-        const inkValues = validInkData.map((ink) => [
-            nomorApp, // Nomor approval utama rekap tekstil (lci_lch_nomor)
-            ink.lci_msn_kode, // Dijamin tidak null karena sudah lolos filter di atas
-            ink.lci_tipe || 'Tekstil',
-            parseFloat(ink.lci_c) || 0,
-            parseFloat(ink.lci_m) || 0,
-            parseFloat(ink.lci_y) || 0,
-            parseFloat(ink.lci_k) || 0
-        ]);
+            if (validInkData.length > 0) {
+                const sqlInk = `
+                    INSERT INTO tlhk_cetakmmt_ink (
+                        lci_lch_nomor, lci_msn_kode, lci_tipe, lci_c, lci_m, lci_y, lci_k
+                    ) VALUES ?
+                `;
+                
+                const inkValues = validInkData.map((ink) => [
+                    nomorApp, 
+                    ink.lci_msn_kode || ink.msn_kode || ink.Mesin, 
+                    ink.lci_tipe || ink.tipe || 'Tekstil',
+                    parseFloat(ink.lci_c ?? ink.c) || 0,
+                    parseFloat(ink.lci_m ?? ink.m) || 0,
+                    parseFloat(ink.lci_y ?? ink.y) || 0,
+                    parseFloat(ink.lci_k ?? ink.k) || 0
+                ]);
 
-        await conn.query(sqlInk, [inkValues]);
-    }
-}
+                await conn.query(sqlInk, [inkValues]);
+            }
+        }
 
         await conn.commit();
-        return { success: true, nomor: nomorApp, message: 'LHK Berhasil di-Approve beserta Data Tinta' };
+        return { 
+            success: true, 
+            nomor: nomorApp, 
+            message: isActuallyNew 
+                ? 'LHK Berhasil di-Approve beserta Data Tinta' 
+                : 'Perubahan Data Rekap & Tinta Berhasil Diperbarui' 
+        };
 
     } catch (error) {
         await conn.rollback();
@@ -646,6 +701,7 @@ const getApprovalDetailsByNomor = async (nomor) => {
  * Mengambil data lengkap Approval (Header + Detail)
  */
 const getApprovalFullByNomor = async (nomor) => {
+    // 1. Ambil data Header
     const sqlHeader = `
         SELECT 
             lth_nomor AS Nomor, 
@@ -660,11 +716,17 @@ const getApprovalFullByNomor = async (nomor) => {
     const [headerRows] = await pool.query(sqlHeader, [nomor]);
     if (headerRows.length === 0) return null;
 
+    // 2. Ambil data Detail Pekerjaan (Fungsi yang sudah ada)
     const details = await getApprovalDetailsByNomor(nomor);
 
+    // 3. 🔥 PANGGIL FUNGSI TINTA YANG SUDAH ADA
+    const inks = await getInksByNomor(nomor);
+
+    // 4. Kembalikan semua data dengan properti 'inkData' agar pas dengan Frontend
     return {
         header: headerRows[0],
-        details: details
+        details: details,
+        inkData: inks // Ditampung ke properti inkData sesuai kebutuhan `.map` di Vue
     };
 };
 

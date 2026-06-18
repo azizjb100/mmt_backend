@@ -5,15 +5,24 @@ const planningService = require('../services/planningProduksi.service');
 exports.getBrowsePlanning = async (req, res) => {
     try {
         const { startDate, endDate } = req.query;
-
         if (!startDate || !endDate) {
-            return res.status(400).json({ message: "Parameter tanggal harus diisi" });
+            return res.status(400).json({ success: false, message: "Parameter tanggal harus diisi" });
         }
 
         const data = await planningService.getPlanningProduksiData(startDate, endDate);
-        res.json(data);
+        
+        // Ubah properti Detail -> detail untuk standarisasi javascript camelCase
+        const formattedData = data.map(item => ({
+            ...item,
+            detail: item.Detail || []
+        }));
+
+        return res.status(200).json({
+            success: true,
+            data: formattedData
+        });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        return res.status(500).json({ success: false, error: error.message });
     }
 };
 
@@ -30,34 +39,58 @@ exports.getDetailPlanning = async (req, res) => {
 
 exports.getSpkDetailForPlanning = async (req, res) => {
     try {
-        const { nomor } = req.params;
-        
-        // Replikasi query loaddataall gabungan master spk + detail planning yang ada
-        const [spkHeader] = await req.pool.query(
-            `SELECT *, 
-                    DATE_FORMAT(spk_tanggal, "%Y-%m-%d") as tgl, 
-                    DATE_FORMAT(spk_dateline, "%Y-%m-%d") as dateline 
-             FROM tspk WHERE spk_nomor = ?`, 
-            [nomor]
-        );
-        
-        if (spkHeader.length === 0) {
-            return res.status(404).json({ message: "Nomor SPK tidak ditemukan" });
+        const { nomorSpk } = req.params; 
+
+        if (!nomorSpk) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "Nomor SPK wajib dilampirkan." 
+            });
         }
 
-        const [details] = await req.pool.query(
-            `SELECT * FROM tplanningspk_mmt WHERE plan_spk = ?`, 
-            [nomor]
-        );
+        // result berisi: { spk_nomor, spk_nama, spk_panjang, ..., Detail: [...] }
+        const result = await planningService.getPlanningByNomor(nomorSpk);
+        
+        // Validasi apakah data master SPK ditemukan (cek salah satu field utama, misal spk_nomor)
+        if (!result || !result.spk_nomor) {
+            return res.status(404).json({ 
+                success: false, 
+                message: "Nomor SPK tidak ditemukan di sistem database." 
+            });
+        }
 
-        res.json({
+        // Mapping output yang disesuaikan dengan kebutuhan komponen Form Vue Anda
+        return res.status(200).json({
+            success: true,
             data: {
-                header: spkHeader[0],
-                detail: details
+                header: {
+                    spk_nomor: result.spk_nomor,
+                    spk_Nama: result.spk_nama,
+                    tgl: result.spk_tanggal,       // Sesuaikan dengan nama kolom asli tSPK Anda
+                    dateline: result.spk_dateline, // Sesuaikan dengan nama kolom asli tSPK Anda
+                    spk_jumlah: result.spk_jumlah,
+                    spk_panjang: result.spk_panjang,
+                    spk_lebar: result.spk_lebar,
+                    spk_cab: result.spk_cab,
+                    spk_workshop: result.spk_workshop,
+                    spk_tipe: result.spk_tipe,
+                    spk_kain: result.spk_kain,
+                    spk_Finishing: result.spk_finishing,
+                    spk_sablon: result.sablon || result.spk_sablon,
+                    spk_sublim: result.sublim || result.spk_sublim,
+                    spk_bordir: result.bordir || result.spk_bordir
+                },
+                // Pastikan key "detail" menggunakan huruf kecil sesuai kebutuhan .map() di Vue
+                detail: result.Detail || [] 
             }
         });
+
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        console.error("Error di getSpkDetailForPlanning:", error);
+        return res.status(500).json({ 
+            success: false, 
+            message: `Gagal memproses data SPK: ${error.message}` 
+        });
     }
 };
 

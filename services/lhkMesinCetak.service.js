@@ -142,7 +142,6 @@ const getLookup = async (startDate, endDate, shift = '', search = '') => {
             GROUP BY h.lspk_nomor
         ) all_prod ON all_prod.lspk_nomor = t1.lspk_nomor
         
-        /* --- JOIN UNTUK CEK APAKAH NOMOR LHK INI SUDAH PERNAH DI REKAP --- */
         LEFT JOIN (
             SELECT DISTINCT lcd_lnomor 
             FROM tlhk_cetakmmt_dtl
@@ -383,9 +382,7 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
         throw new Error("Header atau Detail tidak boleh kosong.");
     }
 
-    // Helper Fungsi untuk menentukan kategori berdasarkan dimensi
     const getKategori = (panjang, lebar) => {
-        // GANTI DI SINI: Jika memenuhi syarat roll sisa layak pakai, simpan sebagai RETUR (Sisa Produksi)
         if (panjang >= 3 && lebar >= 0.5) {
             return 'RETUR'; 
         }

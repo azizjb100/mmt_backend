@@ -16,6 +16,7 @@ const lapLsBahanUtamaRoutes = require("./routes/lapLsBahanUtama.routes");
 const lapLsBahanPenolongRoutes = require("./routes/lapLsBahanPenolong.routes");
 const lapMonCetakRoutes = require("./routes/lapMonCetak.routes");
 const lapSpkMmtRoutes = require("./routes/lapSpkMmt.routes");
+const lapPlanVsLhkRoutes = require("./routes/lapPlanVsLhk.routes");
 const permintaanBahanRoutes = require("./routes/permintaanBahan.routes");
 const penerimaanBahanRoutes = require("./routes/penerimaanBahan.routes");
 const supplierRoutes = require("./routes/supplier.routes");
@@ -177,6 +178,7 @@ app.use("/api/mmt/lhk-sublim", clientCertAuth, lhkSublimRoutes);
 app.use("/api/mmt/monitoring-sublim", clientCertAuth, lapMonSublimRoutes);
 app.use("/api/mmt/dashboard", clientCertAuth, dashboardRoutes);
 app.use("/api/mmt/mppb", clientCertAuth, mppbRoutes);
+app.use("/api/mmt/laporan-plan-vs-lhk", clientCertAuth, lapPlanVsLhkRoutes);
 
 
 
