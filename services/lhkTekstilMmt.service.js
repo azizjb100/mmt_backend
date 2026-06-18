@@ -678,16 +678,24 @@ const getApprovalDetailsByNomor = async (nomor) => {
             d.ltd_qty_cetak AS Jml_Cetak, 
             d.ltd_brg_kode AS Kode_Bahan, 
             b.brg_nama AS Nama_Bahan,
-            d.ltd_panjang_pakai AS Total_Panjang,
-            d.ltd_lebar_pakai AS Lebar,
+            
+            -- 1. PANJANG & LEBAR DIAMBIL LANGSUNG DARI MASTER SPK
+            IFNULL(x.spk_panjang, 0) AS Panjang,
+            IFNULL(x.spk_lebar, 0) AS Lebar,
+            
+            -- 2. TOTAL PANJANG (M2) DIHITUNG OTOMATIS: PANJANG x LEBAR x QTY CETAK
+            ROUND(IFNULL(x.spk_panjang, 0) * IFNULL(x.spk_lebar, 0) * IFNULL(d.ltd_qty_cetak, 0), 2) AS Total_Panjang,
+            ROUND(IFNULL(x.spk_panjang, 0) * IFNULL(x.spk_lebar, 0) * IFNULL(d.ltd_qty_cetak, 0), 2) AS total_m2,
+            
             d.ltd_lth_mesin_nomor AS Nomor_Lhk_Mesin, -- Ambil nomor LHK Mesin asal
             d.ltd_shift AS ShiftDetail                 -- Ambil shift detail
         FROM tlhk_tekstilmmt_dtl d
         LEFT JOIN tbarang_mmt b ON d.ltd_brg_kode = b.brg_kode
+        -- Mengambil data spesifikasi ukuran langsung dari database master SPK & Memo SPK
         LEFT JOIN (
-            SELECT spk_nomor, spk_nama FROM tspk 
+            SELECT spk_nomor, spk_nama, IFNULL(spk_panjang, 0) AS spk_panjang, IFNULL(spk_lebar, 0) AS spk_lebar FROM tspk 
             UNION ALL 
-            SELECT mspk_nomor, mspk_nama FROM tmemospk 
+            SELECT mspk_nomor, mspk_nama, IFNULL(mspk_panjang, 0) AS mspk_panjang, IFNULL(mspk_lebar, 0) AS mspk_lebar FROM tmemospk 
         ) x ON x.spk_nomor = d.ltd_spk_nomor 
         WHERE d.ltd_lth_nomor = ?
         ORDER BY d.ltd_no_urut
