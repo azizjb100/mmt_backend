@@ -25,15 +25,15 @@ const getAllHeaders = async (startDate, endDate) => {
             h.lsb_status AS Status,
             (
                 SELECT IF(COUNT(*) > COUNT(IF(LENGTH(lsbd_bahan) > 0, 1, NULL)), 'N', 'Y') 
-                FROM tlhk_mesinsublim_dtl 
+                FROM tlhk_sublim_dtl 
                 WHERE lsbd_lsb_nomor = h.lsb_nomor
             ) AS Lengkap,
             (
                 SELECT SUM(lsbd_panjang * lsbd_lebar * lsbd_jumlah) 
-                FROM tlhk_mesinsublim_dtl 
+                FROM tlhk_sublim_dtl 
                 WHERE lsbd_lsb_nomor = h.lsb_nomor
             ) AS total_meter
-        FROM tlhk_mesinsublim_hdr h
+        FROM tlhk_sublim_hdr h
         LEFT JOIN tGUDANG g ON g.gdg_kode = h.lsb_gdg_kode
         WHERE h.lsb_tanggal BETWEEN ? AND ?
         ORDER BY h.lsb_tanggal DESC, h.lsb_nomor DESC
@@ -56,7 +56,7 @@ const getDetailsByNomor = async (nomor) => {
             d.lsbd_bahan AS Bahan, 
             d.lsbd_jumlah AS Jumlah,
             (d.lsbd_panjang * d.lsbd_lebar * d.lsbd_jumlah) AS Jumlah_Meter
-        FROM tlhk_mesinsublim_dtl d
+        FROM tlhk_sublim_dtl d
         LEFT JOIN (
             SELECT spk_nomor, spk_nama FROM tspk 
             UNION ALL 
@@ -83,14 +83,14 @@ const saveLhkMesin = async (data) => {
         const shiftForm = header.lsb_shift || 1;
         const userAction = header.user || 'SYSTEM';
 
-        // 1. PROSES HEADER (Sesuai gambar tlhk_mesinsublim_hdr)
+        // 1. PROSES HEADER (Sesuai gambar tlhk_sublim_hdr)
         if (!nomorLhk || nomorLhk === 'AUTO') {
             const yymm = format(new Date(tanggalForm), 'yyMM');
             
             // Menggunakan kolom lsb_nomor sesuai gambar database Anda
             const [maxRows] = await conn.query(
                 `SELECT MAX(CAST(SUBSTRING_INDEX(lsb_nomor, '.', -1) AS UNSIGNED)) AS max_num 
-                 FROM tlhk_mesinsublim_hdr 
+                 FROM tlhk_sublim_hdr 
                  WHERE lsb_nomor LIKE ?`, 
                 [`${NOMERATOR_MESIN}.${yymm}.%`]
             );
@@ -100,7 +100,7 @@ const saveLhkMesin = async (data) => {
 
             // Kolom diubah ke: lsb_nomor, lsb_tanggal, lsb_jenis, lsb_shift, lsb_date_Create, lsb_user_create, lsb_gdg_kode, lsb_status
             await conn.query(
-                `INSERT INTO tlhk_mesinsublim_hdr 
+                `INSERT INTO tlhk_sublim_hdr 
                 (lsb_nomor, lsb_tanggal, lsb_jenis, lsb_shift, lsb_date_Create, lsb_user_create, lsb_gdg_kode, lsb_status) 
                 VALUES (?, ?, 'S', ?, NOW(), ?, ?, ?)`, 
                 [nomorLhk, tanggalForm, shiftForm, userAction, gdgKode, currentStatus]
@@ -108,17 +108,17 @@ const saveLhkMesin = async (data) => {
         } else {
             // MODE UPDATE HEADER
             await conn.query(
-                `UPDATE tlhk_mesinsublim_hdr 
+                `UPDATE tlhk_sublim_hdr 
                  SET lsb_tanggal=?, lsb_shift=?, lsb_user_modified=?, lsb_gdg_kode=?, lsb_status=?, lsb_date_modified=NOW() 
                  WHERE lsb_nomor=?`, 
                 [tanggalForm, shiftForm, userAction, gdgKode, currentStatus, nomorLhk]
             );
             
             // Hapus detail lama sebelum insert ulang
-            await conn.query(`DELETE FROM tlhk_mesinsublim_dtl WHERE lsbd_lsb_nomor = ?`, [nomorLhk]);
+            await conn.query(`DELETE FROM tlhk_sublim_dtl WHERE lsbd_lsb_nomor = ?`, [nomorLhk]);
         }
 
-        // 2. PROSES DETAIL (Sesuai struktur contoh INSERT tlhk_mesinsublim_dtl Anda)
+        // 2. PROSES DETAIL (Sesuai struktur contoh INSERT tlhk_sublim_dtl Anda)
         if (details && details.length > 0) {
             const values = details.map((d, i) => {
                 const p = parseFloat(d.spk_panjang || 0);
@@ -149,7 +149,7 @@ const saveLhkMesin = async (data) => {
             });
 
             const sqlInsertDtl = `
-                INSERT INTO tlhk_mesinsublim_dtl (
+                INSERT INTO tlhk_sublim_dtl (
                     lsbd_lsb_nomor, lsbd_spk_nomor, lsbd_spk_nama, lsbd_spk_tanggal, lsbd_dateline, 
                     lsbd_jumlah_order, lsbd_panjang, lsbd_lebar, lsbd_mesin, lsbd_jumlah, 
                     lsbd_j_meter, lsbd_lokasi, lsbd_bahan, lsbd_no_urut, lsbd_toleransi, 
@@ -182,9 +182,9 @@ const getLookupForApproval = async (tanggal, shift) => {
             h.lms_nomor AS Nomor, 
             DATE_FORMAT(h.lms_tanggal, '%d-%m-%Y') AS Tanggal, 
             h.lms_shift AS Shift,
-            (SELECT lmsd_lokasi FROM tlhk_mesinsublim_dtl WHERE lmsd_lms_nomor = h.lms_nomor LIMIT 1) AS Mesin,
-            (SELECT SUM(lmsd_panjang * lmsd_lebar * lmsd_jumlah) FROM tlhk_mesinsublim_dtl WHERE lmsd_lms_nomor = h.lms_nomor) AS Total_Meter
-        FROM tlhk_mesinsublim_hdr h
+            (SELECT lmsd_lokasi FROM tlhk_sublim_dtl WHERE lmsd_lms_nomor = h.lms_nomor LIMIT 1) AS Mesin,
+            (SELECT SUM(lmsd_panjang * lmsd_lebar * lmsd_jumlah) FROM tlhk_sublim_dtl WHERE lmsd_lms_nomor = h.lms_nomor) AS Total_Meter
+        FROM tlhk_sublim_hdr h
         WHERE h.lms_status = 'POSTED' AND h.lms_tanggal = ?
     `;
     if (shift && shift !== 'Semua') { sql += ` AND h.lms_shift = ?`; params.push(shift); }
@@ -213,7 +213,7 @@ const saveApproval = async (data) => {
 
             // 3. Update status di tabel asal (mesinsublim)
             const idsAsal = details.map(d => d.lhk_nomor);
-            await conn.query(`UPDATE tlhk_mesinsublim_hdr SET lms_status = 'APPROVED' WHERE lms_nomor IN (?)`, [idsAsal]);
+            await conn.query(`UPDATE tlhk_sublim_hdr SET lms_status = 'APPROVED' WHERE lms_nomor IN (?)`, [idsAsal]);
         }
 
         await conn.commit();
