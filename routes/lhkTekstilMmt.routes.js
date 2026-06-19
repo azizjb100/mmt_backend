@@ -8,6 +8,9 @@ router.get('/', lhkController.getLhkList);
 router.get('/lookup', lhkController.getLhkLookup);
 router.get('/approval-list', lhkController.getApprovalList); // Endpoint untuk history approval
 
+
+router.get('/details', lhkController.getLhkDetails); 
+
 // --- 2. Action Routes (POST/DELETE) ---
 router.post('/approve', lhkController.handleSaveApproval);
 router.post('/', lhkController.handleSaveLhk);

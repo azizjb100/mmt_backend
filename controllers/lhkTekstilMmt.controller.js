@@ -12,11 +12,33 @@ const getLhkList = async (req, res) => {
 
 const getLhkDetails = async (req, res) => {
     try {
-        const { nomor } = req.params;
+        // 1. Ambil nomor dari query (?nomor=) ATAU dari params (/:nomor)
+        const nomor = req.query.nomor || req.params.nomor;
+
+        // 2. Validasi jika parameter nomor tidak dikirim sama sekali
+        if (!nomor) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "Parameter nomor LHK wajib disertakan." 
+            });
+        }
+
         const data = await lhkService.getDetailsByNomor(nomor);
-        res.json(data);
+
+        // 3. Amankan response: Jika data tidak ditemukan / kosong, pastikan mengembalikan array kosong
+        // 4. Bungkus ke properti 'details' agar match dengan lhkDetailsCache[item.Nomor] di frontend
+        return res.json({
+            success: true,
+            details: data || []
+        });
+
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        console.error("Error pada getLhkDetails Controller:", error);
+        return res.status(500).json({ 
+            success: false, 
+            message: "Gagal memuat detail data LHK.",
+            error: error.message 
+        });
     }
 };
 

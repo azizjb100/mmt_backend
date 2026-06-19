@@ -19,39 +19,48 @@ const getAllHeaders = async (startDate, endDate) => {
             h.lth_shift AS Shift,
             h.lth_status AS Status,
             
-            -- DATA MESIN & SPK (Mengambil baris detail terkait)
-            d.ltd_jns_mesin AS Mesin,
-            d.ltd_spk_nomor AS NomorSPK,
-            x.spk_nama AS NamaOrder,
-            IFNULL(x.spk_panjang, 0) AS spk_panjang,
-            IFNULL(x.spk_lebar, 0) AS spk_lebar,
-            IFNULL(x.spk_jumlah, 0) AS JumlahOrder,
-            
-            -- HITUNGAN REALISASI PRODUKSI TEKSTIL
-            IFNULL(d.ltd_qty_cetak, 0) AS cetak_meter,        -- Jumlah Cetak MMT/Tekstil
-            IFNULL(d.ltd_ambil_bahan, 0) AS PanjangBahanAwal,  -- Bahan Awal yang Diambil
-            
-            -- SISA METER AKHIR = Bahan Diambil - (Aktual Terpakai + Retur OK + Retur Menciut + Retur NOK)
-            -- Atau jika standardnya menggunakan Ambil Bahan - Qty Cetak:
-            (IFNULL(d.ltd_ambil_bahan, 0) - IFNULL(d.ltd_qty_cetak, 0)) AS SisaMeterAkhir,
-            
-            -- DATA BAHAN (Diambil dari lth_brg_kode atau ltd_brg_kode)
-            IFNULL(h.lth_brg_kode, d.ltd_brg_kode) AS Kode_bahan,
+            -- DATA BAHAN
+            IFNULL(h.lth_brg_kode, '') AS Kode_bahan,
             b.brg_nama AS nama_Bahan,
-
-            -- STATUS KELENGKAPAN DATA INPUTAN (Mengecek lth_brg_kode di Header)
-            IF(LENGTH(IFNULL(h.lth_brg_kode, '')) > 0, 'Y', 'N') AS Lengkap
-             
+            IF(LENGTH(IFNULL(h.lth_brg_kode, '')) > 0, 'Y', 'N') AS Lengkap,
+            
+            -- DATA MESIN & RINGKASAN SPK (Tetap aman seperti kemarin)
+            (SELECT GROUP_CONCAT(DISTINCT dtl.ltd_jns_mesin SEPARATOR ', ') 
+             FROM tlhk_mesintekstil_dtl dtl WHERE dtl.ltd_lth_nomor = h.lth_nomor) AS Mesin,
+            
+            (SELECT CASE 
+                WHEN COUNT(DISTINCT dtl.ltd_spk_nomor) > 1 THEN CONCAT('RETAIL (', COUNT(DISTINCT dtl.ltd_spk_nomor), ' SPK)')
+                ELSE MIN(dtl.ltd_spk_nomor)
+             END FROM tlhk_mesintekstil_dtl dtl WHERE dtl.ltd_lth_nomor = h.lth_nomor) AS NomorSPK,
+            
+            (SELECT CASE 
+                WHEN COUNT(DISTINCT dtl.ltd_spk_nomor) > 1 THEN 'Multi-Pekerjaan Cetak Tekstil'
+                ELSE MIN(x.spk_nama)
+             END 
+             FROM tlhk_mesintekstil_dtl dtl
+             LEFT JOIN (SELECT spk_nomor, spk_nama FROM tspk UNION ALL SELECT mspk_nomor, mspk_nama FROM tmemospk) x ON x.spk_nomor = dtl.ltd_spk_nomor
+             WHERE dtl.ltd_lth_nomor = h.lth_nomor) AS NamaOrder,
+            
+            (SELECT MIN(x.spk_panjang) FROM tlhk_mesintekstil_dtl dtl LEFT JOIN (SELECT spk_nomor, spk_panjang FROM tspk UNION ALL SELECT mspk_nomor, mspk_panjang FROM tmemospk) x ON x.spk_nomor = dtl.ltd_spk_nomor WHERE dtl.ltd_lth_nomor = h.lth_nomor) AS spk_panjang,
+            (SELECT MIN(x.spk_lebar) FROM tlhk_mesintekstil_dtl dtl LEFT JOIN (SELECT spk_nomor, spk_lebar FROM tspk UNION ALL SELECT mspk_nomor, mspk_lebar FROM tmemospk) x ON x.spk_nomor = dtl.ltd_spk_nomor WHERE dtl.ltd_lth_nomor = h.lth_nomor) AS spk_lebar,
+            IFNULL((SELECT SUM(x.spk_jumlah) FROM tlhk_mesintekstil_dtl dtl LEFT JOIN (SELECT spk_nomor, spk_jumlah FROM tspk UNION ALL SELECT mspk_nomor, mspk_jumlah FROM tmemospk) x ON x.spk_nomor = dtl.ltd_spk_nomor WHERE dtl.ltd_lth_nomor = h.lth_nomor), 0) AS JumlahOrder,
+            
+            -- =========================================================================
+            -- PERBAIKAN FORMULA HITUNGAN ANTI LUMPSUM (TUNGGAL)
+            -- =========================================================================
+            
+            -- Total Hasil Cetak Pcs/Meter (Ini tetap di-SUM karena akumulasi pekerjaan)
+            IFNULL((SELECT SUM(dtl.ltd_qty_cetak) FROM tlhk_mesintekstil_dtl dtl WHERE dtl.ltd_lth_nomor = h.lth_nomor), 0) AS cetak_meter,
+            
+            -- PERBAIKAN 1: Bahan Awal diambil nilai MAX/Tunggalnya saja dari baris roll kain ini (Bukan di-SUM)
+            IFNULL((SELECT MAX(dtl.ltd_ambil_bahan) FROM tlhk_mesintekstil_dtl dtl WHERE dtl.ltd_lth_nomor = h.lth_nomor), 0) AS PanjangBahanAwal,
+            
+            -- PERBAIKAN 2: Sisa Bahan Akhir = (Bahan Awal Tunggal) - (Total Akumulasi Semua Qty Cetak)
+            IFNULL((SELECT MAX(dtl.ltd_ambil_bahan) - SUM(dtl.ltd_qty_cetak) FROM tlhk_mesintekstil_dtl dtl WHERE dtl.ltd_lth_nomor = h.lth_nomor), 0) AS SisaMeterAkhir
+              
         FROM tlhk_mesintekstil_hdr h
         LEFT JOIN tGUDANG g ON g.gdg_kode = h.lth_gdg_prod
-        LEFT JOIN tlhk_mesintekstil_dtl d ON d.ltd_lth_nomor = h.lth_nomor
-        LEFT JOIN tbarang_mmt b ON b.brg_kode = IFNULL(h.lth_brg_kode, d.ltd_brg_kode)
-        LEFT JOIN (
-            SELECT spk_nomor, spk_nama, IFNULL(spk_jumlah, 0) AS spk_jumlah, IFNULL(spk_panjang,0) AS spk_panjang, IFNULL(spk_lebar,0) AS spk_lebar FROM tspk 
-            UNION ALL 
-            SELECT mspk_nomor, mspk_nama, IFNULL(mspk_jumlah, 0) AS mspk_jumlah, IFNULL(mspk_panjang,0) AS mspk_panjang, IFNULL(mspk_lebar,0) AS mspk_lebar FROM tmemospk 
-        ) x ON x.spk_nomor = d.ltd_spk_nomor 
-        
+        LEFT JOIN tbarang_mmt b ON b.brg_kode = h.lth_brg_kode
         WHERE h.lth_tanggal BETWEEN ? AND ?
         ORDER BY h.lth_tanggal DESC, h.lth_nomor DESC
     `;
@@ -436,7 +445,11 @@ const getLookupLhkTekstil = async (tanggal, shift) => {
     let sql = `
         SELECT 
             h.lth_nomor AS Nomor, 
-            DATE_FORMAT(h.lth_tanggal, '%d-%m-%Y') AS Tanggal, 
+            DATE_FORMAT(h.lth_tanggal, '%Y-%m-%d') AS Tanggal, 
+                      CASE 
+                WHEN h.lth_status = 'APPROVED' THEN 'CLOSED'
+                ELSE 'OPEN'
+            END AS StatusAmbil,
             h.lth_shift AS Shift,
             h.lth_barcode AS Barcode,
             h.lth_brg_kode AS Kode_Bahan, 
@@ -445,17 +458,37 @@ const getLookupLhkTekstil = async (tanggal, shift) => {
             -- Mengambil Jenis Mesin (Baris pertama)
             (SELECT ltd_jns_mesin FROM tlhk_mesintekstil_dtl WHERE ltd_lth_nomor = h.lth_nomor LIMIT 1) AS Mesin,
             
-            -- Mengambil Nomor SPK (Baris pertama)
-            (SELECT ltd_spk_nomor FROM tlhk_mesintekstil_dtl WHERE ltd_lth_nomor = h.lth_nomor LIMIT 1) AS No_SPK,
+            -- Mengambil Nomor SPK (Baris pertama / representasi utama)
+            (SELECT ltd_spk_nomor FROM tlhk_mesintekstil_dtl WHERE ltd_lth_nomor = h.lth_nomor LIMIT 1) AS NomorSPK,
             
-            -- TAMBAHAN: Mengambil Ukuran Lebar (Baris pertama)
-            (SELECT ltd_lebar_pakai FROM tlhk_mesintekstil_dtl WHERE ltd_lth_nomor = h.lth_nomor LIMIT 1) AS Lebar,
+            -- Mengambil Nama Pekerjaan / SPK dari subquery union tspk & tmemospk
+            (SELECT x.spk_nama 
+             FROM tlhk_mesintekstil_dtl dtl
+             LEFT JOIN (
+                SELECT spk_nomor, spk_nama FROM tspk 
+                UNION ALL 
+                SELECT mspk_nomor, mspk_nama FROM tmemospk 
+             ) x ON x.spk_nomor = dtl.ltd_spk_nomor
+             WHERE dtl.ltd_lth_nomor = h.lth_nomor LIMIT 1) AS NamaOrder,
 
-            -- TAMBAHAN: Mengambil Total Qty Cetak (Hasil SUM dari semua detail)
-            (SELECT SUM(ltd_qty_Cetak) FROM tlhk_mesintekstil_dtl WHERE ltd_lth_nomor = h.lth_nomor) AS Jml_Cetak,
+            -- Menghitung total jumlah jenis SPK di dalam LHK ini (untuk deteksi mode RETAIL)
+            (SELECT COUNT(DISTINCT ltd_spk_nomor) FROM tlhk_mesintekstil_dtl WHERE ltd_lth_nomor = h.lth_nomor) AS JumlahSPK,
+
+            -- Mengambil Total Qty Order dari SPK terkait
+            (SELECT SUM(x.spk_jumlah) 
+             FROM tlhk_mesintekstil_dtl dtl
+             LEFT JOIN (
+                SELECT spk_nomor, spk_jumlah FROM tspk 
+                UNION ALL 
+                SELECT mspk_nomor, mspk_jumlah FROM tmemospk 
+             ) x ON x.spk_nomor = dtl.ltd_spk_nomor
+             WHERE dtl.ltd_lth_nomor = h.lth_nomor) AS JumlahOrder,
             
-            -- Mengambil Total Panjang Pakai (Hasil SUM dari semua detail)
-            (SELECT SUM(ltd_panjang_pakai) FROM tlhk_mesintekstil_dtl WHERE ltd_lth_nomor = h.lth_nomor) AS Total_Meter
+            -- Mengambil Total Qty Cetak Pcs (Hasil SUM dari semua detail)
+            (SELECT SUM(ltd_qty_Cetak) FROM tlhk_mesintekstil_dtl WHERE ltd_lth_nomor = h.lth_nomor) AS TotalCetak,
+            
+            -- Mengambil Total Luas Meter Persegi / Panjang Pakai (Hasil SUM dari semua detail) untuk field qty meter2
+            (SELECT SUM(ltd_panjang_pakai) FROM tlhk_mesintekstil_dtl WHERE ltd_lth_nomor = h.lth_nomor) AS KurangCetak
             
         FROM tlhk_mesintekstil_hdr h
         LEFT JOIN tbarang_mmt b ON h.lth_brg_kode = b.brg_kode
@@ -468,8 +501,8 @@ const getLookupLhkTekstil = async (tanggal, shift) => {
     }
 
     if (shift && shift !== 'Semua') {
-      sql += ` AND h.lth_shift = ?`;
-      params.push(shift);
+        sql += ` AND h.lth_shift = ?`;
+        params.push(shift);
     }
 
     sql += ` ORDER BY h.lth_nomor DESC LIMIT 100`;
