@@ -66,7 +66,7 @@ const lhkSublimRoutes = require("./routes/lhkSublim.routes");
 const lapMonSublimRoutes = require("./routes/lapMonSublim.routes");
 const dashboardRoutes = require("./routes/dashboard.routes");
 const mppbRoutes = require("./routes/mppb.routes");
-
+const lhkPolaRoutes = require("./routes/lhkPola.routes");
 
 
 
@@ -179,6 +179,7 @@ app.use("/api/mmt/monitoring-sublim", clientCertAuth, lapMonSublimRoutes);
 app.use("/api/mmt/dashboard", clientCertAuth, dashboardRoutes);
 app.use("/api/mmt/mppb", clientCertAuth, mppbRoutes);
 app.use("/api/mmt/laporan-plan-vs-lhk", clientCertAuth, lapPlanVsLhkRoutes);
+app.use("/api/mmt/lhk-pola", clientCertAuth, lhkPolaRoutes);
 
 
 
