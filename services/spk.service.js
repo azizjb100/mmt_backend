@@ -542,17 +542,29 @@ const getBaseSpkRegulerOnlyQuery = (whereClause = "1=1") => {
                 IFNULL((SELECT pin_acc FROM tspk_pin5 WHERE pin_trs="SPK" AND pin_nomor=t.spk_nomor ORDER BY pin_urut DESC LIMIT 1), "NULL") as ppin,
                 IFNULL((SELECT pin_dipakai FROM tspk_pin5 WHERE pin_trs="SPK" AND pin_nomor=t.spk_nomor ORDER BY pin_urut DESC LIMIT 1), "NULL") as ppakai,
 
-                /* Akumulasi Produksi (Sudah Cetak) */
-                CAST(IFNULL(prod.total_pernah_cetak, 0) AS UNSIGNED) AS Sudah_Cetak,
-                CAST(GREATEST(0, t.spk_jumlah - IFNULL(prod.total_pernah_cetak, 0)) AS UNSIGNED) AS Kurang_Cetak,
+                /* PERBAIKAN: Akumulasi Produksi Gabungan (Mesin Standar + Mesin Tekstil) */
+                CAST((IFNULL(prod.total_cetak_reguler, 0) + IFNULL(prod_tekstil.total_cetak_tekstil, 0)) AS UNSIGNED) AS Sudah_Cetak,
+                
+                /* Kurang Cetak = Jumlah Order dikurangi Total Sudah Cetak */
+                CAST(GREATEST(0, t.spk_jumlah - (IFNULL(prod.total_cetak_reguler, 0) + IFNULL(prod_tekstil.total_cetak_tekstil, 0))) AS UNSIGNED) AS Kurang_Cetak,
                 'REGULER' as Tipe_SPK
             FROM tspk t
             LEFT JOIN v_help_spk v ON v.Spk = t.spk_nomor
+            
+            /* JOIN 1: Hitungan Cetak Mesin Reguler */
             LEFT JOIN (
-                SELECT ld_spk_nomor, SUM(ld_total_qtycetak) as total_pernah_cetak
+                SELECT ld_spk_nomor, SUM(ld_total_qtycetak) as total_cetak_reguler
                 FROM tlhk_mesin_dtl
                 GROUP BY ld_spk_nomor
             ) prod ON prod.ld_spk_nomor = t.spk_nomor
+
+            /* JOIN 2: PERBAIKAN BERSAMA - Hitungan Cetak Mesin Tekstil */
+            LEFT JOIN (
+                SELECT ld_spk_nomor, SUM(ld_total_qtycetak) as total_cetak_tekstil
+                FROM tlhk_mesintekstil_dtl
+                GROUP BY ld_spk_nomor
+            ) prod_tekstil ON prod_tekstil.ld_spk_nomor = t.spk_nomor
+            
             WHERE ${whereClause}
         ) x
     `;
