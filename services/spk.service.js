@@ -560,10 +560,10 @@ const getBaseSpkRegulerOnlyQuery = (whereClause = "1=1") => {
 
             /* JOIN 2: PERBAIKAN BERSAMA - Hitungan Cetak Mesin Tekstil */
             LEFT JOIN (
-                SELECT ltd_spk_nomor, SUM(ld_total_qtycetak) as total_cetak_tekstil
+                SELECT ltd_spk_nomor, SUM(ltd_qty_cetak) as total_cetak_tekstil
                 FROM tlhk_mesintekstil_dtl
                 GROUP BY ltd_spk_nomor
-            ) prod_tekstil ON prod_tekstil.lt_spk_nomor = t.spk_nomor
+            ) prod_tekstil ON prod_tekstil.ltd_spk_nomor = t.spk_nomor
             
             WHERE ${whereClause}
         ) x
