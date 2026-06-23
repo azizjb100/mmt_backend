@@ -8,12 +8,13 @@ const getPOInternalLookup = async () => {
         h.poi_nomor, 
         h.poi_tanggal, 
         h.poi_spk_nomor, 
+        d.poid_bhn_kode,
+        b.Bhn_Name as nama_komponen, 
         d.poid_size, 
         d.poid_jumlah,
         IFNULL(s.spk_nama, m.mspk_nama) as spk_nama,
         IFNULL(s.spk_panjang, m.mspk_panjang) as spk_panjang,
         IFNULL(s.spk_lebar, m.mspk_lebar) as spk_lebar,
-        /* Hitung sisa: Join ke header (a) untuk mendapatkan poisj_nomorpo */
         (d.poid_jumlah - IFNULL((
           SELECT SUM(i.poisjd_jumlah) 
           FROM tpointernalsj_dtl i 
@@ -24,12 +25,13 @@ const getPOInternalLookup = async () => {
         ), 0)) as sisa_qty
       FROM tpointernal_hdr h
       INNER JOIN tpointernal_dtl d ON h.poi_nomor = d.poid_nomor
+      LEFT JOIN tbahan b ON b.Bhn_kode = d.poid_bhn_kode 
       LEFT JOIN tspk s ON h.poi_spk_nomor = s.spk_nomor
       LEFT JOIN tmemospk m ON h.poi_spk_nomor = m.mspk_nomor
       WHERE h.poi_sup = 'P05' 
-      AND d.poid_bhn_kode = 'LL-000400'
+      AND b.Bhn_jb_kode = 'LL' /* PERBAIKAN: Mengikuti standar Delphi, ambil semua jenis komponen 'LL' 🌟 */
       AND h.poi_close = 'N'
-      ORDER BY h.poi_tanggal DESC
+      ORDER BY h.poi_tanggal DESC, h.poi_nomor DESC
     `;
 
     const [rows] = await pool.execute(sql);

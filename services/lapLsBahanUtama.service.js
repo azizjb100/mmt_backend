@@ -172,7 +172,7 @@ const getReport = async (startDate, endDate, gdgKode) => {
     ) d ON d.mst_brg_kode = a.brg_kode
 
     LEFT JOIN tjenisbarang jb ON jb.jb_kode = a.brg_jenis
-    WHERE a.brg_ktg_kode IN ('BU')
+    WHERE a.brg_ktg_kode IN ('BU') and brg_isstok ='1'
     ORDER BY a.brg_nama ASC
   `;
 
