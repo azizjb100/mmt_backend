@@ -24,16 +24,38 @@ const getAllHeaders = async (startDate, endDate) => {
 
     const sql = `
         SELECT 
-            lpr_nomor AS nomor, 
-            DATE_FORMAT(lpr_tanggal, '%d-%m-%Y') AS Tanggal, 
-            lpr_gdg_kode AS Gudang, 
-            gdg_nama AS Nama_Gudang, 
-            IF(lpr_jenis="M","MMT",IF(lpr_jenis="S","SUBLIM",IF(lpr_jenis="T","TEKSTIL",""))) AS Jenis, 
-            lpr_keterangan AS Keterangan
-        FROM tlhk_proofmmt_hdr 
-        LEFT JOIN tGUDANG ON gdg_kode = lpr_gdg_kode
-        WHERE lpr_tanggal BETWEEN ? AND ?
-        ORDER BY lpr_tanggal DESC, lpr_nomor DESC
+            h.lpr_nomor AS nomor, 
+            DATE_FORMAT(h.lpr_tanggal, '%d-%m-%Y') AS Tanggal, 
+            h.lpr_gdg_kode AS Gudang, 
+            g.gdg_nama AS Nama_Gudang, 
+            IF(h.lpr_jenis="M","MMT",IF(h.lpr_jenis="S","SUBLIM",IF(h.lpr_jenis="T","TEKSTIL",""))) AS Jenis, 
+            h.lpr_operator AS Operator,
+            h.lpr_keterangan AS Keterangan,
+            
+            -- --- TAMBAHAN DATA LOGISTIK DI LEVEL HEADER ---
+            d.lprd_barcode AS Barcode_Roll,
+            IFNULL(d.total_j_meter, 0) AS Total_J_Meter,
+            IFNULL(d.panjang_awal, 0) AS Panjang_Awal,
+            IFNULL(d.panjang_terpakai, 0) AS Panjang_Terpakai,
+            IFNULL(d.sisa_bahan, 0) AS Sisa_Bahan
+            
+        FROM tlhk_proofmmt_hdr h
+        LEFT JOIN tGUDANG g ON g.gdg_kode = h.lpr_gdg_kode
+        -- Join dengan subquery detail untuk mengambil snapshot roll bahan pertama & akumulasi meter lari
+        LEFT JOIN (
+            SELECT 
+                lprd_lpr_nomor,
+                MAX(lprd_barcode) AS lprd_barcode,                   -- Ambil barcode roll yang digunakan
+                SUM(lprd_j_meter) AS total_j_meter,                   -- Total akumulasi J_Meter terpakai
+                MAX(lprd_panjang_awal) AS panjang_awal,               -- Snapshot panjang awal roll
+                MAX(lprd_panjang_terpakai) AS panjang_terpakai,       -- Snapshot panjang terpakai logistik
+                MIN(lprd_sisa_bahan) AS sisa_bahan                    -- Sisa bahan paling akhir setelah potong
+            FROM tlhk_proofmmt_dtl
+            GROUP BY lprd_lpr_nomor
+        ) d ON d.lprd_lpr_nomor = h.lpr_nomor
+        
+        WHERE h.lpr_tanggal BETWEEN ? AND ?
+        ORDER BY h.lpr_tanggal DESC, h.lpr_nomor DESC
     `;
 
     const [rows] = await pool.query(sql, [tglMulai, tglSelesai]);
@@ -49,23 +71,25 @@ const getDetailsByNomor = async (nomor) => {
             lprd_lpr_nomor AS Nomor, 
             lprd_spk_nomor AS Nomor_SPK, 
             x.spk_nama AS Nama_SPK, 
-            x.spk_panjang AS Panjang, 
-            x.spk_lebar AS Lebar, 
+            lprd_panjang AS Panjang,           -- Gunakan ukuran simpanan LHK riil
+            lprd_lebar AS Lebar,             -- Gunakan ukuran simpanan LHK riil
             x.spk_jumlah AS J_Order,
+            cetak1, cetak2, cetak3, cetak4, cetak5, cetak6, cetak7,
+            lprd_j_meter AS J_Meter,
             lprd_j_proof AS J_Proof, 
             lprd_bahan AS Jenis_Bahan,
             lprd_lokasi AS Lokasi,
             lprd_keterangan AS Keterangan, 
-            lprd_no_urut AS No_Urut 
+            lprd_no_urut AS No_Urut,
+            -- --- TAMBAHKAN KOLOM HISTORI UTK FORM EDIT DI FRONTEND ---
+            lprd_barcode AS barcode_detail,    -- Barcode roll yang dipakai
+            lprd_panjang_awal AS panjang_roll_awal, -- Panjang awal roll saat itu (Yard/Meter)
+            lprd_sisa_bahan AS sisabahan       -- Sisa bahan setelah potong (Yard/Meter)
         FROM tlhk_proofmmt_dtl 
         LEFT JOIN (
-            SELECT spk_nomor, spk_nama, spk_jumlah, 
-                   IFNULL(spk_panjang,0) AS spk_panjang, 
-                   IFNULL(spk_lebar,0) AS spk_lebar FROM tspk 
+            SELECT spk_nomor, spk_nama, spk_jumlah FROM tspk 
             UNION ALL 
-            SELECT mspk_nomor, mspk_nama, mspk_jumlah, 
-                   IFNULL(mspk_panjang,0) AS mspk_panjang, 
-                   IFNULL(mspk_lebar,0) AS mspk_lebar FROM tmemospk 
+            SELECT mspk_nomor, mspk_nama, mspk_jumlah FROM tmemospk 
         ) x ON x.spk_nomor = lprd_spk_nomor 
         WHERE lprd_lpr_nomor = ?
         ORDER BY lprd_no_urut
@@ -85,7 +109,8 @@ const getLhkByNomor = async (nomor) => {
             DATE_FORMAT(lpr_tanggal, '%Y-%m-%d') AS lpr_tanggal, 
             lpr_gdg_kode, 
             lpr_jenis, 
-            lpr_keterangan
+            lpr_operator,     -- Mengambil kolom lpr_operator asli
+            lpr_keterangan    -- Mengambil kolom lpr_keterangan asli
         FROM tlhk_proofmmt_hdr
         WHERE lpr_nomor = ?
     `;
@@ -93,14 +118,19 @@ const getLhkByNomor = async (nomor) => {
     const [headerRows] = await pool.query(sqlHeader, [nomor]);
     if (headerRows.length === 0) return null;
 
-    const details = await getDetailsByNomor(nomor);
+    const header = headerRows[0];
+    const details = await getDetailsByNomor(nomor); 
+
+    if (details && details.length > 0) {
+        header.lpr_barcode = details[0].barcode_detail || "";
+        header.lpr_mesin = details[0].Lokasi || ""; 
+    }
 
     return {
-        header: headerRows[0],
+        header: header,
         details: details
     };
 };
-
 /**
  * Generate Nomor LHK Proof Otomatis (getmaxkode di Delphi)
  */
@@ -145,48 +175,93 @@ const saveLhk = async (data) => {
         const formattedDate = format(dateToUse, 'yyyy-MM-dd');
         const userAction = header.user || 'SYSTEM';
 
-        // 1. OLAH DATA MASTER HEADER
-        if (!nomorLhk || nomorLhk === 'AUTO') {
+        // 1. OLAH DATA MASTER HEADER (Operator disimpan di lpr_keterangan)
+       if (!nomorLhk || nomorLhk === 'AUTO') {
             nomorLhk = await generateNewNomor(header.tanggal, conn);
             
             const sqlInsHeader = `
                 INSERT INTO tlhk_proofmmt_hdr (
                     lpr_nomor, lpr_tanggal, lpr_gdg_kode, lpr_jenis, 
-                    lpr_keterangan, lpr_date_create, lpr_user_create, lpr_status
-                ) VALUES (?, ?, ?, ?, ?, NOW(), ?, ?)
+                    lpr_operator, lpr_keterangan, lpr_date_Create, lpr_user_create, lpr_status
+                ) VALUES (?, ?, ?, ?, ?, ?, NOW(), ?, ?)
             `;
             await conn.query(sqlInsHeader, [
                 nomorLhk, formattedDate, header.gdgKode, header.jenis, 
-                header.keterangan, userAction, currentStatus
+                header.operator, header.keterangan, userAction, currentStatus
             ]);
         } else {
             const sqlUpdHeader = `
                 UPDATE tlhk_proofmmt_hdr SET 
                     lpr_tanggal = ?, lpr_gdg_kode = ?, lpr_jenis = ?, 
-                    lpr_keterangan = ?, lpr_date_modified = NOW(), lpr_user_modified = ?, lpr_status = ?
+                    lpr_operator = ?, lpr_keterangan = ?, lpr_date_modified = NOW(), lpr_user_modified = ?, lpr_status = ?
                 WHERE lpr_nomor = ?
             `;
             await conn.query(sqlUpdHeader, [
                 formattedDate, header.gdgKode, header.jenis, 
-                header.keterangan, userAction, currentStatus, nomorLhk
+                header.operator, header.keterangan, userAction, currentStatus, nomorLhk
             ]);
 
             await conn.query('DELETE FROM tlhk_proofmmt_dtl WHERE lprd_lpr_nomor = ?', [nomorLhk]);
             await conn.query('DELETE FROM tmasterstok_mmt WHERE mst_noreferensi = ?', [nomorLhk]);
         }
 
-        // 2. OLAH BULK INSERT DATA DETAIL WORK-FLOW
+        // 2. OLAH BULK INSERT DATA DETAIL WORK-FLOW (Menyimpan cetak1-7 & lprd_j_meter)
         if (details && details.length > 0) {
             const sqlDetail = `
                 INSERT INTO tlhk_proofmmt_dtl (
                     lprd_lpr_nomor, lprd_spk_nomor, lprd_panjang, lprd_lebar, 
-                    lprd_j_proof, lprd_barcode, lprd_lokasi, lprd_bahan, lprd_keterangan, lprd_no_urut
+                    lprd_j_proof, lprd_j_meter, lprd_barcode, lprd_lokasi, lprd_bahan, lprd_keterangan, lprd_no_urut,
+                    lprd_panjang_awal, lprd_panjang_terpakai, lprd_sisa_bahan,
+                    cetak1, cetak2, cetak3, cetak4, cetak5, cetak6, cetak7
                 ) VALUES ?
             `;
-            const values = details.map((d, i) => [
-                nomorLhk, d.nomor_spk, d.panjang || 0, d.lebar || 0, 
-                d.aktual_proof || 0, d.barcode_detail || null, d.lokasi, d.jenis_bahan, d.keterangan, i + 1
-            ]);
+            
+            const values = details.map((d, i) => {
+                const pAwalMeter = Number(d.panjang_roll_awal || 0);
+                const pSisaMeter = Number(d.sisabahan || 0);
+                
+                // Kalkulasi total pemakaian riil dalam satuan Meter untuk lprd_j_meter
+                const totalMeterTerpakai = Number((pAwalMeter - pSisaMeter).toFixed(2));
+
+                let pAwal = pAwalMeter;
+                let pSisa = pSisaMeter;
+                
+                // Jika jenis kain Tekstil, simpan histori saldo awal/sisa dalam bentuk Yard ke DB detail
+                if (header.jenis === 'T') {
+                    pAwal = pAwal > 0 ? Number((pAwal / 0.9).toFixed(2)) : 0;
+                    pSisa = pSisa > 0 ? Number((pSisa / 0.9).toFixed(2)) : 0;
+                }
+                
+                // Panjang terpakai logistik (Yard untuk Tekstil, Meter untuk MMT)
+                const pTerpakaiLogistik = Number((pAwal - pSisa).toFixed(2));
+                const lokasiMesin = d.lokasi || header.mesin || "";
+
+                return [
+                    nomorLhk, 
+                    d.nomor_spk, 
+                    d.panjang || 0, 
+                    d.lebar || 0, 
+                    d.aktual_proof || 0, 
+                    totalMeterTerpakai, // <--- Menyimpan total meter pemakaian ke lprd_j_meter
+                    d.barcode_detail || null, 
+                    lokasiMesin, 
+                    d.jenis_bahan, 
+                    d.keterangan || "", 
+                    i + 1,
+                    pAwal, 
+                    pTerpakaiLogistik, 
+                    pSisa,
+                    // Pecahan cetak kolom C1 sampai C7
+                    Number(d.cetak1 || 0),
+                    Number(d.cetak2 || 0),
+                    Number(d.cetak3 || 0),
+                    Number(d.cetak4 || 0),
+                    Number(d.cetak5 || 0),
+                    Number(d.cetak6 || 0),
+                    Number(d.cetak7 || 0)
+                ];
+            });
+            
             await conn.query(sqlDetail, [values]);
         }
 
@@ -196,28 +271,34 @@ const saveLhk = async (data) => {
                 const d = details[i];
                 const usedBarcode = d.barcode_detail;
                 
-                const ambilPanjang = Number(d.panjang_roll_awal || 0); 
-                const sisaPanjang = Number(d.sisabahan || 0);
+                let ambilPanjang = Number(d.panjang_roll_awal || 0); 
+                let sisaPanjang = Number(d.sisabahan || 0);
                 const sisaLebar = Number(d.sisabahanlebar || 0);
 
+                if (header.jenis === 'T') {
+                    if (ambilPanjang > 0) ambilPanjang = Number((ambilPanjang / 0.9).toFixed(2));
+                    if (sisaPanjang > 0) sisaPanjang = Number((sisaPanjang / 0.9).toFixed(2));
+                }
+
                 if (usedBarcode && ambilPanjang > 0) {
-                    // Ambil master cost & properties lama dari roll utama sebelum dipotong
-                    const [oldStockData] = await conn.query(`
+                    const [rows] = await conn.query(`
                         SELECT mst_brg_kode, mst_hargabeli, mst_satuan_harga, mst_lebar 
                         FROM tmasterstok_mmt 
                         WHERE mst_barcode = ? 
+                        AND mst_stok_in = 1 AND mst_stok_out = 0
+                        ORDER BY id DESC
                         LIMIT 1
                     `, [usedBarcode]);
 
-                    if (oldStockData.length > 0) {
-                        const brgKode = oldStockData[0].mst_brg_kode;
-                        const hargaBeliLama = oldStockData[0].mst_hargabeli;
-                        const satuanHargaLama = oldStockData[0].mst_satuan_harga;
-                        const lebarAwal = oldStockData[0].mst_lebar;
+                    if (rows && rows.length > 0) {
+                        const brgKode = rows[0].mst_brg_kode;
+                        const hargaBeliLama = rows[0].mst_hargabeli;
+                        const satuanHargaLama = rows[0].mst_satuan_harga;
+                        const lebarAwal = rows[0].mst_lebar;
 
                         const finalLebarInput = (sisaLebar > 0) ? sisaLebar : lebarAwal;
 
-                        // A. MUTASI KELUAR (Habiskan unit roll awal sebelum dipecah sisa potongan barunya)
+                        // A. MUTASI KELUAR
                         await conn.query(`
                             INSERT INTO tmasterstok_mmt (
                                 mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
@@ -229,7 +310,7 @@ const saveLhk = async (data) => {
                             d.nomor_spk, nomorLhk, hargaBeliLama, satuanHargaLama, formattedDate, usedBarcode
                         ]);
 
-                        // B. MUTASI MASUK (Kembalikan sisa panjang meter gulungan yang belum terpakai)
+                        // B. MUTASI MASUK
                         if (sisaPanjang > 0) {
                             const kategoriSisa = getKategori(sisaPanjang, finalLebarInput);
                             await conn.query(`
@@ -245,6 +326,8 @@ const saveLhk = async (data) => {
                                 kategoriSisa
                             ]);
                         }
+                    } else {
+                        console.warn(`Peringatan: Barcode ${usedBarcode} tidak ditemukan di master stok induk.`);
                     }
                 }
             }
