@@ -4,7 +4,9 @@ const browseRtr = async (req, res) => {
     try {
         const { startDate, endDate } = req.query;
         const data = await rtrService.getAllHeaders(startDate, endDate);
-        res.status(200).json(data);
+        
+        // PERBAIKAN: Dibungkus objek { data } demi standardisasi stand-alone / lookup data table di Vue
+        res.status(200).json({ data });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -12,8 +14,17 @@ const browseRtr = async (req, res) => {
 
 const getDetailRtr = async (req, res) => {
     try {
-        const data = await rtrService.getDetailsByNomor(req.params.nomor);
-        res.status(200).json({ data });
+        // PERBAIKAN: Mendukung pembacaan dari parameter rute biasa maupun query string lookup (?nomor=)
+        const nomor = req.params.nomor || req.query.nomor;
+        
+        if (!nomor) {
+            return res.status(400).json({ message: "Parameter nomor tidak ditemukan" });
+        }
+
+        const data = await rtrService.getDetailsByNomor(nomor);
+        
+        // Ditambahkan key 'details' sebagai jaminan mapping frontend lancar tanpa merusak endpoint entri data lama
+        res.status(200).json({ data, details: data });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

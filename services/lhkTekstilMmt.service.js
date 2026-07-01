@@ -56,7 +56,12 @@ const getAllHeaders = async (startDate, endDate) => {
             IFNULL((SELECT MAX(dtl.ltd_ambil_bahan) FROM tlhk_mesintekstil_dtl dtl WHERE dtl.ltd_lth_nomor = h.lth_nomor), 0) AS PanjangBahanAwal,
             
             -- PERBAIKAN 2: Sisa Bahan Akhir = (Bahan Awal Tunggal) - (Total Akumulasi Semua Qty Cetak)
-            IFNULL((SELECT MAX(dtl.ltd_ambil_bahan) - SUM(dtl.ltd_qty_cetak) FROM tlhk_mesintekstil_dtl dtl WHERE dtl.ltd_lth_nomor = h.lth_nomor), 0) AS SisaMeterAkhir
+            IFNULL(
+    (SELECT MAX(dtl.ltd_ambil_bahan) - (SUM(dtl.ltd_panjang_pakai) / 0.9) 
+     FROM tlhk_mesintekstil_dtl dtl 
+     WHERE dtl.ltd_lth_nomor = h.lth_nomor), 
+    0
+) AS SisaMeterAkhir
               
         FROM tlhk_mesintekstil_hdr h
         LEFT JOIN tGUDANG g ON g.gdg_kode = h.lth_gdg_prod
@@ -318,7 +323,7 @@ if (details && details.length > 0) {
         const panjangPerPcs = Number(d.panjang_per_pcs || d.Panjang || 0);
         const jmlCetak = Number(d.jumlah_cetak || d.Jml_Cetak || 0);
         
-        const subtotalMeter = panjangPerPcs * 0.9 * jmlCetak;
+        const subtotalMeter = panjangPerPcs * jmlCetak;
         totalPanjangPakaiMeter += subtotalMeter;
 
         if (d.sisabahan !== undefined) {

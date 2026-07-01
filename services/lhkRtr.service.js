@@ -3,10 +3,6 @@ const { format } = require('date-fns');
 
 const NOMERATOR = 'MMT-LHK-R';
 
-/**
- * Browse: Mengambil daftar master LHK RTR (Header)
- * Logika Delphi: Filter by lr_tanggal
- */
 const getAllHeaders = async (startDate, endDate) => {
     const sql = `
         SELECT 
@@ -22,15 +18,10 @@ const getAllHeaders = async (startDate, endDate) => {
         WHERE lr_tanggal BETWEEN ? AND ?
         ORDER BY lr_tanggal DESC, lr_nomor DESC
     `;
-
     const [rows] = await pool.query(sql, [startDate, endDate]);
     return rows;
 };
 
-/**
- * Mengambil detail LHK RTR berdasarkan nomor
- * Logika Delphi: Gabungan tspk dan tmemospk
- */
 const getDetailsByNomor = async (nomor) => {
     const sqlDetail = `
         SELECT 
@@ -51,15 +42,10 @@ const getDetailsByNomor = async (nomor) => {
         WHERE lrd_lr_nomor = ?
         ORDER BY lrd_no_urut
     `;
-
     const [rows] = await pool.query(sqlDetail, [nomor]);
     return rows;
 };
 
-/**
- * Generate Nomor LHK RTR Otomatis
- * Format Delphi: NOMERATOR.YYMM.0001
- */
 const generateNewNomor = async (date, connection = null) => {
     const db = connection || pool;
     const yymm = format(new Date(date), 'yyMM');
@@ -70,17 +56,12 @@ const generateNewNomor = async (date, connection = null) => {
         FROM tlhk_rtr_hdr
         WHERE lr_nomor LIKE ?
     `;
-
     const [rows] = await db.query(sqlMax, [prefixMatch]);
     const maxNum = (rows && rows[0].max_num) ? rows[0].max_num : 0;
     const nextSequence = maxNum + 1;
     return `${NOMERATOR}.${yymm}.${String(nextSequence).padStart(4, '0')}`;
 };
 
-/**
- * Simpan LHK RTR (Create / Update)
- * Logika Delphi: Simpan Header & Detail
- */
 const saveLhk = async (data) => {
     const { header, details } = data;
     const conn = await pool.getConnection();
@@ -109,7 +90,6 @@ const saveLhk = async (data) => {
                 WHERE lr_nomor = ?
             `;
             await conn.query(sqlUpdHeader, [header.tanggal, header.gdgKode, header.user || 'SYSTEM', nomorLhk]);
-            // Hapus detail lama sebelum insert ulang (pola Delphi)
             await conn.query('DELETE FROM tlhk_rtr_dtl WHERE lrd_lr_nomor = ?', [nomorLhk]);
         }
 
@@ -126,6 +106,8 @@ const saveLhk = async (data) => {
                 d.panjang, d.lebar, d.j_order, d.jumlah_rtr, 
                 d.lokasi, d.jenis_bahan, d.poi_nomor, d.poi_size
             ]);
+            
+            // PERBAIKAN: Array dibungkus ganda [values] agar dideteksi sebagai Bulk Rows oleh driver mysql2
             await conn.query(sqlDetail, [values]);
         }
 
@@ -139,9 +121,6 @@ const saveLhk = async (data) => {
     }
 };
 
-/**
- * Menghapus LHK RTR
- */
 const deleteLhk = async (nomor) => {
     const conn = await pool.getConnection();
     try {
