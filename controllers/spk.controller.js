@@ -14,6 +14,9 @@ exports.getSpkBrowse = async (req, res) => {
     }
 };
 
+
+
+
 exports.getSpkDetailSize = async (req, res) => {
     try {
         const { nomor } = req.params;

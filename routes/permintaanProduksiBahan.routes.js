@@ -7,8 +7,11 @@ const verifyToken = require('../middleware/auth.middleware');
 router.get('/', verifyToken, controller.getBrowse);
 router.get('/lookup', verifyToken, controller.getLookupPermintaan); 
 
-// --- Route Action ---
-router.post('/', verifyToken, controller.save);
+
+router.post('/', verifyToken, controller.save); // Menangani simpan baru
+router.put('/', verifyToken, controller.save);  // Menangani pembaruan (Update / Edit) lama
+
+router.get('/minta-bahan/:nomor', verifyToken, controller.getSpkDetailsAndMkb);
 
 // --- Route Detail & Delete (Dinamis dengan Parameter) ---
 // Letakkan paling bawah agar 'lookup/history' tidak dianggap sebagai ':nomor'

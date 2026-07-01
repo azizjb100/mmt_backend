@@ -643,3 +643,5 @@ exports.getMemoSpkLookupData = async (keyword) => {
         throwDbError('Gagal mengambil data lookup Memo SPK', error);
     }
 };
+
+
