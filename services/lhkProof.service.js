@@ -265,70 +265,101 @@ const saveLhk = async (data) => {
             await conn.query(sqlDetail, [values]);
         }
 
-        // 3. LOGIKA ENGINE POTONG STOK OTOMATIS
+        // 3. LOGIKA ENGINE POTONG STOK OTOMATIS (PERBAIKAN: GROUPING BY BARCODE)
         if (currentStatus === 'POSTED') {
+            
+            // --- LANGKAH A: Akumulasi data per Barcode agar tidak terjadi double potong ---
+            const barcodeSummary = {};
+
             for (let i = 0; i < details.length; i++) {
                 const d = details[i];
                 const usedBarcode = d.barcode_detail;
-                
-                let ambilPanjang = Number(d.panjang_roll_awal || 0); 
-                let sisaPanjang = Number(d.sisabahan || 0);
+
+                if (!usedBarcode) continue; // Skip jika tidak ada barcode
+
+                // Konversi panjang awal dan sisa ke satuan yang sesuai (Yard / Meter)
+                let pAwal = Number(d.panjang_roll_awal || 0);
+                let pSisa = Number(d.sisabahan || 0);
                 const sisaLebar = Number(d.sisabahanlebar || 0);
 
                 if (header.jenis === 'T') {
-                    if (ambilPanjang > 0) ambilPanjang = Number((ambilPanjang / 0.9).toFixed(2));
-                    if (sisaPanjang > 0) sisaPanjang = Number((sisaPanjang / 0.9).toFixed(2));
+                    if (pAwal > 0) pAwal = Number((pAwal / 0.9).toFixed(2));
+                    if (pSisa > 0) pSisa = Number((pSisa / 0.9).toFixed(2));
                 }
 
-                if (usedBarcode && ambilPanjang > 0) {
-                    const [rows] = await conn.query(`
-                        SELECT mst_brg_kode, mst_hargabeli, mst_satuan_harga, mst_lebar 
-                        FROM tmasterstok_mmt 
-                        WHERE mst_barcode = ? 
-                        AND mst_stok_in = 1 AND mst_stok_out = 0
-                        ORDER BY id DESC
-                        LIMIT 1
-                    `, [usedBarcode]);
+                // Jika barcode ini baru pertama kali muncul di loop dokumen ini
+                if (!barcodeSummary[usedBarcode]) {
+                    barcodeSummary[usedBarcode] = {
+                        barcode: usedBarcode,
+                        nomorSpkLast: d.nomor_spk, // Catat SPK terakhir yang pakai
+                        panjangAwalRiil: pAwal,     // Nilai awal roll saat pertama masuk mesin
+                        panjangSisaFinal: pSisa,    // Akan terus di-update ke sisa paling akhir
+                        sisaLebarFinal: sisaLebar
+                    };
+                } else {
+                    // Jika barcode sama muncul lagi di SPK berikutnya dalam 1 LHK:
+                    // Sisa dari SPK sebelumnya otomatis menjadi "Panjang Awal" untuk SPK saat ini.
+                    // Maka kita hanya perlu memperbarui sisa bahan paling akhir/paling kecil.
+                    barcodeSummary[usedBarcode].panjangSisaFinal = pSisa;
+                    barcodeSummary[usedBarcode].sisaLebarFinal = sisaLebar;
+                    barcodeSummary[usedBarcode].nomorSpkLast = d.nomor_spk;
+                }
+            }
 
-                    if (rows && rows.length > 0) {
-                        const brgKode = rows[0].mst_brg_kode;
-                        const hargaBeliLama = rows[0].mst_hargabeli;
-                        const satuanHargaLama = rows[0].mst_satuan_harga;
-                        const lebarAwal = rows[0].mst_lebar;
+            // --- LANGKAH B: Proses Mutasi ke tmasterstok_mmt Berdasarkan Hasil Grouping ---
+            const uniqueBarcodes = Object.values(barcodeSummary);
 
-                        const finalLebarInput = (sisaLebar > 0) ? sisaLebar : lebarAwal;
+            for (const item of uniqueBarcodes) {
+                
+                // 1. Cari data stok aktif terakhir di database untuk barcode ini
+                const [rows] = await conn.query(`
+                    SELECT mst_brg_kode, mst_hargabeli, mst_satuan_harga, mst_lebar 
+                    FROM tmasterstok_mmt 
+                    WHERE mst_barcode = ? 
+                    AND mst_stok_in = 1 AND mst_stok_out = 0
+                    ORDER BY id DESC
+                    LIMIT 1
+                `, [item.barcode]);
 
-                        // A. MUTASI KELUAR
+                if (rows && rows.length > 0) {
+                    const brgKode = rows[0].mst_brg_kode;
+                    const hargaBeliLama = rows[0].mst_hargabeli;
+                    const satuanHargaLama = rows[0].mst_satuan_harga;
+                    const lebarAwal = rows[0].mst_lebar;
+
+                    const finalLebarInput = (item.sisaLebarFinal > 0) ? item.sisaLebarFinal : lebarAwal;
+
+                    // 2. MUTASI KELUAR (Keluarkan total fisik roll yang tersimpan di DB saat ini)
+                    // Menggunakan data panjang asli yang ada di database agar klop 100% saat dikurangi
+                    await conn.query(`
+                        INSERT INTO tmasterstok_mmt (
+                            mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
+                            mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi,
+                            mst_hargabeli, mst_satuan_harga, mst_tanggal, mst_barcode, mst_kategori
+                        ) VALUES (?, ?, 0, 1, ?, ?, ?, ?, ?, ?, ?, ?, 'ROLL')
+                    `, [
+                        brgKode, header.gdgKode, item.panjangAwalRiil, lebarAwal, 
+                        item.nomorSpkLast, nomorLhk, hargaBeliLama, satuanHargaLama, formattedDate, item.barcode
+                    ]);
+
+                    // 3. MUTASI MASUK (Masukkan sisa final roll setelah melewati semua SPK)
+                    if (item.panjangSisaFinal > 0) {
+                        const kategoriSisa = getKategori(item.panjangSisaFinal, finalLebarInput);
                         await conn.query(`
                             INSERT INTO tmasterstok_mmt (
                                 mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
                                 mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi,
-                                mst_hargabeli, mst_satuan_harga, mst_tanggal, mst_barcode, mst_kategori
-                            ) VALUES (?, ?, 0, 1, ?, ?, ?, ?, ?, ?, ?, ?, 'ROLL')
+                                mst_hargabeli, mst_satuan_harga, mst_tanggal, mst_barcode,
+                                mst_kategori
+                            ) VALUES (?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         `, [
-                            brgKode, header.gdgKode, ambilPanjang, lebarAwal, 
-                            d.nomor_spk, nomorLhk, hargaBeliLama, satuanHargaLama, formattedDate, usedBarcode
+                            brgKode, header.gdgKode, item.panjangSisaFinal, finalLebarInput, 
+                            item.nomorSpkLast, nomorLhk, hargaBeliLama, satuanHargaLama, formattedDate, item.barcode,
+                            kategoriSisa
                         ]);
-
-                        // B. MUTASI MASUK
-                        if (sisaPanjang > 0) {
-                            const kategoriSisa = getKategori(sisaPanjang, finalLebarInput);
-                            await conn.query(`
-                                INSERT INTO tmasterstok_mmt (
-                                    mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
-                                    mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi,
-                                    mst_hargabeli, mst_satuan_harga, mst_tanggal, mst_barcode,
-                                    mst_kategori
-                                ) VALUES (?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            `, [
-                                brgKode, header.gdgKode, sisaPanjang, finalLebarInput, 
-                                d.nomor_spk, nomorLhk, hargaBeliLama, satuanHargaLama, formattedDate, usedBarcode,
-                                kategoriSisa
-                            ]);
-                        }
-                    } else {
-                        console.warn(`Peringatan: Barcode ${usedBarcode} tidak ditemukan di master stok induk.`);
                     }
+                } else {
+                    console.warn(`Peringatan: Barcode ${item.barcode} tidak ditemukan atau sudah habis.`);
                 }
             }
         }
