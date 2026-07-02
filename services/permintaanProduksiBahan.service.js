@@ -455,3 +455,35 @@ exports.getSpkDetailsAndMkb = async (spkNomor, cabang, keterangan, isEdit = fals
         }),
     };
 };
+
+exports.lookupPermintaanProduksi = async (search = '', userDivisi = null) => {
+    try {
+        const cleanSearch = search.trim();
+        const searchPattern = `%${cleanSearch}%`;
+        const confMmt = TABLE_CONFIG.MMT;
+
+        // Ambil data 30 hari terakhir jika search dikosongkan agar database tidak lag
+        let dateMmtClause = cleanSearch === '' ? `AND ${confMmt.fields.h[1]} BETWEEN DATE_SUB(NOW(), INTERVAL 30 DAY) AND NOW()` : "";
+
+        // Query fokus penuh memetakan properti array MMT Anda
+        const sql = `
+            SELECT 
+                ${confMmt.fields.h[0]} AS Nomor, 
+                DATE_FORMAT(${confMmt.fields.h[1]}, '%Y-%m-%d') AS Tanggal, 
+                IFNULL(${confMmt.fields.h[4]}, ${confMmt.fields.h[2]}) AS Lokasi, 
+                ${confMmt.fields.h[3]} AS Keterangan, 
+                'OPEN' AS Status, 
+                'MMT' AS Tipe
+            FROM ${confMmt.hdr} 
+            WHERE (${confMmt.fields.h[0]} LIKE ? OR ${confMmt.fields.h[3]} LIKE ?) ${dateMmtClause}
+            ORDER BY ${confMmt.fields.h[1]} DESC 
+            LIMIT 150;
+        `;
+
+        const [rows] = await pool.query(sql, [searchPattern, searchPattern]);
+        return rows || [];
+    } catch (error) {
+        console.error("SQL Error inside lookupPermintaanProduksi MMT:", error);
+        throw new Error('Gagal melakukan lookup permintaan MMT: ' + error.message);
+    }
+};
