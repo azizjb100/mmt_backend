@@ -194,7 +194,7 @@ const getBaseSpkQuery = (whereClauseReguler = "1=1", whereClauseMemo = "1=1") =>
 
                 '' as ppin,
                 '' as ppakai,
-                m.mspk_rencana_order AS Jumlah        
+                m.mspk_jumlah AS Jumlah        
             FROM tmemospk m
             LEFT JOIN (
                 SELECT ld_spk_nomor, SUM(ld_total_qtycetak) as total_pernah_cetak

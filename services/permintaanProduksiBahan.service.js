@@ -81,6 +81,9 @@ const generateNomorSublim = async (tahun, conn) => {
 // ===================================
 // 2. SAVE / UPDATE (Pintu Masuk Utama)
 // ===================================
+// ===================================
+// 2. SAVE / UPDATE (Pintu Masuk Utama)
+// ===================================
 exports.savePermintaanProduksi = async (data, isUpdate = false) => {
     // -----------------------------------------------------------------
     // PENTING: Jika kategori kiriman adalah SUBLIM, belokkan ke fungsi Sublim
@@ -100,21 +103,33 @@ exports.savePermintaanProduksi = async (data, isUpdate = false) => {
 
         let { Nomor, Tanggal, Departemen, Keterangan, Details, User, GudangKode } = data;
 
+        // Tentukan nilai lokasi produksi yang akan disimpan ke database
+        // Jika tipenya MMT, paksa nilainya menjadi 'Produksi'
+        let lokasiProduksiBaru = Departemen;
+        if (tipe === 'MMT') {
+            lokasiProduksiBaru = 'Produksi';
+        }
+
         if (!isUpdate && (!Nomor || Nomor === 'AUTO' || Nomor === '')) {
             Nomor = await exports.getNewNomor(tipe);
         }
 
         if (isUpdate) {
+            // f.h[4] adalah mnt_lokasiproduksi (untuk MMT) atau min_cab (untuk OBAT)
             const sqlUpdate = `UPDATE ${conf.hdr} SET 
                 ${f.h[1]}=?, ${f.h[3]}=?, ${f.h[4]}=?, ${f.h[2]}=?, 
                 user_modified=?, date_modified=NOW() WHERE ${f.h[0]}=?`;
-            await connection.query(sqlUpdate, [Tanggal, Keterangan, Departemen, GudangKode, User, Nomor]);
+            
+            // Mengganti Departemen menjadi lokasiProduksiBaru
+            await connection.query(sqlUpdate, [Tanggal, Keterangan, lokasiProduksiBaru, GudangKode, User, Nomor]);
             await connection.query(`DELETE FROM ${conf.dtl} WHERE ${f.d[0]} = ?`, [Nomor]);
         } else {
             const sqlInsert = `INSERT INTO ${conf.hdr} 
                 (${f.h[0]}, ${f.h[1]}, ${f.h[2]}, ${f.h[3]}, ${f.h[4]}, user_create, date_create) 
                 VALUES (?, ?, ?, ?, ?, ?, NOW())`;
-            await connection.query(sqlInsert, [Nomor, Tanggal, GudangKode, Keterangan, Departemen, User]);
+            
+            // Mengganti Departemen menjadi lokasiProduksiBaru
+            await connection.query(sqlInsert, [Nomor, Tanggal, GudangKode, Keterangan, lokasiProduksiBaru, User]);
         }
 
         if (Details && Details.length > 0) {
