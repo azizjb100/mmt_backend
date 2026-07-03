@@ -68,7 +68,7 @@ const dashboardRoutes = require("./routes/dashboard.routes");
 const mppbRoutes = require("./routes/mppb.routes");
 const lhkPolaRoutes = require("./routes/lhkPola.routes");
 const lhkDesainRoutes = require("./routes/lhkDesain.routes");
-
+const suratJalanRoutes = require("./routes/suratJalan.routes"); // <- Ditambahkan di sini
 
 
 // Konfigurasi
@@ -182,7 +182,7 @@ app.use("/api/mmt/mppb", clientCertAuth, mppbRoutes);
 app.use("/api/mmt/laporan-plan-vs-lhk", clientCertAuth, lapPlanVsLhkRoutes);
 app.use("/api/mmt/lhk-pola", clientCertAuth, lhkPolaRoutes);
 app.use("/api/mmt/lhk-desain", clientCertAuth, lhkDesainRoutes);
-
+app.use("/api/mmt/surat-jalan", clientCertAuth, suratJalanRoutes); // <- Ditambahkan di sini
 
 
 
