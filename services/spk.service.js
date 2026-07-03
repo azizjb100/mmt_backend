@@ -176,10 +176,10 @@ const getBaseSpkQuery = (whereClauseReguler = "1=1", whereClauseMemo = "1=1") =>
                 'N' AS Lipat,
                 CAST(IFNULL(prod_m.total_pernah_cetak, 0) AS UNSIGNED) AS Jadi,
                 
-                CAST(GREATEST(0, m.mspk_rencana_order - IFNULL(prod_m.total_pernah_cetak, 0)) AS UNSIGNED) AS Kurang_Jadi,
+                CAST(GREATEST(0, m.mspk_jumlah - IFNULL(prod_m.total_pernah_cetak, 0)) AS UNSIGNED) AS Kurang_Jadi,
                 0 AS Kurang_Potong,
                 0 AS Kurang_Bordir,
-                CAST(GREATEST(0, m.mspk_rencana_order - IFNULL(prod_m.total_pernah_cetak, 0)) AS UNSIGNED) AS Kurang_Cetak_Prod, 
+                CAST(GREATEST(0, m.mspk_jumlah - IFNULL(prod_m.total_pernah_cetak, 0)) AS UNSIGNED) AS Kurang_Cetak_Prod, 
                 0 AS Kurang_QC_Cetak,
                 0 AS Kurang_Jahit,
                 0 AS Kurang_Lipat,
@@ -614,9 +614,9 @@ exports.getMemoSpkLookupData = async (keyword) => {
                 m.mspk_keterangan AS Pesan,           
                 'Open' AS STATUS,
                 m.mspk_aktif AS Aktif,
-                m.mspk_rencana_order AS Jumlah,
+                m.mspk_jumlah AS Jumlah,
                 CAST(IFNULL(prod_m.total_pernah_cetak, 0) AS UNSIGNED) AS Sudah_Cetak,
-                CAST(GREATEST(0, m.mspk_rencana_order - IFNULL(prod_m.total_pernah_cetak, 0)) AS UNSIGNED) AS Kurang_Cetak
+                CAST(GREATEST(0, m.mspk_jumlah - IFNULL(prod_m.total_pernah_cetak, 0)) AS UNSIGNED) AS Kurang_Cetak
             FROM tmemospk m
             LEFT JOIN (
                 SELECT ld_spk_nomor, SUM(ld_total_qtycetak) as total_pernah_cetak
