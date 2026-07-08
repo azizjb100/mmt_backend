@@ -1,29 +1,26 @@
 const express = require('express');
 const router = express.Router();
-const lhkSublimController = require('../controllers/lhkSublim.controller');
+const sublimController = require('../controllers/lhkSublim.controller');
 
-// Mengambil list header (Browse) berdasarkan range tanggal
-router.get('/', lhkSublimController.getLhkList);
+// ==========================================
+// RUTE KHUSUS LOOKUP (Sinkron dengan Vue)
+// ==========================================
 
-// Mengambil nomor urut otomatis berikutnya
-router.get('/next-number', lhkSublimController.getNextNumber);
+// 1. Ambil Semua Header untuk Lookup List (?startDate=...&endDate=...)
+router.get('/lookup', sublimController.browseSublim);
 
-// Mengambil full data (Header + Detail) untuk mode EDIT
-router.get('/:nomor', lhkSublimController.getLhkFullData);
+// 2. Ambil Detail (?nomor=...)
+router.get('/lookup/details', sublimController.getDetailSublim);
 
-// Mengambil rincian detail saja berdasarkan nomor (untuk Expand row di tabel)
-router.get('/detail/:nomor', lhkSublimController.getLhkDetails);
 
-// Simpan data (Handle Create baru & Update data lama)
-router.post('/', lhkSublimController.handleSaveLhk);
+// ==========================================
+// RUTE STANDAR CRUD (Bawaan Form Entry)
+// ==========================================
+router.get('/', sublimController.browseSublim);
+router.get('/detail/:nomor', sublimController.getDetailSublim); // Pendekatan Path parameter tetap aman
 
-// Hapus data (Header & Detail)
-router.delete('/:nomor', lhkSublimController.removeLhk);
-
-// List History Approval (Browse)
-router.get('/approval-history', lhkSublimController.getApprovalList);
-
-// Detail History Approval (Expand Row)
-router.get('/approval-history/detail/:nomor', lhkSublimController.getApprovalDetails);
+router.post('/', sublimController.saveSublim);                   // Insert Baru (AUTO)
+router.post('/:nomor', sublimController.saveSublim);             // Update Data Lama
+router.delete('/:nomor', sublimController.deleteSublim);         // Delete
 
 module.exports = router;

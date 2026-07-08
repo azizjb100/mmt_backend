@@ -118,3 +118,13 @@ exports.lookupSpkForJadwal = async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
+
+exports.getSpkForSublimLookup = async (req, res) => {
+    const keyword = req.query.keyword || '';
+    try {
+        const data = await spkService.getSpkForSublimLookup(keyword);
+        res.status(200).json({ success: true, data: data });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};

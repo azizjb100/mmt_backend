@@ -644,4 +644,56 @@ exports.getMemoSpkLookupData = async (keyword) => {
     }
 };
 
+// ===================================
+// LOOKUP SPK FOR SUBLIM (Include Realisasi Bahan Gudang)
+// ===================================
+exports.getSpkForSublimLookup = async (keyword) => {
+    try {
+        // Ambil base query SPK (UNION Reguler & Memo) agar mendukung kedua tipe SPK
+        const baseQuery = getBaseSpkQuery();
+        
+        /**
+         * Perbaikan Berdasarkan Struktur Asli:
+         * 1. Hubungkan combined.SPK langsung ke tmkb_hdr (Silakan sesuaikan nama kolom SPK di tmkb_hdr Anda jika berbeda)
+         * 2. Hubungkan tmkb_hdr ke tmkb_dtl via mkb_nomor = mkbd_mkb_nomor
+         */
+        const sql = `
+            SELECT 
+                combined.SPK,
+                combined.Nama,
+                combined.Tanggal,
+                combined.Jumlah AS Qty_Order,
+                combined.Bahan AS Nama_Bahan_Rencana,
+                combined.Tipe_SPK,
+                combined.Divisi,
+                combined.Panjang,
+                combined.Lebar,
 
+                -- Data Realisasi Gudang dari Header & Detail
+                IFNULL(h.promin_nomor, '-') AS Nomor_Realisasi,
+                IFNULL(d.promind_bhn_kode, '') AS Barang_ID,
+                combined.Bahan AS Nama_Bahan_Realisasi,
+                CAST(IFNULL(d.promind_jumlah, 0) AS DECIMAL(10,2)) AS Bahan_Awal
+                
+            FROM (${baseQuery}) AS combined
+            
+            -- 1. Hubungkan SPK langsung ke tabel Header (tproduksiminta_hdr)
+            -- Catatan: Ganti 'mkb_spk_nomor' dengan nama kolom SPK yang ada di tproduksiminta_hdr Anda
+            LEFT JOIN tproduksiminta_hdr h ON h.promin_spk_nomor = combined.SPK
+            
+            -- 2. Dari Header, hubungkan ke tabel Detail (tproduksiminta_dtl) untuk mengambil item kain & qty
+            LEFT JOIN tproduksiminta_dtl d ON d.promind_promin_nomor = h.promin_nomor
+            
+            WHERE combined.Aktif = 'Y' -- Hanya ambil SPK yang masih Open
+              AND (combined.SPK LIKE ? OR combined.Nama LIKE ?)
+            ORDER BY combined.Tanggal DESC
+            LIMIT 100
+        `;
+
+        const searchKeyword = `%${keyword || ''}%`;
+        const [rows] = await pool.query(sql, [searchKeyword, searchKeyword]);
+        return rows;
+    } catch (error) {
+        throwDbError('Gagal mengambil data SPK untuk Sublim beserta Realisasi Bahan', error);
+    }
+};

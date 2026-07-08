@@ -1,0 +1,111 @@
+const sublimService = require('../services/lhkPaperprint.service');
+
+const getLhkList = async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+        const data = await sublimService.getAllHeaders(startDate, endDate);
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+const getLhkDetails = async (req, res) => {
+    try {
+        const { nomor } = req.params;
+        const data = await sublimService.getDetailsByNomor(nomor);
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+const getLhkFullData = async (req, res) => {
+    try {
+        const { nomor } = req.params;
+        // Mengasumsikan service memiliki fungsi getLhkByNomor untuk mode EDIT
+        const data = await sublimService.getLhkByNomor(nomor);
+        
+        if (!data) {
+            return res.status(404).json({ success: false, message: "Data LHK Sublim tidak ditemukan." });
+        }
+        
+        res.json({ success: true, data: data });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+const handleSaveLhk = async (req, res) => {
+    try {
+        // 🔥 PERUBAHAN DI SINI: Ganti .saveLhk menjadi .saveLhkMesin
+        const result = await sublimService.saveLhkMesin(req.body); 
+        
+        if (!result.success) {
+            return res.status(500).json(result);
+        }
+
+        return res.json({
+            success: true,
+            message: "Data LHK Sublim berhasil disimpan.",
+            nomor: result.nomor
+        });
+    } catch (error) {
+        console.error("Error Saving LHK Sublim:", error);
+        return res.status(500).json({
+            success: false,
+            message: `Gagal menyimpan data LHK Sublim. Error: ${error.message}`
+        });
+    }
+};
+
+const removeLhk = async (req, res) => {
+    try {
+        const { nomor } = req.params;
+        await sublimService.deleteLhk(nomor);
+        res.json({ success: true, message: "Berhasil dihapus." });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Gagal menghapus data LHK Sublim." });
+    }
+};
+
+const getNextNumber = async (req, res) => {
+    try {
+        const { date } = req.query;
+        const nomor = await sublimService.generateNewNomor(date);
+        res.json({ success: true, nomor });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+const getApprovalList = async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+        const data = await sublimService.getAllApprovalHeaders(startDate, endDate);
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+const getApprovalDetails = async (req, res) => {
+    try {
+        const { nomor } = req.params;
+        const data = await sublimService.getApprovalDetailsByNomor(nomor);
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+module.exports = { 
+    getLhkList, 
+    getLhkDetails, 
+    getLhkFullData, 
+    handleSaveLhk, 
+    removeLhk,
+    getNextNumber,
+    getApprovalList,
+    getApprovalDetails
+};

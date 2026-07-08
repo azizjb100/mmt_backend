@@ -61,15 +61,15 @@ const lapMonProofRoutes = require("./routes/lapMonProof.routes");
 const lapBarangJadiRoutes = require("./routes/lapBarangJadi.routes");
 const voucherPelunasanRoutes = require("./routes/voucherPelunasan.routes");
 const poInternalRoutes = require("./routes/poInternal.routes");
-const lhkRtrRoutes = require("./routes/lhkRtr.routes");
 const lhkSublimRoutes = require("./routes/lhkSublim.routes");
+const lhkPaperprintRoutes = require("./routes/lhkPaperprint.routes");
 const lapMonSublimRoutes = require("./routes/lapMonSublim.routes");
 const dashboardRoutes = require("./routes/dashboard.routes");
 const mppbRoutes = require("./routes/mppb.routes");
 const lhkPolaRoutes = require("./routes/lhkPola.routes");
-const lhkDesainRoutes = require("./routes/lhkDesain.routes");
+const lhkLayoutRoutes = require("./routes/lhkLayout.routes");
 const suratJalanRoutes = require("./routes/suratJalan.routes"); // <- Ditambahkan di sini
-
+const mutasiInternalRoutes = require("./routes/mutasiInternal.routes");
 
 // Konfigurasi
 
@@ -174,16 +174,16 @@ app.use("/api/mmt/laporan-barang-jadi", clientCertAuth, lapBarangJadiRoutes);
 app.use("/api/mmt/voucher-pelunasan", clientCertAuth, voucherPelunasanRoutes);
 app.use("/api/mmt/monitoring-proof", clientCertAuth, lapMonProofRoutes);
 app.use("/api/mmt/po-internal", clientCertAuth, poInternalRoutes);
-app.use("/api/mmt/lhk-rtr", clientCertAuth, lhkRtrRoutes);
 app.use("/api/mmt/lhk-sublim", clientCertAuth, lhkSublimRoutes);
+app.use("/api/mmt/lhk-paperprint", clientCertAuth, lhkPaperprintRoutes);
 app.use("/api/mmt/monitoring-sublim", clientCertAuth, lapMonSublimRoutes);
 app.use("/api/mmt/dashboard", clientCertAuth, dashboardRoutes);
 app.use("/api/mmt/mppb", clientCertAuth, mppbRoutes);
 app.use("/api/mmt/laporan-plan-vs-lhk", clientCertAuth, lapPlanVsLhkRoutes);
 app.use("/api/mmt/lhk-pola", clientCertAuth, lhkPolaRoutes);
-app.use("/api/mmt/lhk-desain", clientCertAuth, lhkDesainRoutes);
+app.use("/api/mmt/lhk-layout", clientCertAuth, lhkLayoutRoutes);
 app.use("/api/mmt/surat-jalan", clientCertAuth, suratJalanRoutes); // <- Ditambahkan di sini
-
+app.use("/api/mmt/mutasi-internal", clientCertAuth, mutasiInternalRoutes);
 
 
 
