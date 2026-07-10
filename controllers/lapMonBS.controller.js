@@ -1,4 +1,4 @@
-const laporanBsService = require('../services/lapMonBs.service');
+const laporanBsService = require('../services/lapMonBS.service');
 
 /**
  * Mendapatkan Laporan BS dengan ringkasan kalkulasi

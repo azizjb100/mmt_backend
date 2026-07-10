@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const laporanBsController = require('../controllers/lapMonBs.controller');
+const laporanBsController = require('../controllers/lapMonBS.controller');
 
 // =========================================================================
 // RUTE LAPORAN BARANG SISA (BS)
