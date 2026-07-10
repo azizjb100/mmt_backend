@@ -70,6 +70,7 @@ const lhkPolaRoutes = require("./routes/lhkPola.routes");
 const lhkLayoutRoutes = require("./routes/lhkLayout.routes");
 const suratJalanRoutes = require("./routes/suratJalan.routes"); // <- Ditambahkan di sini
 const mutasiInternalRoutes = require("./routes/mutasiInternal.routes");
+const lapMonBSRoutes = require("./routes/lapMonBS.route"); // <- Ditambahkan di sini
 
 // Konfigurasi
 
@@ -184,6 +185,7 @@ app.use("/api/mmt/lhk-pola", clientCertAuth, lhkPolaRoutes);
 app.use("/api/mmt/lhk-layout", clientCertAuth, lhkLayoutRoutes);
 app.use("/api/mmt/surat-jalan", clientCertAuth, suratJalanRoutes); // <- Ditambahkan di sini
 app.use("/api/mmt/mutasi-internal", clientCertAuth, mutasiInternalRoutes);
+app.use("/api/mmt/laporan-bs", clientCertAuth, lapMonBSRoutes); // <- Ditambahkan di sini
 
 
 

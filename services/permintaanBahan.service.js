@@ -315,11 +315,11 @@ SELECT
     h.mb_acc AS ACC,
 
     CASE
-        WHEN IFNULL(a.Jml_Item_Acc,0) = 0 THEN 'OPEN'
-        WHEN IFNULL(a.Total_DiPO,0) = 0 THEN 'OPEN'
-        WHEN a.Total_DiPO >= a.Total_Diminta THEN 'CLOSE'
-        ELSE 'PROGRESS'
-    END AS Status_Proses
+    WHEN IFNULL(a.Jml_Item_Acc,0) = 0 THEN 'OPEN'
+    WHEN IFNULL(a.Jml_Item_PO,0) = 0 THEN 'OPEN'
+    WHEN a.Jml_Item_Selesai = a.Jml_Item_Acc THEN 'CLOSE'
+    ELSE 'PROGRESS'
+END AS Status_Proses
 
 FROM tmintabahan_mmt_hdr h
 LEFT JOIN tgudang g ON g.gdg_kode = h.mb_gdg_kode
@@ -327,9 +327,22 @@ LEFT JOIN tgudang g ON g.gdg_kode = h.mb_gdg_kode
 LEFT JOIN (
     SELECT
         mbd_mb_nomor,
-        SUM(CASE WHEN mbd_acc='Y' THEN mbd_qty ELSE 0 END) AS Total_Diminta,
-        SUM(CASE WHEN mbd_acc='Y' THEN IFNULL(mbd_qty_po,0) ELSE 0 END) AS Total_DiPO,
-        COUNT(CASE WHEN mbd_acc='Y' THEN 1 END) AS Jml_Item_Acc
+        COUNT(CASE WHEN mbd_acc = 'Y' THEN 1 END) AS Jml_Item_Acc,
+        COUNT(
+            CASE
+                WHEN mbd_acc = 'Y'
+                 AND IFNULL(mbd_qty_po,0) > 0
+                THEN 1
+            END
+        ) AS Jml_Item_PO,
+        COUNT(
+            CASE
+                WHEN mbd_acc = 'Y'
+                 AND IFNULL(mbd_qty_po,0) >= mbd_qty
+                THEN 1
+            END
+        ) AS Jml_Item_Selesai
+
     FROM tmintabahan_mmt_dtl
     GROUP BY mbd_mb_nomor
 ) a ON a.mbd_mb_nomor = h.mb_nomor
