@@ -220,9 +220,9 @@ exports.getMutasiDetailByNomor = async (nomor) => {
                 d.mutd_nama_komponen AS Nama_Komponen,
                 d.mutd_jumlah AS Qty_Mutasi,
                 d.mutd_stok_sublim_lama AS Stok_Sublim_Lama,
-                s.Nama_SPK
+                s.spk_nama AS Nama_SPK
             FROM tmutasi_dtl d
-            LEFT JOIN trx_spk s ON d.mutd_spk_nomor = s.Nomor_SPK
+            LEFT JOIN tspk s ON d.mutd_spk_nomor = s.spk_nomor
             WHERE d.mutd_mut_nomor = ?
             ORDER BY d.mutd_nourut ASC
         `;

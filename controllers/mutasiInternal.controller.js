@@ -78,7 +78,7 @@ exports.getAllMutasi = async (req, res) => {
 exports.getDetailMutasi = async (req, res) => {
     try {
         const { nomor } = req.params;
-        const rawDetails = await mutasiInternalService.getMutasiInternalDetailByNomor(nomor);
+        const rawDetails = await mutasiInternalService.getMutasiDetailByNomor(nomor);
         
         // Sesuaikan dengan detailHeaders & detailData mapping di frontend:
         const mappedDetails = rawDetails.map(d => ({

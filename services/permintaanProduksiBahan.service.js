@@ -103,6 +103,9 @@ exports.savePermintaanProduksi = async (data, isUpdate = false) => {
 
         let { Nomor, Tanggal, Departemen, Keterangan, Details, User, GudangKode } = data;
 
+        // PENGATURAN INTEGRASI: Pastikan user mengambil kode user (kdUser) login
+        const userKode = User?.kode || User?.kdUser || User || 'SYSTEM';
+
         // Tentukan nilai lokasi produksi yang akan disimpan ke database
         // Jika tipenya MMT, paksa nilainya menjadi 'Produksi'
         let lokasiProduksiBaru = Departemen;
@@ -120,16 +123,16 @@ exports.savePermintaanProduksi = async (data, isUpdate = false) => {
                 ${f.h[1]}=?, ${f.h[3]}=?, ${f.h[4]}=?, ${f.h[2]}=?, 
                 user_modified=?, date_modified=NOW() WHERE ${f.h[0]}=?`;
             
-            // Mengganti Departemen menjadi lokasiProduksiBaru
-            await connection.query(sqlUpdate, [Tanggal, Keterangan, lokasiProduksiBaru, GudangKode, User, Nomor]);
+            // Mengganti Departemen menjadi lokasiProduksiBaru dan menggunakan userKode
+            await connection.query(sqlUpdate, [Tanggal, Keterangan, lokasiProduksiBaru, GudangKode, userKode, Nomor]);
             await connection.query(`DELETE FROM ${conf.dtl} WHERE ${f.d[0]} = ?`, [Nomor]);
         } else {
             const sqlInsert = `INSERT INTO ${conf.hdr} 
                 (${f.h[0]}, ${f.h[1]}, ${f.h[2]}, ${f.h[3]}, ${f.h[4]}, user_create, date_create) 
                 VALUES (?, ?, ?, ?, ?, ?, NOW())`;
             
-            // Mengganti Departemen menjadi lokasiProduksiBaru
-            await connection.query(sqlInsert, [Nomor, Tanggal, GudangKode, Keterangan, lokasiProduksiBaru, User]);
+            // Mengganti Departemen menjadi lokasiProduksiBaru dan menyimpan userKode ke user_create
+            await connection.query(sqlInsert, [Nomor, Tanggal, GudangKode, Keterangan, lokasiProduksiBaru, userKode]);
         }
 
         if (Details && Details.length > 0) {
@@ -167,7 +170,8 @@ const saveMintaBahanSublim = async (payload, userLogin, isEdit = false) => {
 
     try {
         let nomor = payload.nomor;
-        const userKode = userLogin?.kode || userLogin || 'SYSTEM';
+        // PENGATURAN INTEGRASI: Fallback pencarian kdUser dari object user login
+        const userKode = userLogin?.kode || userLogin?.kdUser || userLogin || 'SYSTEM';
         const dateModified = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
 
         if (isEdit) {
@@ -201,6 +205,7 @@ const saveMintaBahanSublim = async (payload, userLogin, isEdit = false) => {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
 
+            // Menyimpan userKode ke user_create saat data baru masuk
             await conn.query(qInsert, [
                 nomor, payload.tanggal, payload.cabang, payload.divisi, payload.spk || '', payload.keterangan,
                 min_apv, min_apvmgr, dateModified, userKode
@@ -230,7 +235,6 @@ const saveMintaBahanSublim = async (payload, userLogin, isEdit = false) => {
         conn.release();
     }
 };
-
 // ===================================
 // 3. READ (Detail by Nomor)
 // ===================================

@@ -2,13 +2,14 @@ const pool = require('../config/db.config');
 const { format } = require('date-fns');
 
 /**
- * Mengambil data laporan BS dari mesin digital (MMT) dan tekstil dengan filter dinamis
+ * Mengambil data laporan BS dari mesin digital (MMT), tekstil, dan finishing dengan filter dinamis
  */
 const getLaporanBsData = async (filters) => {
     const { startDate, endDate, gdgKode, search, type } = filters;
 
     let paramsMesin = [startDate, endDate];
     let paramsTekstil = [startDate, endDate];
+    let paramsFinishing = [startDate, endDate];
 
     // 1. Query BS dari LHK Mesin (MMT)
     let queryMesin = `
@@ -72,6 +73,37 @@ const getLaporanBsData = async (filters) => {
         paramsTekstil.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
+    // 3. Query BS dari LHK Finishing MMT (Baru)
+    let queryFinishing = `
+        SELECT 
+            'FINISHING' AS Jenis_LHK,
+            h.lfh_nomor AS Nomor_LHK,
+            DATE_FORMAT(h.lfh_tanggal, '%Y-%m-%d') AS Tanggal,
+            'GPM' AS Gdg_Kode, -- Default gudang finishing Anda sesuai dengan modul save
+
+            'Finishing Manual' AS Mesin,
+            '-' AS Brg_Kode,
+            CONCAT('BS Finishing SPK: ', d.lfd_spk_nomor) AS Brg_Nama,
+            '-' AS Barcode,
+            d.lfd_j_bs AS Panjang_BS, -- Qty BS finishing dipetakan ke Panjang_BS untuk rekap table
+            1 AS Lebar_BS,            -- Lebar di-set 1 agar hitungan Luas_BS_M2 tetap proporsional
+            d.lfd_j_bs AS Luas_BS_M2,
+            'POSTED' AS Status
+        FROM tlhk_finishingmmt_dtl d
+        INNER JOIN tlhk_finishingmmt_hdr h ON d.lfd_lfh_nomor = h.lfh_nomor
+        WHERE h.lfh_tanggal BETWEEN ? AND ?
+          AND d.lfd_j_bs > 0
+    `;
+
+    if (gdgKode && gdgKode !== 'GPM') {
+        // Karena finishing di-hardcode 'GPM', jika filter gudang bukan GPM, gagalkan query agar kosong
+        queryFinishing += ` AND 1 = 0`; 
+    }
+    if (search) {
+        queryFinishing += ` AND (h.lfh_nomor LIKE ? OR d.lfd_spk_nomor LIKE ? )`;
+        paramsFinishing.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
     let rawData = [];
 
     // Eksekusi berdasarkan tipe filter yang dipilih frontend
@@ -81,12 +113,16 @@ const getLaporanBsData = async (filters) => {
     } else if (type === 'TEKSTIL') {
         const [rows] = await pool.query(`${queryTekstil} ORDER BY h.lth_tanggal DESC, h.lth_nomor DESC`, paramsTekstil);
         rawData = rows;
+    } else if (type === 'FINISHING') {
+        const [rows] = await pool.query(`${queryFinishing} ORDER BY h.lfh_tanggal DESC, h.lfh_nomor DESC`, paramsFinishing);
+        rawData = rows;
     } else {
-        // Gabungkan kedua data (Default / ALL)
+        // Gabungkan ketiga data jika tipenya 'ALL'
         const [rowsMesin] = await pool.query(queryMesin, paramsMesin);
         const [rowsTekstil] = await pool.query(queryTekstil, paramsTekstil);
+        const [rowsFinishing] = await pool.query(queryFinishing, paramsFinishing);
         
-        rawData = [...rowsMesin, ...rowsTekstil].sort((a, b) => {
+        rawData = [...rowsMesin, ...rowsTekstil, ...rowsFinishing].sort((a, b) => {
             return new Date(b.Tanggal).getTime() - new Date(a.Tanggal).getTime();
         });
     }
