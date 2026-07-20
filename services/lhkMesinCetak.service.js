@@ -351,26 +351,41 @@ const generateNewNomor = async (date) => {
 
 
 const getNextSuffix = async (conn, originalBarcode) => {
+    // Bersihkan originalBarcode jika tidak sengaja mengandung suffix lama (misal: BRC-01-A -> BRC-01)
+    const baseBarcode = originalBarcode.replace(/-[A-Z]$/, '');
+
+    // SQL mencari barcode di master stok yang polanya diawali baseBarcode diikuti -[A-Z]
     const sql = `
         SELECT mst_barcode 
         FROM tmasterstok_mmt 
-        WHERE mst_barcode LIKE ? 
+        WHERE mst_barcode REGEXP ? 
         ORDER BY mst_barcode DESC LIMIT 1
     `;
-    const [rows] = await conn.query(sql, [`${originalBarcode}-%`]);
+    
+    const pattern = `^${baseBarcode}-[A-Z]$`;
+    const [rows] = await conn.query(sql, [pattern]);
 
+    // Jika belum pernah ada pecahan afal dengan suffix huruf sebelumnya, buat akhiran -A
     if (rows.length === 0) {
-        return `${originalBarcode}-A`;
+        return `${baseBarcode}-A`;
     }
 
+    // Jika sudah ada (contoh terakhir: MMT-LHK-001-A), ambil huruf terakhirnya
     const lastBarcode = rows[0].mst_barcode;
-    const lastPart = lastBarcode.split('-').pop(); 
-    const nextCharCode = lastPart.charCodeAt(0) + 1;
-    const nextSuffix = String.fromCharCode(nextCharCode);
+    const lastLetter = lastBarcode.slice(-1); // Mengambil 1 karakter paling ujung kanan
+    
+    // Hitung karakter alfabet berikutnya berdasarkan kode ASCII
+    const nextCharCode = lastLetter.charCodeAt(0) + 1;
+    
+    let nextSuffix;
+    if (nextCharCode > 90) { // Lebih dari 'Z'
+        nextSuffix = 'A1';   // Fallback penamaan jika pecahan sangat banyak
+    } else {
+        nextSuffix = String.fromCharCode(nextCharCode);
+    }
 
-    return `${originalBarcode}-${nextSuffix}`;
+    return `${baseBarcode}-${nextSuffix}`;
 };
-
 const saveLhk = async (headerData, detailsData, existingNomor) => {
     const conn = await pool.getConnection();
     let isEditMode = !!existingNomor;
@@ -417,34 +432,30 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
 
         if (isEditMode) {
             // ==================== PROSES LOGGING DATA LAMA ====================
-            // 1. Ambil snapshot data yang saat ini ada di DB sebelum ditimpa/dihapus
             const [oldHeader] = await conn.query(`SELECT * FROM tlhk_mesin_hdr WHERE lnomor = ?`, [finalNomor]);
             const [oldDetails] = await conn.query(`SELECT * FROM tlhk_mesin_dtl WHERE ld_lnomor = ?`, [finalNomor]);
             const [oldStock] = await conn.query(`SELECT * FROM tmasterstok_mmt WHERE mst_noreferensi = ?`, [finalNomor]);
 
             if (oldHeader.length > 0) {
-                // Bungkus semua data lama ke dalam satu object
                 const snapshotDataLama = {
                     header: oldHeader[0],
                     details: oldDetails,
                     stock: oldStock
                 };
 
-                // 2. Simpan snapshot tersebut ke tabel log baru
                 await conn.query(`
                     INSERT INTO tlhk_history_log (
                         lhl_nomor_lhk, lhl_action, lhl_data_old, lhl_user_action, lhl_date_action
                     ) VALUES (?, 'EDIT', ?, ?, ?)
                 `, [
                     finalNomor,
-                    JSON.stringify(snapshotDataLama), // Diubah ke string JSON
+                    JSON.stringify(snapshotDataLama),
                     userModified,
                     formattedNow
                 ]);
             }
             // ==================================================================
 
-            // Melanjutkan proses update bawaan kamu
             await conn.query(`
                 UPDATE tlhk_mesin_hdr SET
                     ltanggal = ?, lgdg_prod = ?, lspk_nomor = ?, lmesin = ?,
@@ -514,6 +525,9 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
             finalSisaLebar = Number(d.sisabahanlebar || 0);
         }
 
+        // --- DEKLARASI PENAMPUNG DATA BARCODE AFAL BARU ---
+        let createdAfalBarcode = null; 
+
         if (currentStatus === 'POSTED') {
             if (usedBarcode && maxAmbilPanjang > 0) {
                 const [oldStockData] = await conn.query(`
@@ -566,6 +580,7 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
                 if (afalP > 0 && afalL > 0) {
                     const kategoriAfal = getKategori(afalP, afalL);
                     const newAfalBarcode = await getNextSuffix(conn, usedBarcode);
+                    createdAfalBarcode = newAfalBarcode; // Simpan info untuk di-return
                     
                     await conn.query(`
                         INSERT INTO tmasterstok_mmt (
@@ -582,8 +597,20 @@ const saveLhk = async (headerData, detailsData, existingNomor) => {
                 }
             }
         }
+
         await conn.commit();
-        return { success: true, nomor: finalNomor, status: currentStatus };
+
+        // --- PENGEMBALIAN RESPON DATA KE CONTROLLER & FRONTEND ---
+        return { 
+            success: true, 
+            nomor: finalNomor, 
+            status: currentStatus,
+            afalData: createdAfalBarcode ? {
+                barcode: createdAfalBarcode,
+                panjang: Number(headerData.lpanjang_afal || 0),
+                lebar: Number(headerData.llebar_afal || 0)
+            } : null
+        };
 
     } catch (err) {
         if (conn) await conn.rollback();

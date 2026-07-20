@@ -101,9 +101,7 @@ exports.deleteHeader = async (req, res) => {
 
 exports.saveLhk = async (req, res) => {
   try {
-
     const userLogin = req.user?.kdUser;
-
 
     if (!userLogin) {
       return res.status(401).json({
@@ -134,17 +132,18 @@ exports.saveLhk = async (req, res) => {
       header,
       details,
       existingNomor,
-      userLogin // ← KUNCI UTAMA
+      userLogin
     );
 
-    // ===============================
-    // 5. Response sukses
-    // ===============================
+    // =========================================================================
+    // 5. Response sukses (KUNCI: Tambahkan 'afalData' agar dibaca oleh Frontend)
+    // =========================================================================
     return res.status(200).json({
       success: true,
       message: result.message || 'LHK berhasil disimpan.',
       nomor: result.nomor,
-      isEdit: result.isEdit || false
+      isEdit: result.isEdit || false,
+      afalData: result.afalData // <-- PASTI KAN BARIS INI ADA DI CONTROLLER
     });
 
   } catch (error) {

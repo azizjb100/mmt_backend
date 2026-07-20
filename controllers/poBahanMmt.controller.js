@@ -55,19 +55,42 @@ exports.getDetailsPO = async (req, res) => {
 exports.savePO = async (req, res) => {
     try {
         const data = req.body;
-        const nomorToEdit = data.nomor;
-        const currentUser = req.user ? req.user.KDUSER : data.user || 'SYSTEM';
-
-        if (!data.supKode || !data.detail || !data.detail.some(d => d.kode && d.jumlah > 0 && d.harga > 0)) {
-            return res.status(400).json({ message: 'Validasi Gagal.', error: 'Supplier, Kode Item, QTY, dan Harga wajib diisi.' });
+        
+        // 1. Tangkap nomor PO dari URL jika method-nya PUT (proses Update)
+        // Jika method-nya POST, req.params.nomor otomatis akan bernilai undefined.
+        let nomorToEdit = req.params.nomor || data.nomor || data.nomorToEdit;
+        
+        // 2. Proteksi ketat: Jika bernilai 'AUTO' atau kosong, paksa jadi null (Artinya ini INSERT baru)
+        if (!nomorToEdit || nomorToEdit === 'AUTO' || nomorToEdit.trim() === '') {
+            nomorToEdit = null;
         }
 
+        // Ambil user yang sedang aktif
+        const currentUser = req.user ? req.user.KDUSER : data.user || 'SYSTEM';
+
+        // 3. Validasi data sebelum masuk ke database
+        if (!data.supKode || !data.detail || !data.detail.some(d => d.kode && d.jumlah > 0)) {
+            return res.status(400).json({ 
+                message: 'Validasi Gagal.', 
+                error: 'Supplier, Kode Item, dan QTY wajib diisi.' 
+            });
+        }
+
+        // 4. Panggil service dengan parameter nomorToEdit yang sudah tervalidasi
         const result = await poMmtService.savePoMmt(data, nomorToEdit, currentUser);
 
-        res.status(200).json({ message: 'Data berhasil disimpan.', nomor: result.Nomor });
+        // kembalikan response sukses
+        res.status(200).json({ 
+            message: 'Data berhasil disimpan.', 
+            nomor: result.Nomor 
+        });
 
     } catch (error) {
-        res.status(400).json({ message: 'Gagal Simpan.', error: error.message });
+        console.error("Error pada Controller savePO:", error);
+        res.status(400).json({ 
+            message: 'Gagal Simpan Data PO.', 
+            error: error.message 
+        });
     }
 };
 

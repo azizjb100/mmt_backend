@@ -158,8 +158,12 @@ const getPOById = async (nomor) => {
     [nomor]
   );
 
+  // Cari nomor permintaan dari item detail yang memiliki mb_nomor
+  const nomorPermintaan = detailRows.find(d => d.mb_nomor)?.mb_nomor || "";
+
   return {
     ...header,
+    NomorPermintaan: nomorPermintaan, // <-- Tambahkan ini agar ditangkap frontend
     Detail: detailRows,
     Commitments: [], rolls: [],
     Status: header.IsClosed === 1 ? 'CLOSE' : 'OPEN',
@@ -172,7 +176,9 @@ const savePoMmt = async (data, nomorToEdit, currentUser) => {
   try {
     await connection.beginTransaction();
     let poNomor;
-    const isUpdating = !!nomorToEdit;
+    
+    // VALIDASI AGAR STRING "AUTO" ATAU PENGIRIMAN KOSONG TIDAK DIANGGAP SEBAGAI UPDATE
+    const isUpdating = !!nomorToEdit && nomorToEdit !== 'AUTO' && nomorToEdit !== '';
     const { tanggal, supKode, keterangan, isPpn, ppnRate, detail, dateline, jenisPo, AlamatPabrik } = data;
 
     const totalAmount = detail.filter(d => d.kode).reduce((sum, d) => sum + (Number(d.total) || 0), 0);
@@ -181,10 +187,32 @@ const savePoMmt = async (data, nomorToEdit, currentUser) => {
     if (isUpdating) {
       poNomor = nomorToEdit;
       await connection.query(
-        `UPDATE tpo_mmt_hdr SET po_tanggal = ?, po_sup_kode = ?, po_memo = ?, po_istax = ?, po_taxamount = ?, 
-         po_amount = ?, date_modified = NOW(), user_modified = ?, po_dateline = ?, po_type = ?, po_kirim = ?
+        `UPDATE tpo_mmt_hdr SET 
+          po_tanggal = ?, 
+          po_sup_kode = ?, 
+          po_memo = ?, 
+          po_istax = ?, 
+          po_taxamount = ?, 
+          po_amount = ?, 
+          date_modified = NOW(), 
+          user_modified = ?, 
+          po_dateline = ?, 
+          po_type = ?, 
+          po_kirim = ?
          WHERE po_nomor = ?`,
-        [tanggal, supKode, keterangan, isTaxInt, ppnRate, totalAmount, currentUser, dateline, jenisPo, poNomor, AlamatPabrik]
+        [
+          tanggal, 
+          supKode, 
+          keterangan, 
+          isTaxInt, 
+          ppnRate, 
+          totalAmount, 
+          currentUser, 
+          dateline, 
+          jenisPo, 
+          AlamatPabrik, // 👈 Posisinya harus di sini sebelum poNomor
+          poNomor        // 👈 Nilai untuk WHERE po_nomor = ?
+        ]
       );
       await connection.query('DELETE FROM tpo_mmt_dtl WHERE pod_po_nomor = ?', [poNomor]);
     } else {
@@ -200,12 +228,11 @@ const savePoMmt = async (data, nomorToEdit, currentUser) => {
     for (const [index, item] of validItems.entries()) {
       await connection.query(
         `INSERT INTO tpo_mmt_dtl (
-  pod_po_nomor, pod_nourut, pod_mb_nomor, pod_brg_kode, pod_brg_satuan,
-  pod_qty, pod_m2, pod_harga, pod_discpr, pod_keterangan, pod_spk_nomor
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`,
-        [poNomor, index + 1, item.mb_nomor || null, item.kode, item.satuan, parseFloat(item.jumlah) || 0,   parseFloat(item.m2) || 0,  
-          parseFloat(item.harga) || 0, Number(item.diskon) || 0, String(item.namaext || item.nama || ''), item.spk || null]
+          pod_po_nomor, pod_nourut, pod_mb_nomor, pod_brg_kode, pod_brg_satuan,
+          pod_qty, pod_m2, pod_harga, pod_discpr, pod_keterangan, pod_spk_nomor
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [poNomor, index + 1, item.mb_nomor || null, item.kode, item.satuan, parseFloat(item.jumlah) || 0, parseFloat(item.m2) || 0,  
+         parseFloat(item.harga) || 0, Number(item.diskon) || 0, String(item.namaext || item.nama || ''), item.spk || null]
       );
     }
 
@@ -232,7 +259,7 @@ const savePoMmt = async (data, nomorToEdit, currentUser) => {
     return { Nomor: poNomor };
   } catch (error) {
     await connection.rollback();
-    throwDbError("Gagal menyimpan data PO", error);
+    throw error; // Biarkan error asli naik ke controller agar terbaca jelas
   } finally {
     connection.release();
   }
