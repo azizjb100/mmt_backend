@@ -73,6 +73,8 @@ const mutasiInternalRoutes = require("./routes/mutasiInternal.routes");
 const lapMonBSRoutes = require("./routes/lapMonBS.route"); // <- Ditambahkan di sini
 const mutasiBahanRoutes = require("./routes/spanduk/mutasiBahan.routes"); // <- Ditambahkan di sini
 const permintaanBahanSpandukRoutes = require("./routes/spanduk/permintaanBahan.routes"); // <- Ditambahkan di sini
+const masterBahanSpandukRoutes = require("./routes/spanduk/masterBahanSpanduk.routes");
+const penerimaanBahanPenolongRoutes = require("./routes/spanduk/penerimaanBahanPenolong.routes");
 
 // Konfigurasi
 
@@ -190,6 +192,8 @@ app.use("/api/mmt/mutasi-internal", clientCertAuth, mutasiInternalRoutes);
 app.use("/api/mmt/laporan-bs", clientCertAuth, lapMonBSRoutes); 
 app.use("/api/spanduk/mutasi-bahan", clientCertAuth, mutasiBahanRoutes); 
 app.use("/api/spanduk/permintaan-bahan", clientCertAuth, permintaanBahanSpandukRoutes); 
+app.use("/api/spanduk/master-bahan", clientCertAuth, masterBahanSpandukRoutes);
+app.use("/api/spanduk/penerimaan-bahan", clientCertAuth, penerimaanBahanPenolongRoutes);
 
 
 
