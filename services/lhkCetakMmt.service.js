@@ -169,17 +169,17 @@ const saveLhk = async (headerData, detailsData, inkData, existingNomor) => {
         const currentUser = headerData.luser_modified || 'SYSTEM';
 
         const detailOperators = [
-    ...new Set(
-        detailsData
-            .map(d => (d.operator || '').trim())
-            .filter(name => name !== '')
-    )
-];
+            ...new Set(
+                detailsData
+                    .map(d => (d.operator || '').trim())
+                    .filter(name => name !== '')
+            )
+        ];
 
-// Jika detail kosong, fallback ke header
-const combinedOperators = detailOperators.length > 0
-    ? detailOperators.join(', ')
-    : (headerData.lch_operator || '');
+        // Jika detail kosong, fallback ke header
+        const combinedOperators = detailOperators.length > 0
+            ? detailOperators.join(', ')
+            : (headerData.lch_operator || '');
 
         // 2. SIMPAN / UPDATE HEADER (tlhk_cetakmmt_hdr)
         if (isEditMode) {
@@ -220,43 +220,50 @@ const combinedOperators = detailOperators.length > 0
             ]);
         }
 
- // 3. SIMPAN DETAIL PENGERJAAN SPK (tlhk_cetakmmt_dtl)
-for (let i = 0; i < detailsData.length; i++) {
-    const d = detailsData[i];
-    
-    // Ambil nilai mesin
-    const mesinToSave = d.msn_kode || d.mesin || d.Mesin;
-    
-    // Ambil shift dari detail (lcd_lshift) atau payload level atas (shift)
-    const shiftToSave = d.lcd_lshift || d.shift || headerData.lch_shift;
+        // 3. SIMPAN DETAIL PENGERJAAN SPK (tlhk_cetakmmt_dtl)
+        for (let i = 0; i < detailsData.length; i++) {
+            const d = detailsData[i];
+            
+            // Ambil nilai mesin
+            const mesinToSave = d.msn_kode || d.mesin || d.Mesin;
+            
+            // Ambil shift dari detail (lcd_lshift) atau payload level atas (shift)
+            const shiftToSave = d.lcd_lshift || d.shift || headerData.lch_shift;
 
-    await conn.query(`
-        INSERT INTO tlhk_cetakmmt_dtl (
-            lcd_lch_nomor, 
-            lcd_no_urut, 
-            lcd_spk_nomor, 
-            lcd_qty_Cetak, 
-            lcd_jns_mesin, 
-            lcd_loperator,
-            lcd_lnomor,   -- Akan diisi lhkmesin
-            lcd_lshift    -- Shift detail
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-        finalNomor,                   // Nomor Header (misal: LHK/2026/0001)
-        i + 1,                        // No Urut
-        d.spk_nomor || d.Nomor_SPK, 
-        d.jumlah_cetak || 0, 
-        mesinToSave, 
-        d.operator || '',
-        d.lhkmesin || d.lcd_lnomor,   // PENTING: Mengambil lhkmesin sesuai permintaan
-        shiftToSave
-    ]);
-}
+            // Ambil nilai toleransi dengan fallback ke 0
+            const tol1 = Number(d.lcd_toleransi ?? d.toleransi ?? 0);
+            const tol2 = Number(d.lcd_toleransi2 ?? d.toleransi2 ?? 0);
+
+            await conn.query(`
+                INSERT INTO tlhk_cetakmmt_dtl (
+                    lcd_lch_nomor, 
+                    lcd_no_urut, 
+                    lcd_spk_nomor, 
+                    lcd_qty_Cetak, 
+                    lcd_jns_mesin, 
+                    lcd_loperator,
+                    lcd_lnomor,        -- Nomor LHK Mesin referensi
+                    lcd_lshift,       -- Shift detail
+                    lcd_toleransi,   -- Tambahan kolom Toleransi 1
+                    lcd_toleransi2    -- Tambahan kolom Toleransi 2
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `, [
+                finalNomor, 
+                i + 1, 
+                d.spk_nomor || d.Nomor_SPK, 
+                d.jumlah_cetak || 0, 
+                mesinToSave, 
+                d.operator || '',
+                d.lhkmesin || d.lcd_lnomor, 
+                shiftToSave,
+                tol1,
+                tol2
+            ]);
+        }
+
         // 4. SIMPAN DETAIL PEMAKAIAN TINTA PER MESIN (tlhk_cetakmmt_ink)
-        // inkData diharapkan berisi: [{ msn_kode: 'MSN01', c: 0.5, m: 0.2, y: 0, k: 0.1 }, ...]
         if (inkData && inkData.length > 0) {
             for (const ink of inkData) {
-                // Hanya simpan jika ada nilai tinta (menghindari baris sampah/kosong)
                 const totalInk = parseFloat(ink.c || 0) + parseFloat(ink.m || 0) + parseFloat(ink.y || 0) + parseFloat(ink.k || 0);
                 
                 if (totalInk > 0) {

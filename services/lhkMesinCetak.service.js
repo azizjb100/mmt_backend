@@ -116,9 +116,10 @@ const getLookup = async (startDate, endDate, shift = '', search = '') => {
             t1.lmesin AS Mesin, 
             t1.lspk_nomor AS NomorSPK, 
             t2.spk_nama AS NamaOrder,
-            IFNULL(t2.spk_jumlah,0) AS JumlahOrder,
+
+            IFNULL(t2.spk_jumlah, 0) AS JumlahOrder,
             IFNULL(x.qtytotalcetak, 0) AS TotalCetak,
-            /* RUMUS KURANG CETAK */
+            IFNULL(x.totalpadding, 0) AS Padding, /* --- PENAMBAHAN KOLOM PADDING --- */
             CAST(GREATEST(0, IFNULL(t2.spk_jumlah, 0) - IFNULL(all_prod.total_pernah_cetak, 0)) AS UNSIGNED) AS KurangCetak,
             t1.loperator AS Operator,
             
@@ -130,7 +131,8 @@ const getLookup = async (startDate, endDate, shift = '', search = '') => {
         LEFT JOIN (
             SELECT 
                 ld_lnomor,
-                SUM(ld_qtyCetak1 + ld_qtyCetak2 + ld_qtyCetak3 + ld_qtyCetak4 + ld_qtyCetak5 + ld_qtyCetak6 + ld_qtyCetak7) AS qtytotalcetak
+                SUM(ld_qtyCetak1 + ld_qtyCetak2 + ld_qtyCetak3 + ld_qtyCetak4 + ld_qtyCetak5 + ld_qtyCetak6 + ld_qtyCetak7) AS qtytotalcetak,
+                SUM(IFNULL(ld_padding, 0)) AS totalpadding /* Menghitung total padding per header */
             FROM tlhk_mesin_dtl 
             GROUP BY ld_lnomor
         ) x ON x.ld_lnomor = t1.lnomor
@@ -270,7 +272,7 @@ const getLookupByMultipleNomor = async (nomor) => {
         
         const [headerRows] = await pool.query(sqlHeader, [daftarNomor]);
 
-        // 3. Query Detail (Perbaikan Koma & Penambahan Perhitungan m2)
+        // 3. Query Detail (Penambahan Field Padding)
         const sqlDetail = `
             SELECT 
                 d.ld_lnomor AS referensi_lhk,
@@ -285,7 +287,12 @@ const getLookupByMultipleNomor = async (nomor) => {
                 d.ld_total_qtycetak AS totalcetak,
                 d.ld_total_metercetak AS cetakmeter,
                 d.ld_tile AS tile,
-                -- Perhitungan m2: Panjang * Lebar * Qty (Asumsi meter)
+                
+                -- Field Padding (Handling IFNULL agar aman dari null)
+                IFNULL(d.ld_padding, 0) AS padding,
+                IFNULL(d.ld_padding, 0) AS Padding,
+                
+                -- Perhitungan m2: Panjang * Lebar * Qty
                 ROUND(IFNULL(s.spk_panjang, 0) * IFNULL(s.spk_lebar, 0) * IFNULL(d.ld_total_qtycetak, 0), 2) AS ld_luas_m2
             FROM tlhk_mesin_dtl d
             INNER JOIN tlhk_mesin_hdr h ON h.lnomor = d.ld_lnomor
@@ -386,6 +393,7 @@ const getNextSuffix = async (conn, originalBarcode) => {
 
     return `${baseBarcode}-${nextSuffix}`;
 };
+
 const saveLhk = async (headerData, detailsData, existingNomor) => {
     const conn = await pool.getConnection();
     let isEditMode = !!existingNomor;

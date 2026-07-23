@@ -75,6 +75,8 @@ const mutasiBahanRoutes = require("./routes/spanduk/mutasiBahan.routes"); // <- 
 const permintaanBahanSpandukRoutes = require("./routes/spanduk/permintaanBahan.routes"); // <- Ditambahkan di sini
 const masterBahanSpandukRoutes = require("./routes/spanduk/masterBahanSpanduk.routes");
 const penerimaanBahanPenolongRoutes = require("./routes/spanduk/penerimaanBahanPenolong.routes");
+const lapKartuStokMmtRoutes = require("./routes/lapKartuStokMmt.routes");
+const lapMonJadwalKirimRoutes = require("./routes/lapMonJadwalKirim.Routes");
 
 // Konfigurasi
 
@@ -194,7 +196,8 @@ app.use("/api/spanduk/mutasi-bahan", clientCertAuth, mutasiBahanRoutes);
 app.use("/api/spanduk/permintaan-bahan", clientCertAuth, permintaanBahanSpandukRoutes); 
 app.use("/api/spanduk/master-bahan", clientCertAuth, masterBahanSpandukRoutes);
 app.use("/api/spanduk/penerimaan-bahan", clientCertAuth, penerimaanBahanPenolongRoutes);
-
+app.use("/api/mmt/lap-kartu-stok", clientCertAuth, lapKartuStokMmtRoutes);
+app.use("/api/mmt/lap-mon-jadwalkirim", clientCertAuth, lapMonJadwalKirimRoutes);
 
 
 
