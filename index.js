@@ -76,7 +76,7 @@ const permintaanBahanSpandukRoutes = require("./routes/spanduk/permintaanBahan.r
 const masterBahanSpandukRoutes = require("./routes/spanduk/masterBahanSpanduk.routes");
 const penerimaanBahanPenolongRoutes = require("./routes/spanduk/penerimaanBahanPenolong.routes");
 const lapKartuStokMmtRoutes = require("./routes/lapKartuStokMmt.routes");
-const lapMonJadwalKirimRoutes = require("./routes/lapMonJadwalKirim.Routes");
+const lapMonJadwalKirimRoutes = require("./routes/lapMonJadwalKirim.routes");
 
 // Konfigurasi
 
