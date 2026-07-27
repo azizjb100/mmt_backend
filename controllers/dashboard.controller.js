@@ -44,9 +44,22 @@ const getTopDeadlineCetakTotal = async (req, res) => {
     }
 };
 
+const getGrafikBsBulanan = async (req, res) => {
+    try {
+        const result = await dashboardService.getGrafikBsBulanan();
+        res.json({
+            success: true,
+            data: result
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 module.exports = {
     getTopDeadlineCetak,
     getPermintaanBahanPending,
     getPermintaanBahanPendingTotal,
-    getTopDeadlineCetakTotal
+    getTopDeadlineCetakTotal,
+    getGrafikBsBulanan
 };

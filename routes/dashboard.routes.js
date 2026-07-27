@@ -9,5 +9,6 @@ router.get('/top-10-deadline', dashboardController.getTopDeadlineCetak);
 router.get('/top-10-deadline-total', dashboardController.getTopDeadlineCetakTotal);
 router.get('/permintaan-pending', dashboardController.getPermintaanBahanPending);
 router.get('/permintaan-pending-total', dashboardController.getPermintaanBahanPendingTotal);
+router.get('/grafik-bulanan', dashboardController.getGrafikBsBulanan);
 
 module.exports = router;

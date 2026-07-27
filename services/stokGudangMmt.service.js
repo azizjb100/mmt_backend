@@ -8,8 +8,35 @@ exports.getStokByBarcode = async (barcode) => {
                 m.mst_brg_kode AS Kode,
                 m.mst_gdg_kode AS Kode_Gudang,
                 b.brg_nama AS Nama_Bahan,
-                ROUND(SUM(m.mst_stok_in * m.mst_panjang) - SUM(m.mst_stok_out * m.mst_panjang), 3) AS Sisa_Panjang,
-                MAX(m.mst_lebar) AS Lebar
+                CAST(ROUND(SUM(m.mst_stok_in * m.mst_panjang) - SUM(m.mst_stok_out * m.mst_panjang), 3) AS DECIMAL(10,2)) AS Sisa_Panjang_Stok,
+                MAX(m.mst_lebar) AS Lebar,
+
+                -- 1. Ambil Nomor LHK Paling Akhir yang Menggunakan Roll Ini
+                (
+                    SELECT h.lnomor 
+                    FROM tlhk_mesin_hdr h 
+                    WHERE h.lbarcode_roll = m.mst_barcode 
+                    ORDER BY h.ldate_create DESC 
+                    LIMIT 1
+                ) AS Lhk_Terakhir,
+
+                -- 2. 🔥 KUNCI SYNC: Ambil SISA METERAN PRESISI dari LHK Terakhir tersebut
+                (
+                    SELECT d.ld_sisameter
+                    FROM tlhk_mesin_dtl d
+                    INNER JOIN tlhk_mesin_hdr h ON h.lnomor = d.ld_lnomor
+                    WHERE d.ld_barcode = m.mst_barcode
+                    ORDER BY h.ldate_create DESC, d.ld_urut DESC
+                    LIMIT 1
+                ) AS Sisa_Panjang_Lhk,
+
+                -- Ambil Daftar Semua LHK yang Pernah Pakai Barcode Ini
+                (
+                    SELECT GROUP_CONCAT(h.lnomor SEPARATOR ', ')
+                    FROM tlhk_mesin_hdr h
+                    WHERE h.lbarcode_roll = m.mst_barcode
+                ) AS All_Lhk_List
+
             FROM tmasterstok_mmt m
             LEFT JOIN tbarang_mmt b ON m.mst_brg_kode = b.brg_kode
             WHERE m.mst_barcode = ?
@@ -18,16 +45,38 @@ exports.getStokByBarcode = async (barcode) => {
 
         const [results] = await pool.query(sql, [barcode]);
 
-        // 1. Cari yang di GPM (Gudang Produksi)
-        const stokGPM = results.find(r => r.Kode_Gudang === 'GPM' && r.Sisa_Panjang > 0);
-        if (stokGPM) return { data: stokGPM, status: 'READY' };
+        if (!results || results.length === 0) {
+            return { data: null, status: 'NOT_FOUND' };
+        }
 
-        // 2. Jika tidak ada di GPM, cari yang di WH-16 (Gudang Utama)
-        const stokUtama = results.find(r => r.Kode_Gudang === 'WH-16' && r.Sisa_Panjang > 0);
-        if (stokUtama) return { data: stokUtama, status: 'NEED_MUTATION' };
+        // Cari stok di GPM dulu, jika tidak ada baru ambil di gudang lain (WH-16)
+        const stokGPM = results.find(r => r.Kode_Gudang === 'GPM');
+        const dataRes = stokGPM || results[0];
 
-        return { data: null, status: 'NOT_FOUND' };
+        // PRIORITAS PANJANG BAHAN:
+        // Gunakan Sisa_Panjang_Lhk (jika roll sudah pernah dipakai LHK sebelumnya),
+        // Jika belum pernah dipakai LHK (roll baru murni), gunakan Sisa_Panjang_Stok.
+        const finalSisaPanjang = dataRes.Sisa_Panjang_Lhk !== null && dataRes.Sisa_Panjang_Lhk !== undefined
+            ? parseFloat(dataRes.Sisa_Panjang_Lhk)
+            : parseFloat(dataRes.Sisa_Panjang_Stok || 0);
+
+        if (finalSisaPanjang <= 0) {
+            return { data: null, status: 'NOT_FOUND' };
+        }
+
+        return { 
+            status: dataRes.Kode_Gudang === 'GPM' ? 'READY' : 'NEED_MUTATION',
+            data: {
+                ...dataRes,
+                Sisa_Panjang: finalSisaPanjang, // Nilai 19.34 akan terambil di sini
+                Lebar: parseFloat(dataRes.Lebar || 0),
+                Lhk_Terakhir: dataRes.Lhk_Terakhir || null,
+                All_Lhk_List: dataRes.All_Lhk_List || ""
+            }
+        };
+
     } catch (error) {
-        throw new Error(error.message);
+        console.error("Error getStokByBarcode:", error);
+        throw new Error(`Gagal mengambil stok barcode: ${error.message}`);
     }
 };

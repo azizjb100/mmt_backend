@@ -51,7 +51,7 @@ exports.getNewNomor = async (req, res) => {
 exports.createRetur = async (req, res) => {
     try {
         // userLogin diambil dari middleware auth (jika ada)
-        const userLogin = req.user?.username || 'ADMIN'; 
+        const userLogin = req.user ? req.user.kdUser : 'SYSTEM';
         const result = await returService.saveReturProduksi(req.body, false, userLogin);
         
         res.status(201).json({

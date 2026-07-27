@@ -3,38 +3,24 @@ const router = express.Router();
 const controller = require('../controllers/lhkMesinCetak.controller');
 const verifyToken = require('../middleware/auth.middleware');
 
-// Pastikan controller.namaFungsi TIDAK undefined
-// Cek baris demi baris:
-
-// 1. Ambil semua header
+// 1. ROUTE UTAMA & POST
 router.get('/', verifyToken, controller.getAllHeaders);
-
-router.get('/lookup', verifyToken, controller.getLookup);
-
-// 2. Lookup untuk modal (Gunakan fungsi yang sama atau berbeda)
-router.get('/lookup/:nomor', verifyToken, controller.getLookupByNomor);
-
-// 3. Detail untuk Edit (Single)
-router.get('/details', verifyToken, controller.getDetails);
-
-
-router.get('/detail-lookup', verifyToken, controller.getDetailForLookup);
-
 router.post('/', verifyToken, controller.saveLhk);
 
-// 6. Hapus (DELETE)
-router.delete('/:nomor', verifyToken, controller.deleteHeader);
+// 2. ROUTE STATIS / LOOKUP (Ditaruh sebelum route yang pakai parameter :nomor)
+router.get('/lookup', verifyToken, controller.getLookup);
+router.get('/details', verifyToken, controller.getDetails);
+router.get('/detail-lookup', verifyToken, controller.getDetailForLookup);
 
-router.get('/report/dashboard', verifyToken, controller.getDashboardAgregasi);
-
-// Untuk Tabel Rekap Produksi
+// 3. ROUTE LAPORAN & REKAP
 router.get('/rekap', verifyToken, controller.getReportRekap);
 router.get('/rekap-detail-mesin', verifyToken, controller.getDetailRekapPerMesin);
-
-// Untuk Export Excel CrossTab (Mesin vs Tanggal)
+router.get('/report/dashboard', verifyToken, controller.getDashboardAgregasi);
 router.get('/report/export-crosstab', verifyToken, controller.getExcelCrossTab);
+router.get('/report/export-detail', verifyToken, controller.getExportLhk);
 
-// Untuk Export Detail Raw Data
-router.get('/report/export-detail', verifyToken, controller.getExportLhk)
+// 4. ROUTE DINAMIS PARAMETER (HARUS DI PALING BAWAH)
+router.get('/lookup/:nomor', verifyToken, controller.getLookupByNomor);
+router.delete('/:nomor', verifyToken, controller.deleteHeader);
 
 module.exports = router;

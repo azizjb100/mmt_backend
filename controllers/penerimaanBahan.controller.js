@@ -119,7 +119,7 @@ exports.saveRecMmt = async (req, res) => {
     try {
         const data = req.body;
         const nomorToEdit = req.params.nomor || null;
-        const currentUser = req.user ? req.user.KDUSER : 'SYSTEM';
+        const currentUser = req.user ? req.user.kdUser : 'SYSTEM';
 
         // --- Validasi awal sebelum kirim ke service ---
         if (!data.header?.supplier_kode || !data.header?.gudang_kode) {

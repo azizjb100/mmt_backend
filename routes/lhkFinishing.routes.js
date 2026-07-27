@@ -23,22 +23,24 @@ router.get('/pra/pending-potong', verifyToken, lhkController.getPendingPotong);
 // ==========================================
 
 router.get('/', verifyToken, lhkController.getAllHeaders);
+
+// ROUTE BARU: Wajib diletakkan sebelum route ber-parameter dinamis (/:nomor)
+router.get('/search-spk', verifyToken, lhkController.searchSpk);
+
 router.get('/details', verifyToken, lhkController.getDetails);
 router.post('/finalize', verifyToken, lhkController.processFinalize);
 
 /**
  * ENDPOINT UPDATE (Hanya simpan perubahan, tanpa status ACC)
- * POST /api/mmt/lhk-finishing/update
- * Diubah ke POST agar sinkron dengan api.post di frontend Vue kamu
  */
 router.post('/update', verifyToken, lhkController.updateLhk); 
 
 /**
  * ENDPOINT ACC (Simpan perubahan + Isi kolom lfh_acc)
- * POST /api/mmt/lhk-finishing/acc
  */
 router.post('/acc', verifyToken, lhkController.handleAcc); 
 
+// Catatan: Route dengan parameter dinamis (/:nomor) SELALU ditaruh di paling bawah
 router.delete('/:nomor', verifyToken, lhkController.deleteHeader);
 
 

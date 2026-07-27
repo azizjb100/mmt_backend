@@ -46,6 +46,40 @@ const getAllHeaders = async (startDate, endDate) => {
     }
 };
 
+const searchSpkProgress = async (keyword) => {
+    try {
+        const searchPattern = `%${keyword}%`;
+        const sql = `
+            SELECT 
+                s.spk_nomor AS Nomor_SPK,
+                s.spk_nama AS Nama_SPK,
+                IFNULL(s.spk_jumlah, 0) AS Qty_Order,
+                IFNULL(SUM(d.lfd_j_potong), 0) AS Total_Potong,
+                IFNULL(SUM(d.lfd_j_seaming), 0) AS Total_Seaming,
+                IFNULL(SUM(d.lfd_j_mataayam), 0) AS Total_MataAyam,
+                IFNULL(SUM(d.lfd_j_coly), 0) AS Total_Coly,
+                IFNULL(SUM(d.lfd_j_bs), 0) AS Total_BS,
+                -- Perhitungan Sisa (Qty Order - Total Coly/Finishing)
+                (IFNULL(s.spk_jumlah, 0) - IFNULL(SUM(d.lfd_j_coly), 0)) AS Sisa_Kurang
+            FROM (
+                SELECT spk_nomor, spk_nama, spk_jumlah FROM tspk
+                UNION ALL
+                SELECT mspk_nomor AS spk_nomor, mspk_nama AS spk_nama, mspk_jumlah AS spk_jumlah FROM tmemospk
+            ) s
+            LEFT JOIN tlhk_finishingmmt_dtl d ON d.lfd_spk_nomor = s.spk_nomor
+            WHERE s.spk_nomor LIKE ? OR s.spk_nama LIKE ?
+            GROUP BY s.spk_nomor, s.spk_nama, s.spk_jumlah
+            LIMIT 50
+        `;
+
+        const [rows] = await pool.query(sql, [searchPattern, searchPattern]);
+        return rows;
+    } catch (error) {
+        console.error("Error searchSpkProgress:", error);
+        throw error;
+    }
+};
+
 const generateLhkNomor = async (conn, tanggal) => {
     const date = new Date(tanggal);
     const yearMonth = format(date, 'yyMM'); // Hasil: 2512 (untuk Des 2025)
@@ -615,6 +649,7 @@ const updateLhk = async (nomor, detailItems, userLogin) => {
 module.exports = {
     getAllHeaders,
     getDetailsByNomor,
+    searchSpkProgress,
     deleteLhk,
     savePraLhk,
     getUnassignedPraLhk,

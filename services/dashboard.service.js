@@ -234,9 +234,100 @@ const getTopDeadlineCetakTotalFull = async () => {
     }
 };
 
+const getGrafikBsBulanan = async () => {
+    const sql = `
+        SELECT 
+            bulan_label AS bulan,
+            sort_key,
+            jenis_lhk,
+            SUM(total_luas_m2) AS total_luas_m2
+        FROM (
+            /* 1. BS MMT (Digital) */
+            SELECT 
+                DATE_FORMAT(ltanggal, '%b %Y') AS bulan_label,
+                DATE_FORMAT(ltanggal, '%Y-%m') AS sort_key,
+                'MMT' AS jenis_lhk,
+                SUM(COALESCE(lpanjang_bs, 0) * COALESCE(llebar_bs, 0)) AS total_luas_m2
+            FROM tlhk_mesin_hdr
+            WHERE ltanggal >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH) 
+              AND lpanjang_bs > 0
+            GROUP BY DATE_FORMAT(ltanggal, '%b %Y'), DATE_FORMAT(ltanggal, '%Y-%m')
+
+            UNION ALL
+
+            /* 2. BS Mesin Tekstil */
+            SELECT 
+                DATE_FORMAT(lth_tanggal, '%b %Y') AS bulan_label,
+                DATE_FORMAT(lth_tanggal, '%Y-%m') AS sort_key,
+                'TEKSTIL' AS jenis_lhk,
+                SUM(COALESCE(lth_panjang_bs, 0) * COALESCE(lth_lebar_bs, 0)) AS total_luas_m2
+            FROM tlhk_mesintekstil_hdr
+            WHERE lth_tanggal >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH) 
+              AND lth_panjang_bs > 0
+            GROUP BY DATE_FORMAT(lth_tanggal, '%b %Y'), DATE_FORMAT(lth_tanggal, '%Y-%m')
+
+            UNION ALL
+
+            /* 3. BS Finishing MMT */
+            SELECT 
+                DATE_FORMAT(h.lfh_tanggal, '%b %Y') AS bulan_label,
+                DATE_FORMAT(h.lfh_tanggal, '%Y-%m') AS sort_key,
+                'FINISHING' AS jenis_lhk,
+                SUM(COALESCE(d.lfd_j_bs, 0) * 1) AS total_luas_m2
+            FROM tlhk_finishingmmt_dtl d
+            INNER JOIN tlhk_finishingmmt_hdr h ON d.lfd_lfh_nomor = h.lfh_nomor
+            WHERE h.lfh_tanggal >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH) 
+              AND d.lfd_j_bs > 0
+            GROUP BY DATE_FORMAT(h.lfh_tanggal, '%b %Y'), DATE_FORMAT(h.lfh_tanggal, '%Y-%m')
+        ) AS combined_bs
+        GROUP BY bulan_label, sort_key, jenis_lhk
+        ORDER BY sort_key ASC
+    `;
+
+    try {
+        const [rows] = await pool.query(sql);
+
+        // Extract daftar bulan unik
+        const monthsMap = new Map();
+        rows.forEach(r => {
+            if (!monthsMap.has(r.sort_key)) {
+                monthsMap.set(r.sort_key, r.bulan);
+            }
+        });
+
+        const months = Array.from(monthsMap.values());
+        const sortKeys = Array.from(monthsMap.keys());
+
+        // Inisialisasi dataset hanya untuk 3 divisi
+        const categories = ['MMT', 'FINISHING', 'TEKSTIL'];
+        const datasets = {};
+        
+        categories.forEach(cat => {
+            datasets[cat] = new Array(months.length).fill(0);
+        });
+
+        // Mapping nilai Luas BS M2 ke masing-masing posisi bulan & divisi
+        rows.forEach(r => {
+            const monthIndex = sortKeys.indexOf(r.sort_key);
+            if (monthIndex !== -1 && datasets[r.jenis_lhk]) {
+                datasets[r.jenis_lhk][monthIndex] = Number(Number(r.total_luas_m2 || 0).toFixed(2));
+            }
+        });
+
+        return {
+            labels: months,
+            datasets: datasets
+        };
+    } catch (error) {
+        throw new Error('Gagal memuat Grafik BS Bulanan 3 Divisi: ' + error.message);
+    }
+};
+
+
 module.exports = {
     getTopDeadlineCetak,
     getPermintaanBahanPending,
     getPermintaanBahanTotalFull,
-    getTopDeadlineCetakTotalFull
+    getTopDeadlineCetakTotalFull,
+    getGrafikBsBulanan
 };

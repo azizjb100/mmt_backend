@@ -10,6 +10,19 @@ const getAllHeaders = async (req, res) => {
     }
 };
 
+const searchSpk = async (req, res) => {
+    try {
+        const { q } = req.query;
+        if (!q || q.trim() === '') {
+            return res.status(400).json({ success: false, message: 'Keyword pencarian tidak boleh kosong.' });
+        }
+        const data = await service.searchSpkProgress(q.trim());
+        return res.json({ success: true, data });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 // const getDetails = async (req, res) => {
 //     try {
 //         const { nomor } = req.query;
@@ -120,6 +133,7 @@ const updateLhk = async (req, res) => {
 
 module.exports = {
     getAllHeaders,
+    searchSpk,
     getDetails,
     processFinalize,
     deleteHeader,
