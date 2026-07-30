@@ -61,7 +61,7 @@ exports.getStokByBarcode = async (barcode) => {
 
             -- Sisa Meter dari LHK Mesin Tekstil (Perhitungan Detail) 🔥
             SELECT (d.ltd_ambil_bahan - d.ltd_panjang_pakai) AS sisa_meter, h.lth_date_Create AS created_at, d.ltd_no_urut AS urut 
-            FROM tlhk_mesintekstil d 
+            FROM tlhk_mesintekstil_dtl d 
             INNER JOIN tlhk_mesintekstil_hdr h ON h.lth_nomor = d.ltd_lth_nomor 
             WHERE h.lth_barcode = ?
           ) AS all_sisa
