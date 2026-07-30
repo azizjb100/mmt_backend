@@ -8,14 +8,10 @@ exports.getStokByBarcode = async (barcode) => {
                 m.mst_brg_kode AS Kode,
                 m.mst_gdg_kode AS Kode_Gudang,
                 b.brg_nama AS Nama_Bahan,
-                -- Gunakan IFNULL agar tidak menghasilkan NULL saat dikurangi
-                CAST(ROUND(
-                    SUM(IFNULL(m.mst_stok_in, 0) * IFNULL(m.mst_panjang, 0)) - 
-                    SUM(IFNULL(m.mst_stok_out, 0) * IFNULL(m.mst_panjang, 0)), 
-                3) AS DECIMAL(10,2)) AS Sisa_Panjang_Stok,
+                CAST(ROUND(SUM(m.mst_stok_in * m.mst_panjang) - SUM(m.mst_stok_out * m.mst_panjang), 3) AS DECIMAL(10,2)) AS Sisa_Panjang_Stok,
                 MAX(m.mst_lebar) AS Lebar,
 
-                -- 1. Ambil Nomor LHK Paling Akhir
+                -- 1. Ambil Nomor LHK Paling Akhir yang Menggunakan Roll Ini
                 (
                     SELECT h.lnomor 
                     FROM tlhk_mesin_hdr h 
@@ -24,17 +20,17 @@ exports.getStokByBarcode = async (barcode) => {
                     LIMIT 1
                 ) AS Lhk_Terakhir,
 
-                -- 2. Ambil SISA METERAN PRESISI dari LHK Terakhir
+                -- 2. 🔥 KUNCI SYNC: Ambil SISA METERAN PRESISI dari LHK Terakhir tersebut
                 (
                     SELECT d.ld_sisameter
                     FROM tlhk_mesin_dtl d
                     INNER JOIN tlhk_mesin_hdr h ON h.lnomor = d.ld_lnomor
-                    WHERE d.ld_barcode = m.mst_barcode OR h.lbarcode_roll = m.mst_barcode
+                    WHERE d.ld_barcode = m.mst_barcode
                     ORDER BY h.ldate_create DESC, d.ld_urut DESC
                     LIMIT 1
                 ) AS Sisa_Panjang_Lhk,
 
-                -- Ambil Daftar Semua LHK
+                -- Ambil Daftar Semua LHK yang Pernah Pakai Barcode Ini
                 (
                     SELECT GROUP_CONCAT(h.lnomor SEPARATOR ', ')
                     FROM tlhk_mesin_hdr h
@@ -49,39 +45,32 @@ exports.getStokByBarcode = async (barcode) => {
 
     const [results] = await pool.query(sql, [barcode]);
 
-    // Jika barcode benar-benar tidak terdaftar di database
     if (!results || results.length === 0) {
       return { data: null, status: "NOT_FOUND" };
     }
 
-    // Prioritaskan Gudang GPM jika ada
+    // Cari stok di GPM dulu, jika tidak ada baru ambil di gudang lain (WH-16)
     const stokGPM = results.find((r) => r.Kode_Gudang === "GPM");
     const dataRes = stokGPM || results[0];
 
-    // Hitung sisa panjang
+    // PRIORITAS PANJANG BAHAN:
+    // Gunakan Sisa_Panjang_Lhk (jika roll sudah pernah dipakai LHK sebelumnya),
+    // Jika belum pernah dipakai LHK (roll baru murni), gunakan Sisa_Panjang_Stok.
     const finalSisaPanjang =
       dataRes.Sisa_Panjang_Lhk !== null &&
       dataRes.Sisa_Panjang_Lhk !== undefined
         ? parseFloat(dataRes.Sisa_Panjang_Lhk)
         : parseFloat(dataRes.Sisa_Panjang_Stok || 0);
 
-    // Jika data ada tapi sisa meteran/stok <= 0
     if (finalSisaPanjang <= 0) {
-      return {
-        status: "EMPTY_STOCK", // Status khusus jika barang habis (bukan NOT_FOUND)
-        data: {
-          ...dataRes,
-          Sisa_Panjang: 0,
-          Lebar: parseFloat(dataRes.Lebar || 0),
-        },
-      };
+      return { data: null, status: "NOT_FOUND" };
     }
 
     return {
       status: dataRes.Kode_Gudang === "GPM" ? "READY" : "NEED_MUTATION",
       data: {
         ...dataRes,
-        Sisa_Panjang: finalSisaPanjang,
+        Sisa_Panjang: finalSisaPanjang, // Nilai 19.34 akan terambil di sini
         Lebar: parseFloat(dataRes.Lebar || 0),
         Lhk_Terakhir: dataRes.Lhk_Terakhir || null,
         All_Lhk_List: dataRes.All_Lhk_List || "",
