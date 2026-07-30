@@ -22,13 +22,13 @@ exports.getStokByBarcode = async (barcode) => {
 
                 -- 2. 🔥 KUNCI SYNC: Ambil SISA METERAN PRESISI dari LHK Terakhir tersebut
                 (
-                    SELECT d.ld_sisameter
-                    FROM tlhk_mesin_dtl d
-                    INNER JOIN tlhk_mesin_hdr h ON h.lnomor = d.ld_lnomor
-                    WHERE d.ld_barcode = m.mst_barcode
-                    ORDER BY h.ldate_create DESC, d.ld_urut DESC
-                    LIMIT 1
-                ) AS Sisa_Panjang_Lhk,
+    SELECT d.ld_sisameter
+    FROM tlhk_mesin_dtl d
+    INNER JOIN tlhk_mesin_hdr h ON h.lnomor = d.ld_lnomor
+    WHERE d.ld_barcode = m.mst_barcode
+    ORDER BY d.ld_id DESC  -- Atau h.lnomor DESC jika lnomor berurutan
+    LIMIT 1
+) AS Sisa_Panjang_Lhk
 
                 -- Ambil Daftar Semua LHK yang Pernah Pakai Barcode Ini
                 (
