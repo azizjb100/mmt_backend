@@ -63,10 +63,13 @@ exports.getStokByBarcode = async (barcode) => {
             UNION ALL
 
             -- c. LHK Mesin Tekstil
-            SELECT (d.ltd_ambil_bahan - d.ltd_panjang_pakai) AS sisa_meter, h.lth_date_create AS tgl, d.ltd_no_urut AS urut
-            FROM tlhk_mesintekstil_dtl d
-            INNER JOIN tlhk_mesintekstil_hdr h ON h.lth_nomor = d.ltd_lth_nomor
-            WHERE h.lth_barcode = ?
+            SELECT 
+  (d.ltd_ambil_bahan - (d.ltd_panjang_pakai / 0.9)) AS sisa_meter, 
+  h.lth_date_create AS tgl, 
+  d.ltd_no_urut AS urut
+FROM tlhk_mesintekstil_dtl d
+INNER JOIN tlhk_mesintekstil_hdr h ON h.lth_nomor = d.ltd_lth_nomor
+WHERE h.lth_barcode = ?
 
             UNION ALL
 
