@@ -65,7 +65,7 @@ exports.getStokByBarcode = async (barcode) => {
             -- c. LHK Mesin Tekstil
 
 SELECT 
-  d.ltd_sisameter AS sisa_meter, 
+  ROUND(d.ltd_sisameter / 0.9, 2) AS sisa_meter, 
   h.lth_date_create AS tgl, 
   d.ltd_no_urut AS urut
 FROM tlhk_mesintekstil_dtl d
