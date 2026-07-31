@@ -74,30 +74,30 @@ const getFullProductionReport = async (startDate, endDate, mesin) => {
             ORDER BY h.lch_tanggal ASC, h.lch_shift ASC, h.lch_nomor ASC
         `;
 
-    // 2. Query Tinta per Shift
+    // 2. Query Tinta per Shift (dibulatkan 2 desimal)
     const sqlInk = `
             SELECT 
                 DATE_FORMAT(h.lch_tanggal, '%Y-%m-%d') AS tgl,
                 IFNULL(h.lch_shift, 1) AS shift,
-                MAX(CASE WHEN i.lci_msn_kode = 'MT02' THEN ROUND(i.lci_c, 1) ELSE 0 END) AS inkC_MT02,
-                MAX(CASE WHEN i.lci_msn_kode = 'MT02' THEN ROUND(i.lci_m, 1) ELSE 0 END) AS inkM_MT02,
-                MAX(CASE WHEN i.lci_msn_kode = 'MT02' THEN ROUND(i.lci_y, 1) ELSE 0 END) AS inkY_MT02,
-                MAX(CASE WHEN i.lci_msn_kode = 'MT02' THEN ROUND(i.lci_k, 1) ELSE 0 END) AS inkK_MT02,
+                MAX(CASE WHEN i.lci_msn_kode = 'MT02' THEN ROUND(i.lci_c, 2) ELSE 0 END) AS inkC_MT02,
+                MAX(CASE WHEN i.lci_msn_kode = 'MT02' THEN ROUND(i.lci_m, 2) ELSE 0 END) AS inkM_MT02,
+                MAX(CASE WHEN i.lci_msn_kode = 'MT02' THEN ROUND(i.lci_y, 2) ELSE 0 END) AS inkY_MT02,
+                MAX(CASE WHEN i.lci_msn_kode = 'MT02' THEN ROUND(i.lci_k, 2) ELSE 0 END) AS inkK_MT02,
 
-                MAX(CASE WHEN i.lci_msn_kode = 'MT03' THEN ROUND(i.lci_c, 1) ELSE 0 END) AS inkC_MT03,
-                MAX(CASE WHEN i.lci_msn_kode = 'MT03' THEN ROUND(i.lci_m, 1) ELSE 0 END) AS inkM_MT03,
-                MAX(CASE WHEN i.lci_msn_kode = 'MT03' THEN ROUND(i.lci_y, 1) ELSE 0 END) AS inkY_MT03,
-                MAX(CASE WHEN i.lci_msn_kode = 'MT03' THEN ROUND(i.lci_k, 1) ELSE 0 END) AS inkK_MT03,
+                MAX(CASE WHEN i.lci_msn_kode = 'MT03' THEN ROUND(i.lci_c, 2) ELSE 0 END) AS inkC_MT03,
+                MAX(CASE WHEN i.lci_msn_kode = 'MT03' THEN ROUND(i.lci_m, 2) ELSE 0 END) AS inkM_MT03,
+                MAX(CASE WHEN i.lci_msn_kode = 'MT03' THEN ROUND(i.lci_y, 2) ELSE 0 END) AS inkY_MT03,
+                MAX(CASE WHEN i.lci_msn_kode = 'MT03' THEN ROUND(i.lci_k, 2) ELSE 0 END) AS inkK_MT03,
 
-                MAX(CASE WHEN i.lci_msn_kode = 'MT04' THEN ROUND(i.lci_c, 1) ELSE 0 END) AS inkC_MT04,
-                MAX(CASE WHEN i.lci_msn_kode = 'MT04' THEN ROUND(i.lci_m, 1) ELSE 0 END) AS inkM_MT04,
-                MAX(CASE WHEN i.lci_msn_kode = 'MT04' THEN ROUND(i.lci_y, 1) ELSE 0 END) AS inkY_MT04,
-                MAX(CASE WHEN i.lci_msn_kode = 'MT04' THEN ROUND(i.lci_k, 1) ELSE 0 END) AS inkK_MT04,
+                MAX(CASE WHEN i.lci_msn_kode = 'MT04' THEN ROUND(i.lci_c, 2) ELSE 0 END) AS inkC_MT04,
+                MAX(CASE WHEN i.lci_msn_kode = 'MT04' THEN ROUND(i.lci_m, 2) ELSE 0 END) AS inkM_MT04,
+                MAX(CASE WHEN i.lci_msn_kode = 'MT04' THEN ROUND(i.lci_y, 2) ELSE 0 END) AS inkY_MT04,
+                MAX(CASE WHEN i.lci_msn_kode = 'MT04' THEN ROUND(i.lci_k, 2) ELSE 0 END) AS inkK_MT04,
 
-                MAX(CASE WHEN i.lci_msn_kode = 'MT05' THEN ROUND(i.lci_c, 1) ELSE 0 END) AS inkC_MT05,
-                MAX(CASE WHEN i.lci_msn_kode = 'MT05' THEN ROUND(i.lci_m, 1) ELSE 0 END) AS inkM_MT05,
-                MAX(CASE WHEN i.lci_msn_kode = 'MT05' THEN ROUND(i.lci_y, 1) ELSE 0 END) AS inkY_MT05,
-                MAX(CASE WHEN i.lci_msn_kode = 'MT05' THEN ROUND(i.lci_k, 1) ELSE 0 END) AS inkK_MT05
+                MAX(CASE WHEN i.lci_msn_kode = 'MT05' THEN ROUND(i.lci_c, 2) ELSE 0 END) AS inkC_MT05,
+                MAX(CASE WHEN i.lci_msn_kode = 'MT05' THEN ROUND(i.lci_m, 2) ELSE 0 END) AS inkM_MT05,
+                MAX(CASE WHEN i.lci_msn_kode = 'MT05' THEN ROUND(i.lci_y, 2) ELSE 0 END) AS inkY_MT05,
+                MAX(CASE WHEN i.lci_msn_kode = 'MT05' THEN ROUND(i.lci_k, 2) ELSE 0 END) AS inkK_MT05
             FROM tlhk_cetakmmt_hdr h
             JOIN tlhk_cetakmmt_ink i ON h.lch_nomor = i.lci_lch_nomor
             WHERE h.lch_tanggal BETWEEN ? AND ?
@@ -160,10 +160,10 @@ const getFullProductionReport = async (startDate, endDate, mesin) => {
         const spkSet = new Set();
 
         const processedRows = group.map((row) => {
-          const p = parseFloat(row.p) || 0;
-          const l = parseFloat(row.l) || 0;
-          const s12 = parseFloat(row.s12) || 0;
-          const s34 = parseFloat(row.s34) || 0;
+          const p = parseFloat(parseFloat(row.p || 0).toFixed(2));
+          const l = parseFloat(parseFloat(row.l || 0).toFixed(2));
+          const s12 = parseFloat(parseFloat(row.s12 || 0).toFixed(2));
+          const s34 = parseFloat(parseFloat(row.s34 || 0).toFixed(2));
           const orderPcs = parseFloat(row.orderPcs) || 0;
           const hasilQty = parseFloat(row.hasilQty) || 0;
 
@@ -175,7 +175,7 @@ const getFullProductionReport = async (startDate, endDate, mesin) => {
           const toleransiPersen = orderLuas === 0 ? 0 : toleransiM2 / orderLuas;
           const hasilLuas = p * l * hasilQty;
 
-          // Tetap Akumulasi untuk LO Summary
+          // Akumulasi untuk LO Summary
           sumP += p;
           sumL += l;
           sumOrderPcs += orderPcs;
@@ -184,34 +184,36 @@ const getFullProductionReport = async (startDate, endDate, mesin) => {
           sumHasilLuas += hasilLuas;
           if (row.noSpk) spkSet.add(row.noSpk);
 
-          // =========================================================
-          // PERBAIKAN: Ambil nilai Ambil Bahan & Sisa HANYA jika BUKAN Gabungan
-          // =========================================================
-          const ambilP = isGabungan ? 0 : parseFloat(row.ambilP) || 0;
-          const ambilL = isGabungan ? 0 : parseFloat(row.ambilL) || 0;
+          // Nilai Ambil Bahan & Sisa (Dibulatkan 2 Desimal terlebih dahulu)
+          const ambilP = isGabungan
+            ? 0
+            : parseFloat((parseFloat(row.ambilP) || 0).toFixed(2));
+          const ambilL = isGabungan
+            ? 0
+            : parseFloat((parseFloat(row.ambilL) || 0).toFixed(2));
           const sisaBisaPakaiP = isGabungan
             ? 0
-            : parseFloat(row.sisaBisaPakaiP) || 0;
+            : parseFloat((parseFloat(row.sisaBisaPakaiP) || 0).toFixed(2));
           const sisaBisaPakaiL = isGabungan
             ? 0
-            : parseFloat(row.sisaBisaPakaiL) || 0;
+            : parseFloat((parseFloat(row.sisaBisaPakaiL) || 0).toFixed(2));
           const sisaRongsokP = isGabungan
             ? 0
-            : parseFloat(row.sisaRongsokP) || 0;
+            : parseFloat((parseFloat(row.sisaRongsokP) || 0).toFixed(2));
           const sisaRongsokL = isGabungan
             ? 0
-            : parseFloat(row.sisaRongsokL) || 0;
+            : parseFloat((parseFloat(row.sisaRongsokL) || 0).toFixed(2));
 
           const ambilLuas = ambilP * ambilL;
           const sisaBisaPakaiLuas = sisaBisaPakaiP * sisaBisaPakaiL;
           const sisaRongsokLuas = isGabungan
             ? 0
-            : parseFloat(row.wasteMeter) || 0;
+            : parseFloat((parseFloat(row.wasteMeter) || 0).toFixed(2));
           const aktualLuasPakai = isGabungan
             ? 0
             : ambilLuas - sisaBisaPakaiLuas - sisaRongsokLuas;
 
-          // Kalkulasi Waste & Lost untuk SPK Biasa (Non-Gabungan)
+          // Kalkulasi Waste & Lost untuk SPK Biasa
           let wasteM2 = 0;
           let wastePersen = 0;
           let lostM2 = 0;
@@ -239,43 +241,40 @@ const getFullProductionReport = async (startDate, endDate, mesin) => {
           return {
             ...row,
             isLO: false,
-            isGabunganChild: isGabungan, // true jika Anak SPK Gabungan, false jika SPK Single
+            isGabunganChild: isGabungan,
             showTgl: showTgl,
             showShift: showShift,
-            persenToleransi: parseFloat((persenToleransi * 100).toFixed(1)),
-            toleransiM2: parseFloat(toleransiM2.toFixed(1)),
-            toleransiPersen: parseFloat((toleransiPersen * 100).toFixed(1)),
+            persenToleransi: parseFloat((persenToleransi * 100).toFixed(2)),
+            toleransiM2: parseFloat(toleransiM2.toFixed(2)),
+            toleransiPersen: parseFloat((toleransiPersen * 100).toFixed(2)),
 
-            // 1. JUMLAH ORDER: Anak Gabungan = 0 (tampil '-'), SPK Single = Nilai Asli
             orderPcs: isGabungan ? 0 : orderPcs,
-            orderLuas: isGabungan ? 0 : parseFloat(orderLuas.toFixed(1)),
+            orderLuas: isGabungan ? 0 : parseFloat(orderLuas.toFixed(2)),
 
-            // 2. HASIL CETAK: Tetap tampil nilai aslinya
             hasilQty: hasilQty,
-            hasilPRoll: parseFloat(row.hasilPRoll || 0),
-            hasilLuas: parseFloat(hasilLuas.toFixed(1)),
+            hasilPRoll: parseFloat((row.hasilPRoll || 0).toFixed(2)),
+            hasilLuas: parseFloat(hasilLuas.toFixed(2)),
 
-            // 3. AMBIL BAHAN & WASTE: SPK Single Mengambil Nilai Asli Hitungan!
-            ambilP: parseFloat(ambilP.toFixed(1)),
-            ambilL: parseFloat(ambilL.toFixed(1)),
-            ambilLuas: parseFloat(ambilLuas.toFixed(1)),
+            ambilP: parseFloat(ambilP.toFixed(2)),
+            ambilL: parseFloat(ambilL.toFixed(2)),
+            ambilLuas: parseFloat(ambilLuas.toFixed(2)),
 
-            sisaBisaPakaiP: parseFloat(sisaBisaPakaiP.toFixed(1)),
-            sisaBisaPakaiL: parseFloat(sisaBisaPakaiL.toFixed(1)),
-            sisaBisaPakaiLuas: parseFloat(sisaBisaPakaiLuas.toFixed(1)),
+            sisaBisaPakaiP: parseFloat(sisaBisaPakaiP.toFixed(2)),
+            sisaBisaPakaiL: parseFloat(sisaBisaPakaiL.toFixed(2)),
+            sisaBisaPakaiLuas: parseFloat(sisaBisaPakaiLuas.toFixed(2)),
 
-            sisaRongsokP: parseFloat(sisaRongsokP.toFixed(1)),
-            sisaRongsokL: parseFloat(sisaRongsokL.toFixed(1)),
-            sisaRongsokLuas: parseFloat(sisaRongsokLuas.toFixed(1)),
+            sisaRongsokP: parseFloat(sisaRongsokP.toFixed(2)),
+            sisaRongsokL: parseFloat(sisaRongsokL.toFixed(2)),
+            sisaRongsokLuas: parseFloat(sisaRongsokLuas.toFixed(2)),
 
-            aktualLuasPakai: parseFloat(aktualLuasPakai.toFixed(1)),
+            aktualLuasPakai: parseFloat(aktualLuasPakai.toFixed(2)),
 
-            wasteM2: parseFloat(wasteM2.toFixed(1)),
-            wastePersen: parseFloat(wastePersen.toFixed(1)),
-            lostM2: parseFloat(lostM2.toFixed(1)),
-            lostPersen: parseFloat(lostPersen.toFixed(1)),
-            totalWasteM2: parseFloat(totalWasteM2.toFixed(1)),
-            totalWastePersen: parseFloat(totalWastePersen.toFixed(1)),
+            wasteM2: parseFloat(wasteM2.toFixed(2)),
+            wastePersen: parseFloat(wastePersen.toFixed(2)),
+            lostM2: parseFloat(lostM2.toFixed(2)),
+            lostPersen: parseFloat(lostPersen.toFixed(2)),
+            totalWasteM2: parseFloat(totalWasteM2.toFixed(2)),
+            totalWastePersen: parseFloat(totalWastePersen.toFixed(2)),
 
             inkC_MT02: showInk ? tintaShift.inkC_MT02 : null,
             inkM_MT02: showInk ? tintaShift.inkM_MT02 : null,
@@ -301,11 +300,17 @@ const getFullProductionReport = async (startDate, endDate, mesin) => {
         // Tambahkan Ringkasan LO (jika SPK Gabungan)
         if (isGabungan) {
           const first = group[0];
-          const ambilP = parseFloat(first.ambilP) || 0;
-          const ambilL = parseFloat(first.ambilL) || 0;
-          const sisaBisaPakaiP = parseFloat(first.sisaBisaPakaiP) || 0;
-          const sisaBisaPakaiL = parseFloat(first.sisaBisaPakaiL) || 0;
-          const sisaRongsokLuas = parseFloat(first.wasteMeter) || 0;
+          const ambilP = parseFloat((parseFloat(first.ambilP) || 0).toFixed(2));
+          const ambilL = parseFloat((parseFloat(first.ambilL) || 0).toFixed(2));
+          const sisaBisaPakaiP = parseFloat(
+            (parseFloat(first.sisaBisaPakaiP) || 0).toFixed(2),
+          );
+          const sisaBisaPakaiL = parseFloat(
+            (parseFloat(first.sisaBisaPakaiL) || 0).toFixed(2),
+          );
+          const sisaRongsokLuas = parseFloat(
+            (parseFloat(first.wasteMeter) || 0).toFixed(2),
+          );
 
           const ambilLuas = ambilP * ambilL;
           const sisaBisaPakaiLuas = sisaBisaPakaiP * sisaBisaPakaiL;
@@ -328,10 +333,10 @@ const getFullProductionReport = async (startDate, endDate, mesin) => {
             isLO: true,
             namaOrder: `LO (${Array.from(spkSet).join(",,")})`,
             noSpk: "",
-            s12: parseFloat(first.s12) || 0.06,
-            s34: parseFloat(first.s34) || 0.06,
+            s12: parseFloat((parseFloat(first.s12) || 0.06).toFixed(2)),
+            s34: parseFloat((parseFloat(first.s34) || 0.06).toFixed(2)),
             persenToleransi: 2.0,
-            toleransiM2: parseFloat(toleransiM2.toFixed(1)),
+            toleransiM2: parseFloat(toleransiM2.toFixed(2)),
             toleransiPersen: 2.0,
             p: parseFloat(sumP.toFixed(2)),
             l: parseFloat(sumL.toFixed(2)),
@@ -339,43 +344,42 @@ const getFullProductionReport = async (startDate, endDate, mesin) => {
             lebarBahan: first.lebarBahan,
             pRoll: first.pRoll,
 
-            // =========================================================
-            // ATURAN BARU PADA BARIS SUMMARY LO:
-            // 1. JUMLAH ORDER SPK: Tampil Total Gabungan (misal: 52)
             orderPcs: sumOrderPcs,
-            orderLuas: parseFloat(sumOrderLuas.toFixed(1)),
+            orderLuas: parseFloat(sumOrderLuas.toFixed(2)),
 
-            // 2. HASIL CETAK: Diset 0 (nanti di UI/Excel tampil '-')
             hasilPRoll: 0,
             hasilQty: 0,
             hasilLuas: 0,
-            // =========================================================
 
             ambilP: ambilP,
             ambilL: ambilL,
-            ambilLuas: parseFloat(ambilLuas.toFixed(1)),
+            ambilLuas: parseFloat(ambilLuas.toFixed(2)),
             sisaBisaPakaiP: sisaBisaPakaiP,
             sisaBisaPakaiL: sisaBisaPakaiL,
-            sisaBisaPakaiLuas: parseFloat(sisaBisaPakaiLuas.toFixed(1)),
-            sisaRongsokP: parseFloat(first.sisaRongsokP) || 0,
-            sisaRongsokL: parseFloat(first.sisaRongsokL) || 0,
-            sisaRongsokLuas: parseFloat(sisaRongsokLuas.toFixed(1)),
-            aktualLuasPakai: parseFloat(aktualLuasPakai.toFixed(1)),
-            wasteM2: parseFloat(wasteM2.toFixed(1)),
+            sisaBisaPakaiLuas: parseFloat(sisaBisaPakaiLuas.toFixed(2)),
+            sisaRongsokP: parseFloat(
+              (parseFloat(first.sisaRongsokP) || 0).toFixed(2),
+            ),
+            sisaRongsokL: parseFloat(
+              (parseFloat(first.sisaRongsokL) || 0).toFixed(2),
+            ),
+            sisaRongsokLuas: parseFloat(sisaRongsokLuas.toFixed(2)),
+            aktualLuasPakai: parseFloat(aktualLuasPakai.toFixed(2)),
+            wasteM2: parseFloat(wasteM2.toFixed(2)),
             wastePersen:
               sumOrderLuas === 0
                 ? 0
-                : parseFloat(((wasteM2 / sumOrderLuas) * 100).toFixed(1)),
-            lostM2: parseFloat(lostM2.toFixed(1)),
+                : parseFloat(((wasteM2 / sumOrderLuas) * 100).toFixed(2)),
+            lostM2: parseFloat(lostM2.toFixed(2)),
             lostPersen:
               sumOrderLuas === 0
                 ? 0
-                : parseFloat(((lostM2 / sumOrderLuas) * 100).toFixed(1)),
-            totalWasteM2: parseFloat(totalWasteM2.toFixed(1)),
+                : parseFloat(((lostM2 / sumOrderLuas) * 100).toFixed(2)),
+            totalWasteM2: parseFloat(totalWasteM2.toFixed(2)),
             totalWastePersen:
               sumOrderLuas === 0
                 ? 0
-                : parseFloat(((totalWasteM2 / sumOrderLuas) * 100).toFixed(1)),
+                : parseFloat(((totalWasteM2 / sumOrderLuas) * 100).toFixed(2)),
 
             kodeMesin: first.kodeMesin,
             barcodeRoll: first.barcodeRoll,
