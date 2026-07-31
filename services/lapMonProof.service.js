@@ -1,11 +1,11 @@
-const pool = require('../config/db.config');
-const moment = require('moment');
+const pool = require("../config/db.config");
+const moment = require("moment");
 
 const lapMonProof = async (startDate, endDate) => {
-  const tglMulai = moment(startDate).format('YYYY-MM-DD');
-  const tglSelesai = moment(endDate).format('YYYY-MM-DD');
+  const tglMulai = moment(startDate).format("YYYY-MM-DD");
+  const tglSelesai = moment(endDate).format("YYYY-MM-DD");
 
-const ssql = `
+  const ssql = `
   SELECT 
       mspk.mspk_nomor,
       mspk.mspk_tanggal,
@@ -15,6 +15,7 @@ const ssql = `
       mspk.mspk_jumlah AS jml_order,
       mspk.mspk_keterangan AS keterangan,
       mspk.mspk_cab AS lokasi_proof,
+      zz.mesin_proof, -- <--- PERBAIKAN: Diambil dari subquery 'zz'
       mspk.mspk_kain AS jenis_bahan,
       
       IFNULL(zz.lprd_jproof, 0) AS lprd_jproof,
@@ -32,6 +33,8 @@ const ssql = `
       SELECT 
           a.lprd_spk_nomor,
           a.lprd_j_proof AS lprd_jproof,
+          -- PERBAIKAN: Pastikan ejaan kolom lokasi sesuai di DB Anda (lprd_lokasi / lrpd_lokasi)
+          a.lprd_lokasi AS mesin_proof, 
           b.lpr_tanggal,
 
           IF(b.lpr_jenis = 'M', 'MMT',
@@ -76,13 +79,13 @@ const ssql = `
   try {
     connection = await pool.getConnection();
 
-    console.time('QUERY LAP MON PROOF');
+    console.time("QUERY LAP MON PROOF");
     const [rows] = await connection.execute(ssql, params);
-    console.timeEnd('QUERY LAP MON PROOF');
+    console.timeEnd("QUERY LAP MON PROOF");
 
     return rows;
   } catch (error) {
-    console.error('Error lapMonProof:', error);
+    console.error("Error lapMonProof:", error);
     throw error;
   } finally {
     if (connection) connection.release();
