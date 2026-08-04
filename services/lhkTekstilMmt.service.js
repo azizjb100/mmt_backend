@@ -52,7 +52,7 @@ const getAllHeaders = async (startDate, endDate) => {
             -- Total Hasil Cetak Pcs/Meter (Ini tetap di-SUM karena akumulasi pekerjaan)
             IFNULL((SELECT SUM(dtl.ltd_qty_cetak) FROM tlhk_mesintekstil_dtl dtl WHERE dtl.ltd_lth_nomor = h.lth_nomor), 0) AS jumlah_cetak,
             
-            -- PERBAIKAN 1: Bahan Awal diambil nilai MAX/Tunggalnya saja dari baris roll kain ini (Bukan di-SUM)
+            
             IFNULL((SELECT MAX(dtl.ltd_ambil_bahan) FROM tlhk_mesintekstil_dtl dtl WHERE dtl.ltd_lth_nomor = h.lth_nomor), 0) AS PanjangBahanAwal,
             
             -- PERBAIKAN 2: Sisa Bahan Akhir = (Bahan Awal Tunggal) - (Total Akumulasi Semua Qty Cetak)
@@ -353,13 +353,13 @@ const saveLhk = async (data) => {
 
     if (details && details.length > 0) {
       const sqlDetail = `
-                INSERT INTO tlhk_mesintekstil_dtl (
-                    ltd_lth_nomor, ltd_no_urut, ltd_jns_mesin, ltd_spk_nomor, 
-                    ltd_qty_Cetak, ltd_brg_kode, ltd_panjang_pakai, ltd_lebar_pakai,
-                    ltd_cetak1, ltd_cetak2, ltd_cetak3, ltd_cetak4, ltd_cetak5, ltd_cetak6, ltd_cetak7,
-                    ltd_ambil_bahan, ltd_pad
-                ) VALUES ?
-            `;
+    INSERT INTO tlhk_mesintekstil_dtl (
+      ltd_lth_nomor, ltd_no_urut, ltd_jns_mesin, ltd_spk_nomor, 
+      ltd_qty_Cetak, ltd_brg_kode, ltd_panjang_pakai, ltd_lebar_pakai,
+      ltd_cetak1, ltd_cetak2, ltd_cetak3, ltd_cetak4, ltd_cetak5, ltd_cetak6, ltd_cetak7,
+      ltd_ambil_bahan, ltd_pad, ltd_sisameter
+    ) VALUES ?
+  `;
 
       const values = details.map((d, i) => {
         const panjangPerPcs = Number(d.panjang_per_pcs || d.Panjang || 0);
@@ -371,6 +371,11 @@ const saveLhk = async (data) => {
 
         // Akumulasi total panjang yang dipakai oleh sistem
         totalPanjangPakaiMeter += subtotalMeter;
+
+        // Ambil nilai sisa fisik METER (prioritaskan sisabahan_meter yang dikirim frontend)
+        const sisaFisikMeter = Number(
+          d.sisabahan_meter ?? d.ltd_sisameter ?? 0,
+        );
 
         return [
           nomorLhk,
@@ -390,8 +395,10 @@ const saveLhk = async (data) => {
           Number(d.cetak_7 ?? d.cetak7 ?? 0),
           Number(d.ltd_ambil_bahan || d.ambil_bahan || d.PanjangBahanAwal || 0),
           paddingPerPcs,
+          sisaFisikMeter, // <-- DISIMPAN KE KOLOM ltd_sisameter (SATUAN METER)
         ];
       });
+
       await conn.query(sqlDetail, [values]);
     }
 

@@ -1,16 +1,21 @@
 // backend/src/services/spk.service.js
 
-const pool = require('../config/db.config'); 
-const { format } = require('date-fns');
+const pool = require("../config/db.config");
+const { format } = require("date-fns");
 
-const throwDbError = (message, error) => { throw new Error(message + ': ' + error.message); };
+const throwDbError = (message, error) => {
+  throw new Error(message + ": " + error.message);
+};
 
 /**
  * Logika Utama: Menggabungkan TSPK, TMEMOSPK, dan Kalkulasi Produksi
  * Diperbaiki agar menyertakan status 'Ngedit' (PIN), Approval, Akumulasi, dan DATA GAMBAR/QR sesuai Delphi
  */
-const getBaseSpkQuery = (whereClauseReguler = "1=1", whereClauseMemo = "1=1") => {
-    return `
+const getBaseSpkQuery = (
+  whereClauseReguler = "1=1",
+  whereClauseMemo = "1=1",
+) => {
+  return `
         SELECT x.*,
             /* LOGIKA SINKRONISASI CETAK:
                Jika spk_cmo sudah terisi (bukan null & bukan kosong), maka otomatis 'ACC' (Bisa Cetak).
@@ -207,49 +212,52 @@ const getBaseSpkQuery = (whereClauseReguler = "1=1", whereClauseMemo = "1=1") =>
 };
 
 // ===================================
-// BROWSE DATA (UTAMA) 
+// BROWSE DATA (UTAMA)
 // ===================================
 exports.getAllSpkData = async (filters) => {
-    try {
-        const { startDate, endDate, keyword, cabang } = filters;
-        
-        let whereReguler = "1=1";
-        let whereMemo = "1=1";
-        const params = [];
+  try {
+    const { startDate, endDate, keyword, cabang } = filters;
 
-        if (startDate && endDate) {
-            whereReguler += ` AND t.spk_tanggal BETWEEN ? AND ?`;
-            whereMemo += ` AND m.mspk_tanggal BETWEEN ? AND ?`;
-            params.push(startDate, endDate, startDate, endDate);
-        }
+    let whereReguler = "1=1";
+    let whereMemo = "1=1";
+    const params = [];
 
-        if (cabang && cabang !== 'ALL') {
-            whereReguler += ` AND t.spk_cab = ?`;
-            whereMemo += ` AND 'ALL' = ?`; 
-            params.push(cabang, cabang);
-        }
-
-        let sql = getBaseSpkQuery(whereReguler, whereMemo);
-
-        if (keyword) {
-            sql = `SELECT * FROM (${sql}) as sub WHERE SPK LIKE ? OR Nama LIKE ?`;
-            params.push(`%${keyword}%`, `%${keyword}%`);
-        }
-
-        sql += ` ORDER BY Tanggal DESC`;
-
-        const [rows] = await pool.query(sql, params);
-        return rows;
-    } catch (error) {
-        throwDbError('Gagal mengambil data Browse SPK secara keseluruhan', error);
+    // 1. Filter Rentang Tanggal
+    if (startDate && endDate) {
+      whereReguler += ` AND t.spk_tanggal BETWEEN ? AND ?`;
+      whereMemo += ` AND m.mspk_tanggal BETWEEN ? AND ?`;
+      params.push(startDate, endDate, startDate, endDate);
     }
+
+    // 2. Filter Cabang langsung di MySQL
+    if (cabang && cabang !== "ALL") {
+      whereReguler += ` AND t.spk_cab = ?`;
+      whereMemo += ` AND m.mspk_cab = ?`; // memfilter tabel tmemospk berdasarkan cabang
+      params.push(cabang, cabang);
+    }
+
+    let sql = getBaseSpkQuery(whereReguler, whereMemo);
+
+    // 3. Filter Keyword
+    if (keyword) {
+      sql = `SELECT * FROM (${sql}) as sub WHERE SPK LIKE ? OR Nama LIKE ?`;
+      params.push(`%${keyword}%`, `%${keyword}%`);
+    }
+
+    sql += ` ORDER BY Tanggal DESC`;
+
+    const [rows] = await pool.query(sql, params);
+    return rows;
+  } catch (error) {
+    throwDbError("Gagal mengambil data Browse SPK secara keseluruhan", error);
+  }
 };
 
 // ===================================
 // LOOKUP STBJ (Untuk Modal Pencarian)
 // ===================================
 const getBaseStbjQuery = (whereClause = "1=1") => {
-    return `
+  return `
         SELECT 
             h.stbj_nomor AS Nomor,
             h.stbj_tanggal AS Tanggal,
@@ -274,31 +282,31 @@ const getBaseStbjQuery = (whereClause = "1=1") => {
 };
 
 exports.getStbjLookupData = async (keyword) => {
-    try {
-        let sql = `SELECT * FROM (${getBaseStbjQuery()}) AS stbj_combined`;
-        const params = [];
+  try {
+    let sql = `SELECT * FROM (${getBaseStbjQuery()}) AS stbj_combined`;
+    const params = [];
 
-        if (keyword) {
-            sql += ` WHERE (Nomor LIKE ? OR Keterangan LIKE ? OR No_TS LIKE ?)`;
-            const searchKeyword = `%${keyword}%`;
-            params.push(searchKeyword, searchKeyword, searchKeyword);
-        }
-
-        sql += ` ORDER BY Tanggal DESC LIMIT 50`;
-        
-        const [rows] = await pool.query(sql, params);
-        return rows;
-    } catch (error) {
-        throwDbError('Gagal mengambil data lookup STBJ', error);
+    if (keyword) {
+      sql += ` WHERE (Nomor LIKE ? OR Keterangan LIKE ? OR No_TS LIKE ?)`;
+      const searchKeyword = `%${keyword}%`;
+      params.push(searchKeyword, searchKeyword, searchKeyword);
     }
+
+    sql += ` ORDER BY Tanggal DESC LIMIT 50`;
+
+    const [rows] = await pool.query(sql, params);
+    return rows;
+  } catch (error) {
+    throwDbError("Gagal mengambil data lookup STBJ", error);
+  }
 };
 
 /**
  * PERBAIKAN: Mengganti spk_close menjadi spk_aktif agar sinkron dengan alor data Open/Closed Delphi & Web
  */
 exports.getSpkForStbjLookup = async (keyword) => {
-    try {
-        const sql = `
+  try {
+    const sql = `
             SELECT 
                 t.spk_nomor AS SPK,
                 t.spk_nama AS Nama,
@@ -319,23 +327,26 @@ exports.getSpkForStbjLookup = async (keyword) => {
             LIMIT 100
         `;
 
-        const searchKeyword = `%${keyword}%`;
-        const [rows] = await pool.query(sql, [searchKeyword, searchKeyword]);
-        return rows;
-    } catch (error) {
-        throwDbError('Gagal mengambil perhitungan SPK vs STBJ', error);
-    }
+    const searchKeyword = `%${keyword}%`;
+    const [rows] = await pool.query(sql, [searchKeyword, searchKeyword]);
+    return rows;
+  } catch (error) {
+    throwDbError("Gagal mengambil perhitungan SPK vs STBJ", error);
+  }
 };
 
 // ===================================
 // DETAIL STBJ (Header & Rincian Item)
 // ===================================
 exports.getStbjFullDetail = async (nomorStbj) => {
-    try {
-        const [header] = await pool.query(getBaseStbjQuery("h.stbj_nomor = ?"), [nomorStbj]);
-        if (header.length === 0) throw new Error(`STBJ ${nomorStbj} tidak ditemukan.`);
+  try {
+    const [header] = await pool.query(getBaseStbjQuery("h.stbj_nomor = ?"), [
+      nomorStbj,
+    ]);
+    if (header.length === 0)
+      throw new Error(`STBJ ${nomorStbj} tidak ditemukan.`);
 
-        const sqlItems = `
+    const sqlItems = `
             SELECT 
                 d.stbjd_spk_nomor AS No_SPK,
                 s.spk_nama AS Nama_SPK,
@@ -349,22 +360,22 @@ exports.getStbjFullDetail = async (nomorStbj) => {
             WHERE d.stbjd_stbj_nomor = ?
             ORDER BY d.stbjd_spk_nomor ASC
         `;
-        const [items] = await pool.query(sqlItems, [nomorStbj]);
+    const [items] = await pool.query(sqlItems, [nomorStbj]);
 
-        return {
-            ...header[0],
-            items: items
-        };
-    } catch (error) {
-        throwDbError(`Gagal memuat detail STBJ ${nomorStbj}`, error);
-    }
+    return {
+      ...header[0],
+      items: items,
+    };
+  } catch (error) {
+    throwDbError(`Gagal memuat detail STBJ ${nomorStbj}`, error);
+  }
 };
 
 exports.getSpkForJadwalKirimLookup = async (keyword) => {
-    try {
-        // PERBAIKAN UTAMA: Ditambahkan tanda $ pada fungsi di bawah ini
-        const baseQuery = getBaseSpkQuery();
-        const sql = `
+  try {
+    // PERBAIKAN UTAMA: Ditambahkan tanda $ pada fungsi di bawah ini
+    const baseQuery = getBaseSpkQuery();
+    const sql = `
             SELECT 
                 combined.SPK,
                 combined.Nama,
@@ -387,38 +398,38 @@ exports.getSpkForJadwalKirimLookup = async (keyword) => {
             LIMIT 100
         `;
 
-        const searchKeyword = `%${keyword || ''}%`;
-        const [rows] = await pool.query(sql, [searchKeyword, searchKeyword]);
-        return rows;
-    } catch (error) {
-        throwDbError('Gagal mengambil data SPK untuk Jadwal Kirim', error);
-    }
+    const searchKeyword = `%${keyword || ""}%`;
+    const [rows] = await pool.query(sql, [searchKeyword, searchKeyword]);
+    return rows;
+  } catch (error) {
+    throwDbError("Gagal mengambil data SPK untuk Jadwal Kirim", error);
+  }
 };
 
 exports.getSpkLookupData = async (keyword) => {
-    try {
-        let sql = `SELECT * FROM (${getBaseSpkQuery()}) AS combined_spk`; 
-        const params = [];
-        if (keyword) {
-            sql += ` WHERE (SPK LIKE ? OR Nama LIKE ?)`;
-            const searchKeyword = `%${keyword}%`;
-            params.push(searchKeyword, searchKeyword);
-        }
-
-        sql += ` ORDER BY Tanggal DESC LIMIT 50`;
-        const [rows] = await pool.query(sql, params);
-        return rows; 
-    } catch (error) {
-        throwDbError('Gagal mengambil data SPK untuk lookup', error);
+  try {
+    let sql = `SELECT * FROM (${getBaseSpkQuery()}) AS combined_spk`;
+    const params = [];
+    if (keyword) {
+      sql += ` WHERE (SPK LIKE ? OR Nama LIKE ?)`;
+      const searchKeyword = `%${keyword}%`;
+      params.push(searchKeyword, searchKeyword);
     }
+
+    sql += ` ORDER BY Tanggal DESC LIMIT 50`;
+    const [rows] = await pool.query(sql, params);
+    return rows;
+  } catch (error) {
+    throwDbError("Gagal mengambil data SPK untuk lookup", error);
+  }
 };
 
 // ===================================
 // 2. DETAIL SIZE (Expanded Row Logic)
 // ===================================
 exports.getSpkDetailSize = async (nomor) => {
-    try {
-        const sql = `
+  try {
+    const sql = `
             SELECT 
                 z.spks_nomor AS Nomor, 
                 z.spks_size AS Size, 
@@ -430,43 +441,44 @@ exports.getSpkDetailSize = async (nomor) => {
             FROM tspk_size z
             WHERE z.spks_nomor = ?
         `;
-        const [rows] = await pool.query(sql, [nomor]);
-        return rows;
-    } catch (error) {
-        throwDbError('Gagal memuat detail size', error);
-    }
+    const [rows] = await pool.query(sql, [nomor]);
+    return rows;
+  } catch (error) {
+    throwDbError("Gagal memuat detail size", error);
+  }
 };
 
 // ===================================
 // 3. DETAIL UNTUK PRINT / EDIT
 // ===================================
 exports.getSpkDetailByNomor = async (nomor) => {
-    try {
-        const sql = `SELECT * FROM (${getBaseSpkQuery("t.spk_nomor = ?")}) AS combined_spk`;
-        const [rows] = await pool.query(sql, [nomor]);
-        if (rows.length === 0) throw new Error(`Nomor SPK \${nomor} tidak ditemukan.`);
-        return rows[0]; 
-    } catch (error) {
-        throwDbError(`Gagal memuat detail SPK \${nomor}`, error);
-    }
+  try {
+    const sql = `SELECT * FROM (${getBaseSpkQuery("t.spk_nomor = ?")}) AS combined_spk`;
+    const [rows] = await pool.query(sql, [nomor]);
+    if (rows.length === 0)
+      throw new Error(`Nomor SPK \${nomor} tidak ditemukan.`);
+    return rows[0];
+  } catch (error) {
+    throwDbError(`Gagal memuat detail SPK \${nomor}`, error);
+  }
 };
 
 /**
- * PERBAIKAN: Mengganti pemanggilan konteks 'this' menjadi 'exports' langsung 
+ * PERBAIKAN: Mengganti pemanggilan konteks 'this' menjadi 'exports' langsung
  * untuk mencegah error runtime Node.js saat dipanggil di routing controller.
  */
 exports.getSpkForPrint = async (nomor) => {
-    try {
-      // 1. Ambil Header Data SPK Utama
-      const header = await exports.getSpkDetailByNomor(nomor);
+  try {
+    // 1. Ambil Header Data SPK Utama
+    const header = await exports.getSpkDetailByNomor(nomor);
 
-      // 2. Ambil Detail Size (jika ada)
-      const details = await exports.getSpkDetailSize(nomor);
+    // 2. Ambil Detail Size (jika ada)
+    const details = await exports.getSpkDetailSize(nomor);
 
-      // 3. PERBAIKAN UTAMA: Mengambil data distribusi pengiriman asli dari tabel talokasi
-      let alokasiDetails = [];
-      if (header.Alokasi === 'YA' || header.Alokasi === 'Y') {
-          const sqlAlokasi = `
+    // 3. PERBAIKAN UTAMA: Mengambil data distribusi pengiriman asli dari tabel talokasi
+    let alokasiDetails = [];
+    if (header.Alokasi === "YA" || header.Alokasi === "Y") {
+      const sqlAlokasi = `
               SELECT 
                   IFNULL(alamat, '') AS Alamat,
                   IFNULL(kota, '') AS Kota,
@@ -477,36 +489,40 @@ exports.getSpkForPrint = async (nomor) => {
               WHERE spk_nomor = ?
               ORDER BY urut ASC
           `;
-          const [rowsAlokasi] = await pool.query(sqlAlokasi, [nomor]);
-          
-          // Lakukan pemetaan (mapping) data agar dibaca dengan seragam oleh Frontend Vue
-          alokasiDetails = rowsAlokasi.map(row => {
-              return {
-                  // Jika alamat kosong, fallback tampilkan nama Kota (Sesuai Gambar 1: CILACAP, JEMBER, dll.)
-                  Alokasi: row.Kota ? row.Kota.toUpperCase() : (row.Alamat ? row.Alamat : "-"),
-                  Jumlah: Number(row.Jumlah),
-                  Detail_Lengkap: {
-                      Alamat: row.Alamat,
-                      Kota: row.Kota,
-                      Person: row.Person,
-                      Hp: row.Hp
-                  }
-              };
-          });
-      }
+      const [rowsAlokasi] = await pool.query(sqlAlokasi, [nomor]);
 
-      return {
-          ...header,
-          details: details,
-          Daftar_Alokasi: alokasiDetails // Menggunakan nama properti array 'Daftar_Alokasi'
-      };
-    } catch (error) {
-        throwDbError(`Gagal memproses data cetak SPK ${nomor}`, error);
+      // Lakukan pemetaan (mapping) data agar dibaca dengan seragam oleh Frontend Vue
+      alokasiDetails = rowsAlokasi.map((row) => {
+        return {
+          // Jika alamat kosong, fallback tampilkan nama Kota (Sesuai Gambar 1: CILACAP, JEMBER, dll.)
+          Alokasi: row.Kota
+            ? row.Kota.toUpperCase()
+            : row.Alamat
+              ? row.Alamat
+              : "-",
+          Jumlah: Number(row.Jumlah),
+          Detail_Lengkap: {
+            Alamat: row.Alamat,
+            Kota: row.Kota,
+            Person: row.Person,
+            Hp: row.Hp,
+          },
+        };
+      });
     }
+
+    return {
+      ...header,
+      details: details,
+      Daftar_Alokasi: alokasiDetails, // Menggunakan nama properti array 'Daftar_Alokasi'
+    };
+  } catch (error) {
+    throwDbError(`Gagal memproses data cetak SPK ${nomor}`, error);
+  }
 };
 
 const getBaseSpkRegulerOnlyQuery = (whereClause = "1=1") => {
-    return `
+  return `
         SELECT x.*,
             IFNULL(
                 IF(x.ppin='N', 'TOLAK',
@@ -571,31 +587,31 @@ const getBaseSpkRegulerOnlyQuery = (whereClause = "1=1") => {
 };
 
 exports.getSpkForMesin = async (keyword) => {
-    try {
-        // Menggunakan variabel terpisah agar string SQL ter-compile dengan sempurna oleh Node.js
-        const baseQuery = getBaseSpkRegulerOnlyQuery("t.spk_aktif = 'Y'");
-        let sql = `SELECT * FROM (${baseQuery}) AS spk_mesin`;
-        
-        const params = [];
+  try {
+    // Menggunakan variabel terpisah agar string SQL ter-compile dengan sempurna oleh Node.js
+    const baseQuery = getBaseSpkRegulerOnlyQuery("t.spk_aktif = 'Y'");
+    let sql = `SELECT * FROM (${baseQuery}) AS spk_mesin`;
 
-        if (keyword) {
-            sql += ` WHERE (SPK LIKE ? OR Nama LIKE ?)`;
-            const searchKeyword = `%${keyword}%`;
-            params.push(searchKeyword, searchKeyword);
-        }
+    const params = [];
 
-        sql += ` ORDER BY Tanggal DESC LIMIT 100`;
-        
-        const [rows] = await pool.query(sql, params);
-        return rows;
-    } catch (error) {
-        throwDbError('Gagal mengambil data SPK khusus Mesin', error);
+    if (keyword) {
+      sql += ` WHERE (SPK LIKE ? OR Nama LIKE ?)`;
+      const searchKeyword = `%${keyword}%`;
+      params.push(searchKeyword, searchKeyword);
     }
+
+    sql += ` ORDER BY Tanggal DESC LIMIT 100`;
+
+    const [rows] = await pool.query(sql, params);
+    return rows;
+  } catch (error) {
+    throwDbError("Gagal mengambil data SPK khusus Mesin", error);
+  }
 };
 
 exports.getMemoSpkLookupData = async (keyword) => {
-    try {
-        let sql = `
+  try {
+    let sql = `
             SELECT 
                 m.mspk_nomor AS SPK, 
                 m.mspk_tanggal AS Tanggal,
@@ -626,38 +642,38 @@ exports.getMemoSpkLookupData = async (keyword) => {
             WHERE 1=1
         `;
 
-        const params = [];
+    const params = [];
 
-        // Jika ada keyword pencarian berdasarkan Nomor SPK atau Nama
-        if (keyword) {
-            sql += ` AND (m.mspk_nomor LIKE ? OR m.mspk_nama LIKE ?)`;
-            const searchKeyword = `%${keyword}%`;
-            params.push(searchKeyword, searchKeyword);
-        }
-
-        sql += ` ORDER BY m.mspk_tanggal DESC LIMIT 50`;
-
-        const [rows] = await pool.query(sql, params);
-        return rows;
-    } catch (error) {
-        throwDbError('Gagal mengambil data lookup Memo SPK', error);
+    // Jika ada keyword pencarian berdasarkan Nomor SPK atau Nama
+    if (keyword) {
+      sql += ` AND (m.mspk_nomor LIKE ? OR m.mspk_nama LIKE ?)`;
+      const searchKeyword = `%${keyword}%`;
+      params.push(searchKeyword, searchKeyword);
     }
+
+    sql += ` ORDER BY m.mspk_tanggal DESC LIMIT 50`;
+
+    const [rows] = await pool.query(sql, params);
+    return rows;
+  } catch (error) {
+    throwDbError("Gagal mengambil data lookup Memo SPK", error);
+  }
 };
 
 // ===================================
 // LOOKUP SPK FOR SUBLIM (Include Realisasi Bahan Gudang)
 // ===================================
 exports.getSpkForSublimLookup = async (keyword) => {
-    try {
-        // Ambil base query SPK (UNION Reguler & Memo) agar mendukung kedua tipe SPK
-        const baseQuery = getBaseSpkQuery();
-        
-        /**
-         * Perbaikan Berdasarkan Struktur Asli:
-         * 1. Hubungkan combined.SPK langsung ke tmkb_hdr (Silakan sesuaikan nama kolom SPK di tmkb_hdr Anda jika berbeda)
-         * 2. Hubungkan tmkb_hdr ke tmkb_dtl via mkb_nomor = mkbd_mkb_nomor
-         */
-        const sql = `
+  try {
+    // Ambil base query SPK (UNION Reguler & Memo) agar mendukung kedua tipe SPK
+    const baseQuery = getBaseSpkQuery();
+
+    /**
+     * Perbaikan Berdasarkan Struktur Asli:
+     * 1. Hubungkan combined.SPK langsung ke tmkb_hdr (Silakan sesuaikan nama kolom SPK di tmkb_hdr Anda jika berbeda)
+     * 2. Hubungkan tmkb_hdr ke tmkb_dtl via mkb_nomor = mkbd_mkb_nomor
+     */
+    const sql = `
             SELECT 
                 combined.SPK,
                 combined.Nama,
@@ -690,10 +706,13 @@ exports.getSpkForSublimLookup = async (keyword) => {
             LIMIT 100
         `;
 
-        const searchKeyword = `%${keyword || ''}%`;
-        const [rows] = await pool.query(sql, [searchKeyword, searchKeyword]);
-        return rows;
-    } catch (error) {
-        throwDbError('Gagal mengambil data SPK untuk Sublim beserta Realisasi Bahan', error);
-    }
+    const searchKeyword = `%${keyword || ""}%`;
+    const [rows] = await pool.query(sql, [searchKeyword, searchKeyword]);
+    return rows;
+  } catch (error) {
+    throwDbError(
+      "Gagal mengambil data SPK untuk Sublim beserta Realisasi Bahan",
+      error,
+    );
+  }
 };

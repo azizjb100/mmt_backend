@@ -6,53 +6,86 @@ const getFullProductionReport = async (startDate, endDate, mesin) => {
     const tglMulai = format(new Date(startDate), "yyyy-MM-dd");
     const tglSelesai = format(new Date(endDate), "yyyy-MM-dd");
 
-    let params = [tglMulai, tglSelesai];
-    let filterMesin = "";
+    let filterMesinCetak = "";
+    let filterMesinProof = "";
+    let filterInk = "";
+    let mesinArray = [];
 
+    // Parse parameter mesin
     if (mesin) {
-      const mesinArray = Array.isArray(mesin)
-        ? mesin
-        : mesin.split(",").filter((m) => m.trim() !== "");
+      if (Array.isArray(mesin)) {
+        mesinArray = mesin;
+      } else if (typeof mesin === "string") {
+        mesinArray = mesin
+          .split(",")
+          .map((m) => m.trim())
+          .filter((m) => m !== "");
+      }
+
       if (mesinArray.length > 0) {
-        filterMesin = ` AND d.lcd_jns_mesin IN (${mesinArray.map(() => "?").join(",")})`;
-        params.push(...mesinArray);
+        const placeholders = mesinArray.map(() => "?").join(",");
+
+        filterMesinCetak = `
+          AND (
+              mh.lmesin IN (${placeholders})
+              OR d.lcd_jns_mesin IN (${placeholders})
+          )
+        `;
+
+        filterMesinProof = `
+          AND d.lprd_lokasi IN (${placeholders})
+        `;
+
+        filterInk = `
+          AND i.lci_msn_kode IN (${placeholders})
+        `;
       }
     }
 
-    // 1. Query Detail SPK & Pemakaian Bahan
+    // ==========================================
+    // 1. SUSUN PARAMS UNTUK QUERY UTAMA
+    // ==========================================
+    const params = [];
+
+    // Params untuk Query A (Cetak MMT)
+    params.push(tglMulai, tglSelesai);
+    if (mesinArray.length > 0) {
+      params.push(...mesinArray); // Untuk mh.lmesin
+      params.push(...mesinArray); // Untuk d.lcd_jns_mesin
+    }
+
+    // Params untuk Query B (Proof MMT)
+    params.push(tglMulai, tglSelesai);
+    if (mesinArray.length > 0) {
+      params.push(...mesinArray); // Untuk d.lprd_lokasi
+    }
+
+    // QUERY UTAMA (Cetak MMT + Proof MMT)
     const sql = `
             SELECT 
                 DATE_FORMAT(h.lch_tanggal, '%Y-%m-%d') AS tgl,
                 IFNULL(h.lch_shift, 1) AS shift,
                 h.lch_nomor AS no_lhk_cetak,
                 IFNULL(d.lcd_lnomor, '') AS lnomor,
-                
                 IFNULL(d.lcd_spk_nomor, '') AS noSpk,
                 MAX(IFNULL(s.spk_nama, '')) AS namaOrder,
-                
                 MAX(IFNULL(d.lcd_toleransi, 0)) AS s12,
                 MAX(IFNULL(d.lcd_toleransi2, 0)) AS s34,
                 MAX(ROUND(IFNULL(s.spk_panjang, 0), 2)) AS p,
                 MAX(ROUND(IFNULL(s.spk_lebar, 0), 2)) AS l,
                 MAX(IFNULL(s.spk_gramasi, '')) AS gsm,
-                
                 MAX(IFNULL(d.lcd_qty_cetak, 0)) AS orderPcs,
                 MAX(IFNULL(s.spk_panjang_roll, 0)) AS pRoll,
                 MAX(ROUND(IFNULL(d.lcd_ambil_bahan_l, 0), 2)) AS lebarBahan,
-                
                 IFNULL(d.lcd_qty_cetak, 0) AS hasilQty,
                 MAX(IFNULL(s.spk_panjang_roll, 0)) AS hasilPRoll,
-                
                 MAX(ROUND(IFNULL(md.ld_ambilbahan, 0), 2)) AS ambilP,
                 MAX(ROUND(IFNULL(md.ld_ambilbahan_lebar, 0), 2)) AS ambilL,
-                
                 MAX(ROUND(IFNULL(md.ld_sisameter, 0), 2)) AS sisaBisaPakaiP,
                 MAX(ROUND(IFNULL(md.ld_sisalebar, 0), 2)) AS sisaBisaPakaiL,
-                
                 MAX(ROUND(IFNULL(md.ld_panjang_afal, 0), 2)) AS sisaRongsokP,
                 MAX(ROUND(IFNULL(md.ld_lebar_afal, 0), 2)) AS sisaRongsokL,
                 MAX(ROUND(IFNULL(d.lcd_waste, 0), 2)) AS wasteMeter,
-                
                 MAX(IFNULL(mh.lmesin, '')) AS kodeMesin,
                 MAX(IFNULL(mh.lbarcode_roll, '')) AS barcodeRoll
 
@@ -63,18 +96,61 @@ const getFullProductionReport = async (startDate, endDate, mesin) => {
                 UNION ALL
                 SELECT mspk_nomor, mspk_nama, mspk_jumlah, mspk_panjang, mspk_lebar, '' AS spk_gramasi, 0 AS spk_panjang_roll FROM tmemospk
             ) s ON d.lcd_spk_nomor = s.spk_nomor
+            LEFT JOIN tlhk_mesin_hdr mh ON mh.lnomor = d.lcd_lnomor
+            LEFT JOIN tlhk_mesin_dtl md ON md.ld_lnomor = d.lcd_lnomor AND md.ld_spk_nomor = d.lcd_spk_nomor
             
-            LEFT JOIN tlhk_mesin_hdr mh ON d.lcd_lnomor = mh.lnomor
-            LEFT JOIN tlhk_mesin_dtl md ON mh.lnomor = md.ld_lnomor AND d.lcd_spk_nomor = md.ld_spk_nomor
-            
-            WHERE h.lch_tanggal BETWEEN ? AND ?
-            ${filterMesin}
-            
+            WHERE DATE(h.lch_tanggal) BETWEEN ? AND ?
+            ${filterMesinCetak}
             GROUP BY h.lch_tanggal, h.lch_shift, h.lch_nomor, d.lcd_lnomor, d.lcd_spk_nomor, d.lcd_qty_cetak
-            ORDER BY h.lch_tanggal ASC, h.lch_shift ASC, h.lch_nomor ASC
+
+            UNION ALL
+
+            SELECT 
+                DATE_FORMAT(h.lpr_tanggal, '%Y-%m-%d') AS tgl,
+                1 AS shift,
+                h.lpr_nomor AS no_lhk_cetak,
+                '' AS lnomor,
+                IFNULL(d.lprd_spk_nomor, '') AS noSpk,
+                MAX(IFNULL(s.spk_nama, 'PROOF')) AS namaOrder,
+                0 AS s12,
+                0 AS s34,
+                MAX(ROUND(IFNULL(d.lprd_panjang, 0), 2)) AS p,
+                MAX(ROUND(IFNULL(d.lprd_lebar, 0), 2)) AS l,
+                MAX(IFNULL(d.lprd_bahan, '')) AS gsm,
+                MAX(IFNULL(d.lprd_j_proof, 0)) AS orderPcs,
+                0 AS pRoll,
+                MAX(ROUND(IFNULL(d.lprd_lebar, 0), 2)) AS lebarBahan,
+                IFNULL(d.lprd_j_proof, 0) AS hasilQty,
+                0 AS hasilPRoll,
+                MAX(ROUND(IFNULL(d.lprd_panjang, 0), 2)) AS ambilP,
+                MAX(ROUND(IFNULL(d.lprd_lebar, 0), 2)) AS ambilL,
+                MAX(ROUND(IFNULL(d.lprd_sisa_bahan, 0), 2)) AS sisaBisaPakaiP,
+                MAX(ROUND(IFNULL(d.lprd_lebar, 0), 2)) AS sisaBisaPakaiL,
+                0 AS sisaRongsokP,
+                0 AS sisaRongsokL,
+                0 AS wasteMeter,
+                MAX(IFNULL(d.lprd_lokasi, '')) AS kodeMesin,
+                MAX(IFNULL(d.lprd_barcode, '')) AS barcodeRoll
+
+            FROM tlhk_proofmmt_hdr h
+            LEFT JOIN tlhk_proofmmt_dtl d ON h.lpr_nomor = d.lprd_lpr_nomor
+            LEFT JOIN (
+                SELECT spk_nomor, spk_nama, spk_jumlah, spk_panjang, spk_lebar, spk_gramasi, 0 AS spk_panjang_roll FROM tspk
+                UNION ALL
+                SELECT mspk_nomor, mspk_nama, mspk_jumlah, mspk_panjang, mspk_lebar, '' AS spk_gramasi, 0 AS spk_panjang_roll FROM tmemospk
+            ) s ON d.lprd_spk_nomor = s.spk_nomor
+
+            WHERE h.lpr_jenis = 'M'
+            AND DATE(h.lpr_tanggal) BETWEEN ? AND ?
+            ${filterMesinProof}
+            GROUP BY h.lpr_tanggal, h.lpr_nomor, d.lprd_spk_nomor, d.lprd_j_proof
+
+            ORDER BY tgl ASC, shift ASC, no_lhk_cetak ASC
         `;
 
-    // 2. Query Tinta per Shift (dibulatkan 2 desimal)
+    // ==========================================
+    // 2. QUERY & PARAMS TINTA
+    // ==========================================
     const sqlInk = `
             SELECT 
                 DATE_FORMAT(h.lch_tanggal, '%Y-%m-%d') AS tgl,
@@ -100,12 +176,21 @@ const getFullProductionReport = async (startDate, endDate, mesin) => {
                 MAX(CASE WHEN i.lci_msn_kode = 'MT05' THEN ROUND(i.lci_k, 2) ELSE 0 END) AS inkK_MT05
             FROM tlhk_cetakmmt_hdr h
             JOIN tlhk_cetakmmt_ink i ON h.lch_nomor = i.lci_lch_nomor
-            WHERE h.lch_tanggal BETWEEN ? AND ?
+            WHERE DATE(h.lch_tanggal) BETWEEN ? AND ?
+            ${filterInk}
             GROUP BY h.lch_tanggal, h.lch_shift
         `;
 
+    const inkParams = [tglMulai, tglSelesai];
+    if (mesinArray.length > 0) {
+      inkParams.push(...mesinArray);
+    }
+
+    // Eksekusi Query Database
     const [rows] = await pool.query(sql, params);
-    const [inkRows] = await pool.query(sqlInk, [tglMulai, tglSelesai]);
+    const [inkRows] = await pool.query(sqlInk, inkParams);
+
+    console.log("TOTAL BARIS UTAMA DITEMUKAN:", rows ? rows.length : 0);
 
     const inkMap = {};
     if (Array.isArray(inkRows)) {
@@ -167,7 +252,6 @@ const getFullProductionReport = async (startDate, endDate, mesin) => {
           const orderPcs = parseFloat(row.orderPcs) || 0;
           const hasilQty = parseFloat(row.hasilQty) || 0;
 
-          // Rumus Toleransi & Order
           const persenToleransi =
             p === 0 ? 0 : ((p + s12) * (l + s34) - p * l) / (p * l);
           const orderLuas = p * l * orderPcs;
@@ -175,7 +259,6 @@ const getFullProductionReport = async (startDate, endDate, mesin) => {
           const toleransiPersen = orderLuas === 0 ? 0 : toleransiM2 / orderLuas;
           const hasilLuas = p * l * hasilQty;
 
-          // Akumulasi untuk LO Summary
           sumP += p;
           sumL += l;
           sumOrderPcs += orderPcs;
@@ -184,7 +267,6 @@ const getFullProductionReport = async (startDate, endDate, mesin) => {
           sumHasilLuas += hasilLuas;
           if (row.noSpk) spkSet.add(row.noSpk);
 
-          // Nilai Ambil Bahan & Sisa (Dibulatkan 2 Desimal terlebih dahulu)
           const ambilP = isGabungan
             ? 0
             : parseFloat((parseFloat(row.ambilP) || 0).toFixed(2));
@@ -213,7 +295,6 @@ const getFullProductionReport = async (startDate, endDate, mesin) => {
             ? 0
             : ambilLuas - sisaBisaPakaiLuas - sisaRongsokLuas;
 
-          // Kalkulasi Waste & Lost untuk SPK Biasa
           let wasteM2 = 0;
           let wastePersen = 0;
           let lostM2 = 0;
@@ -297,7 +378,6 @@ const getFullProductionReport = async (startDate, endDate, mesin) => {
 
         finalReport.push(...processedRows);
 
-        // Tambahkan Ringkasan LO (jika SPK Gabungan)
         if (isGabungan) {
           const first = group[0];
           const ambilP = parseFloat((parseFloat(first.ambilP) || 0).toFixed(2));
@@ -321,7 +401,6 @@ const getFullProductionReport = async (startDate, endDate, mesin) => {
           const wasteM2 = sisaRongsokLuas;
           const lostM2 = aktualLuasPakai - sumOrderLuas - toleransiM2;
           const totalWasteM2 = wasteM2 + lostM2;
-
           const showInk = isFirstRowOfShift;
           if (showInk) isFirstRowOfShift = false;
 
@@ -343,14 +422,11 @@ const getFullProductionReport = async (startDate, endDate, mesin) => {
             gsm: first.gsm,
             lebarBahan: first.lebarBahan,
             pRoll: first.pRoll,
-
             orderPcs: sumOrderPcs,
             orderLuas: parseFloat(sumOrderLuas.toFixed(2)),
-
             hasilPRoll: 0,
             hasilQty: 0,
             hasilLuas: 0,
-
             ambilP: ambilP,
             ambilL: ambilL,
             ambilLuas: parseFloat(ambilLuas.toFixed(2)),
@@ -380,7 +456,6 @@ const getFullProductionReport = async (startDate, endDate, mesin) => {
               sumOrderLuas === 0
                 ? 0
                 : parseFloat(((totalWasteM2 / sumOrderLuas) * 100).toFixed(2)),
-
             kodeMesin: first.kodeMesin,
             barcodeRoll: first.barcodeRoll,
 
@@ -404,12 +479,10 @@ const getFullProductionReport = async (startDate, endDate, mesin) => {
         }
       });
     });
-
     return finalReport;
   } catch (error) {
     console.error("Error getFullProductionReport:", error);
     return [];
   }
 };
-
 module.exports = { getFullProductionReport };
