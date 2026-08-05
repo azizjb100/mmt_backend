@@ -1,14 +1,14 @@
-const pool = require('../config/db.config');
-const { format } = require('date-fns');
+const pool = require("../config/db.config");
+const { format } = require("date-fns");
 
 const throwDbError = (message, error) => {
-    console.error(message, error.message);
-    throw new Error(message + ': ' + error.message);
+  console.error(message, error.message);
+  throw new Error(message + ": " + error.message);
 };
 
 exports.getInvoicePembelianData = async (startDate, endDate) => {
-    try {
-        const sqlMaster = `
+  try {
+    const sqlMaster = `
             SELECT
                 h.invp_nomor AS Nomor,
                 DATE_FORMAT(h.invp_tanggal,'%d-%m-%Y') AS Tanggal,
@@ -23,16 +23,16 @@ exports.getInvoicePembelianData = async (startDate, endDate) => {
             ORDER BY h.invp_tanggal DESC
         `;
 
-        const [masterResults] = await pool.query(sqlMaster, [startDate, endDate]);
-        
-        // Jika tidak ada data, langsung kembalikan array kosong
-        if (masterResults.length === 0) return [];
+    const [masterResults] = await pool.query(sqlMaster, [startDate, endDate]);
 
-        // Ambil semua nomor invoice untuk filter detail
-        const masterNomors = masterResults.map(row => row.Nomor);
+    // Jika tidak ada data, langsung kembalikan array kosong
+    if (masterResults.length === 0) return [];
 
-        // --- 2. Query Detail ---
-        const sqlDetail = `
+    // Ambil semua nomor invoice untuk filter detail
+    const masterNomors = masterResults.map((row) => row.Nomor);
+
+    // --- 2. Query Detail ---
+    const sqlDetail = `
             SELECT
                 invpd_inv_nomor AS Nomor,
                 invpd_nourut AS NoUrut,
@@ -47,44 +47,49 @@ exports.getInvoicePembelianData = async (startDate, endDate) => {
             ORDER BY invpd_inv_nomor, invpd_nourut
         `;
 
-        const [detailResults] = await pool.query(sqlDetail, [masterNomors]);
+    const [detailResults] = await pool.query(sqlDetail, [masterNomors]);
 
-        // --- 3. Mapping Data (Menggabungkan Master dan Detail) ---
-        const dataMap = new Map();
-        
-        // Inisialisasi Map dengan data Header
-        masterResults.forEach(item => {
-            dataMap.set(item.Nomor, { 
-                ...item, 
-                Detail: [] 
-            });
-        });
+    // --- 3. Mapping Data (Menggabungkan Master dan Detail) ---
+    const dataMap = new Map();
 
-        // Masukkan Detail ke dalam Header yang sesuai
-        detailResults.forEach(detail => {
-            if (dataMap.has(detail.Nomor)) {
-                // Hapus properti 'Nomor' dari objek detail agar tidak double di dalam array
-                const { Nomor, ...detailContent } = detail;
-                dataMap.get(Nomor).Detail.push(detailContent);
-            }
-        });
+    // Inisialisasi Map dengan data Header
+    masterResults.forEach((item) => {
+      dataMap.set(item.Nomor, {
+        ...item,
+        Detail: [],
+      });
+    });
 
-        // Kembalikan hasil sebagai array
-        return Array.from(dataMap.values());
+    // Masukkan Detail ke dalam Header yang sesuai
+    detailResults.forEach((detail) => {
+      if (dataMap.has(detail.Nomor)) {
+        // Hapus properti 'Nomor' dari objek detail agar tidak double di dalam array
+        const { Nomor, ...detailContent } = detail;
+        dataMap.get(Nomor).Detail.push(detailContent);
+      }
+    });
 
-    } catch (error) {
-        throwDbError('Gagal mengambil data Invoice Pembelian', error);
-    }
+    // Kembalikan hasil sebagai array
+    return Array.from(dataMap.values());
+  } catch (error) {
+    throwDbError("Gagal mengambil data Invoice Pembelian", error);
+  }
 };
 
 // PERBAIKAN: Menambahkan parameter userBagian ke dalam fungsi
-exports.getPermintaanBahanData = async (startDate, endDate, divisi, userManager, userBagian) => {
-    try {
-        let sqlMaster = "";
-        let paramsMaster = [];
+exports.getPermintaanBahanData = async (
+  startDate,
+  endDate,
+  divisi,
+  userManager,
+  userBagian,
+) => {
+  try {
+    let sqlMaster = "";
+    let paramsMaster = [];
 
-        // 1. Sub-query Agregasi untuk MMT (Tabel tmintabahan_mmt_dtl)
-        const sqlAggMMT = `
+    // 1. Sub-query Agregasi untuk MMT (Tabel tmintabahan_mmt_dtl)
+    const sqlAggMMT = `
             SELECT
                 mbd_mb_nomor,
                 SUM(CASE WHEN mbd_acc = 'Y' THEN mbd_qty ELSE 0 END) AS Total_Diminta,
@@ -96,8 +101,8 @@ exports.getPermintaanBahanData = async (startDate, endDate, divisi, userManager,
             GROUP BY mbd_mb_nomor
         `;
 
-        // 2. Sub-query Agregasi untuk TOBAT (Tabel tobatmintabeli_dtl)
-        const sqlAggTobat = `
+    // 2. Sub-query Agregasi untuk TOBAT (Tabel tobatmintabeli_dtl)
+    const sqlAggTobat = `
             SELECT
                 mbd_nomor AS mbd_mb_nomor,
                 SUM(mbd_jumlah) AS Total_Diminta,
@@ -109,8 +114,8 @@ exports.getPermintaanBahanData = async (startDate, endDate, divisi, userManager,
             GROUP BY mbd_nomor
         `;
 
-        // Kolom tambahan untuk Estimasi & Realisasi
-        const trackingColumns = `
+    // Kolom tambahan untuk Estimasi & Realisasi
+    const trackingColumns = `
             (SELECT DATE_FORMAT(MAX(po.po_dateline), '%Y-%m-%d') 
              FROM tpo_mmt_dtl pod 
              JOIN tpo_mmt_hdr po ON pod.pod_po_nomor = po.po_nomor
@@ -122,14 +127,14 @@ exports.getPermintaanBahanData = async (startDate, endDate, divisi, userManager,
              WHERE pod.pod_mb_nomor = t1.mb_nomor) AS Tanggal_Datang
         `;
 
-        // PERBAIKAN: Logika IF diubah agar finance dan audit bisa mengakses data MMT
-        if (
-            divisi == 1 || 
-            (userManager == 1 && divisi != 4) || 
-            userBagian === 'finance' || 
-            userBagian === 'audit'
-        ) {
-            sqlMaster = `
+    // PERBAIKAN: Logika IF diubah agar finance dan audit bisa mengakses data MMT
+    if (
+      divisi == 1 ||
+      (userManager == 1 && divisi != 4) ||
+      userBagian === "finance" ||
+      userBagian === "audit"
+    ) {
+      sqlMaster = `
                 SELECT
                     t1.mb_nomor AS Nomor, t1.mb_gdg_kode AS Gudang, t3.gdg_nama AS Nama,
                     DATE_FORMAT(t1.mb_tanggal, '%Y-%m-%d') AS Tanggal,
@@ -158,10 +163,9 @@ exports.getPermintaanBahanData = async (startDate, endDate, divisi, userManager,
                 WHERE t1.mb_tanggal BETWEEN ? AND ?
                 ORDER BY t1.mb_tanggal DESC
             `;
-            paramsMaster = [startDate, endDate];
-        } 
-        else if (divisi == 4) {
-            sqlMaster = `
+      paramsMaster = [startDate, endDate];
+    } else if (divisi == 4) {
+      sqlMaster = `
                 SELECT
                     t1.mb_nomor AS Nomor, t1.mb_mintake AS Gudang, 'GUDANG OBAT' AS Nama,
                     DATE_FORMAT(t1.mb_tanggal, '%Y-%m-%d') AS Tanggal,
@@ -178,18 +182,18 @@ exports.getPermintaanBahanData = async (startDate, endDate, divisi, userManager,
                 WHERE t1.mb_tanggal BETWEEN ? AND ?
                 ORDER BY t1.mb_tanggal DESC
             `;
-            paramsMaster = [startDate, endDate];
-        } else {
-            return [];
-        }
+      paramsMaster = [startDate, endDate];
+    } else {
+      return [];
+    }
 
-        const [masterResults] = await pool.query(sqlMaster, paramsMaster);
-        if (masterResults.length === 0) return [];
+    const [masterResults] = await pool.query(sqlMaster, paramsMaster);
+    if (masterResults.length === 0) return [];
 
-        const masterNomors = masterResults.map(row => row.Nomor);
+    const masterNomors = masterResults.map((row) => row.Nomor);
 
-        // 3. Query Detail Gabungan
-        const sqlDetail = `
+    // 3. Query Detail Gabungan
+    const sqlDetail = `
             SELECT * FROM (
                 SELECT 
                     d.mbd_mb_nomor AS Nomor, 
@@ -225,37 +229,38 @@ exports.getPermintaanBahanData = async (startDate, endDate, divisi, userManager,
             ) AS combined_detail
         `;
 
-        const [detailResults] = await pool.query(sqlDetail, [masterNomors, masterNomors]);
+    const [detailResults] = await pool.query(sqlDetail, [
+      masterNomors,
+      masterNomors,
+    ]);
 
-        return masterResults.map(master => ({
-            ...master,
-            Detail: detailResults.filter(dtl => dtl.Nomor === master.Nomor)
-        }));
-
-    } catch (error) {
-        console.error("Error in getPermintaanBahanData:", error.message);
-        throw new Error(`Database Error: ${error.message}`);
-    }
+    return masterResults.map((master) => ({
+      ...master,
+      Detail: detailResults.filter((dtl) => dtl.Nomor === master.Nomor),
+    }));
+  } catch (error) {
+    console.error("Error in getPermintaanBahanData:", error.message);
+    throw new Error(`Database Error: ${error.message}`);
+  }
 };
 
 // Fungsi Approval oleh SPV
 exports.approveBySPV = async (nomor, userKD) => {
-    const sql = `
+  const sql = `
         UPDATE tmintabahan_mmt_hdr 
         SET mb_acc_req = 'Y', mb_acc_req_user = ?, date_modified = NOW() 
         WHERE mb_nomor = ?
     `;
-    const [result] = await pool.query(sql, [userKD, nomor]);
-    return result.affectedRows > 0;
+  const [result] = await pool.query(sql, [userKD, nomor]);
+  return result.affectedRows > 0;
 };
 
 // Fungsi Approval Final oleh Manager
 
-
 exports.getPermintaanBahanByNomor = async (nomor) => {
-    try {
-        // 1. Ambil Header
-        const sqlHeader = `
+  try {
+    // 1. Ambil Header
+    const sqlHeader = `
             SELECT
                 mb_nomor AS Nomor, mb_tanggal AS Tanggal, mb_gdg_kode AS Gudang_Asal_Kode,
                 tgudang.gdg_nama AS Gudang_Asal_Nama, mb_keterangan AS Keterangan,
@@ -265,16 +270,18 @@ exports.getPermintaanBahanByNomor = async (nomor) => {
             LEFT JOIN tgudang ON tgudang.gdg_kode = mb_gdg_kode
             WHERE mb_nomor = ?;
         `;
-        const [headerResults] = await pool.query(sqlHeader, [nomor]);
+    const [headerResults] = await pool.query(sqlHeader, [nomor]);
 
-        if (headerResults.length === 0) {
-            throw new Error(`Transaksi Permintaan Bahan dengan nomor ${nomor} tidak ditemukan.`);
-        }
+    if (headerResults.length === 0) {
+      throw new Error(
+        `Transaksi Permintaan Bahan dengan nomor ${nomor} tidak ditemukan.`,
+      );
+    }
 
-        const headerData = headerResults[0];
+    const headerData = headerResults[0];
 
-        // 2. Ambil Detail
-        const sqlDetail = `
+    // 2. Ambil Detail
+    const sqlDetail = `
             SELECT
                 mbd_nourut AS NoUrut, mbd_spk_nomor AS Nomor_SPK,
                 (SELECT TRIM(spk_nama) FROM tspk WHERE spk_nomor = mbd_spk_nomor 
@@ -289,23 +296,25 @@ exports.getPermintaanBahanByNomor = async (nomor) => {
             WHERE mbd_mb_nomor = ?
             ORDER BY mbd_nourut;
         `;
-        const [detailResults] = await pool.query(sqlDetail, [nomor]);
+    const [detailResults] = await pool.query(sqlDetail, [nomor]);
 
-        // 3. Gabungkan dan Kembalikan
-        return {
-            ...headerData,
-            Detail: detailResults
-        };
-
-    } catch (error) {
-        throwDbError(`Gagal mengambil data Permintaan Bahan (${nomor})`, error);
-    }
+    // 3. Gabungkan dan Kembalikan
+    return {
+      ...headerData,
+      Detail: detailResults,
+    };
+  } catch (error) {
+    throwDbError(`Gagal mengambil data Permintaan Bahan (${nomor})`, error);
+  }
 };
 
-
-exports.getPermintaanBahanForLookup = async (startDate, endDate, status = 'OPEN') => {
-    try {
-        const sqlMaster = `
+exports.getPermintaanBahanForLookup = async (
+  startDate,
+  endDate,
+  status = "OPEN",
+) => {
+  try {
+    const sqlMaster = `
 SELECT
     h.mb_nomor AS Nomor,
     DATE_FORMAT(h.mb_tanggal, '%Y-%m-%d') AS Tanggal,
@@ -350,17 +359,19 @@ LEFT JOIN (
 ORDER BY h.mb_tanggal DESC, h.mb_nomor DESC
 `;
 
+    const filterStatus = status === "OPEN" || status === "PENDING" ? "N" : "Y";
+    const [masterResults] = await pool.query(sqlMaster, [
+      startDate,
+      endDate,
+      filterStatus,
+    ]);
 
-        const filterStatus = (status === 'OPEN' || status === 'PENDING') ? 'N' : 'Y';
-        const [masterResults] = await pool.query(sqlMaster, [startDate, endDate, filterStatus]);
+    // Jika tidak ada hasil header, segera kembalikan array kosong
+    const masterNomors = masterResults.map((row) => row.Nomor);
+    if (masterNomors.length === 0) return [];
 
-        // Jika tidak ada hasil header, segera kembalikan array kosong
-        const masterNomors = masterResults.map(row => row.Nomor);
-        if (masterNomors.length === 0) return [];
-
-
-        // --- 2. AMBIL DETAIL (Menggunakan IN (?)) ---
-        const sqlDetail = `
+    // --- 2. AMBIL DETAIL (Menggunakan IN (?)) ---
+    const sqlDetail = `
     SELECT
         mbd_mb_nomor AS Nomor, 
         mbd_spk_nomor AS Nomor_SPK, 
@@ -379,227 +390,286 @@ ORDER BY h.mb_tanggal DESC, h.mb_nomor DESC
             
             ORDER BY mbd_mb_nomor, mbd_nourut;
         `;
-        const [detailResults] = await pool.query(sqlDetail, [masterNomors]);
+    const [detailResults] = await pool.query(sqlDetail, [masterNomors]);
 
+    // --- 3. GABUNGKAN HEADER DAN DETAIL ---
+    const dataMap = new Map();
+    // Isi map dengan data header, inisialisasi Detail[]
+    masterResults.forEach((item) =>
+      dataMap.set(item.Nomor, { ...item, Detail: [] }),
+    );
 
-        // --- 3. GABUNGKAN HEADER DAN DETAIL ---
-        const dataMap = new Map();
-        // Isi map dengan data header, inisialisasi Detail[]
-        masterResults.forEach(item => dataMap.set(item.Nomor, { ...item, Detail: [] }));
+    // Masukkan detail ke header yang sesuai
+    detailResults.forEach((detail) => {
+      if (dataMap.has(detail.Nomor)) {
+        dataMap.get(detail.Nomor).Detail.push(detail);
+      }
+    });
 
-        // Masukkan detail ke header yang sesuai
-        detailResults.forEach(detail => {
-            if (dataMap.has(detail.Nomor)) {
-                dataMap.get(detail.Nomor).Detail.push(detail);
-            }
-        });
-
-        // Kembalikan array hasil gabungan
-        return Array.from(dataMap.values());
-
-
-    } catch (error) {
-        throwDbError('Gagal mengambil data Permintaan Bahan untuk Lookup', error);
-    }
+    // Kembalikan array hasil gabungan
+    return Array.from(dataMap.values());
+  } catch (error) {
+    throwDbError("Gagal mengambil data Permintaan Bahan untuk Lookup", error);
+  }
 };
-
 
 exports.deletePermintaanBahan = async (nomor) => {
-    const connection = await pool.getConnection();
-    try {
-        await connection.beginTransaction();
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
 
-        // 1. Hapus Detail
-        await connection.query('DELETE FROM tmintabahan_mmt_dtl WHERE mbd_mb_nomor = ?', [nomor]);
+    // 1. Hapus Detail
+    await connection.query(
+      "DELETE FROM tmintabahan_mmt_dtl WHERE mbd_mb_nomor = ?",
+      [nomor],
+    );
 
-        // 2. Hapus Header
-        const [result] = await connection.query('DELETE FROM tmintabahan_mmt_hdr WHERE mb_nomor = ?', [nomor]);
+    // 2. Hapus Header
+    const [result] = await connection.query(
+      "DELETE FROM tmintabahan_mmt_hdr WHERE mb_nomor = ?",
+      [nomor],
+    );
 
-        await connection.commit();
-        return result.affectedRows > 0;
-
-    } catch (error) {
-        await connection.rollback();
-        throwDbError('Database Transaction Error on Delete', error);
-    } finally {
-        connection.release();
-    }
+    await connection.commit();
+    return result.affectedRows > 0;
+  } catch (error) {
+    await connection.rollback();
+    throwDbError("Database Transaction Error on Delete", error);
+  } finally {
+    connection.release();
+  }
 };
 
-
 exports.generateMaxKode = async (tanggal, gudangKode) => {
-    // 1. Tentukan Prefix berdasarkan Gudang
-    // Jika WH-20 maka MO, selain itu MMT.MB
-    const NOMERATOR = (gudangKode === 'WH-20') ? 'MO' : 'MMT.MB';
-    
-    const yyMm = format(new Date(tanggal), 'yyMM');
-    const prefix = `${NOMERATOR}.${yyMm}.%`;
-    
-    // 2. Cari nomor terakhir dengan prefix tersebut
-    const sql = `
+  // 1. Tentukan Prefix berdasarkan Gudang
+  // Jika WH-20 maka MO, selain itu MMT.MB
+  const NOMERATOR = gudangKode === "WH-20" ? "MO" : "MMT.MB";
+
+  const yyMm = format(new Date(tanggal), "yyMM");
+  const prefix = `${NOMERATOR}.${yyMm}.%`;
+
+  // 2. Cari nomor terakhir dengan prefix tersebut
+  const sql = `
         SELECT MAX(CAST(RIGHT(mb_nomor, 4) AS UNSIGNED)) AS max_num 
         FROM tmintabahan_mmt_hdr 
         WHERE mb_nomor LIKE ?
     `;
 
-    const [rows] = await pool.query(sql, [prefix]);
+  const [rows] = await pool.query(sql, [prefix]);
 
-    const maxNum = rows[0].max_num ? parseInt(rows[0].max_num) : 0;
-    const nextNumber = maxNum + 1;
-    const paddedNextNumber = String(nextNumber).padStart(4, '0');
+  const maxNum = rows[0].max_num ? parseInt(rows[0].max_num) : 0;
+  const nextNumber = maxNum + 1;
+  const paddedNextNumber = String(nextNumber).padStart(4, "0");
 
-    return `${NOMERATOR}.${yyMm}.${paddedNextNumber}`;
+  return `${NOMERATOR}.${yyMm}.${paddedNextNumber}`;
 };
 // ===================================
 // SAVE (Insert / Update) - saveMintaMmt
 // ===================================
 
 exports.savePermintaanBahan = async (data, nomorToEdit, userLogin) => {
-    const connection = await pool.getConnection();
-    try {
-        await connection.beginTransaction();
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
 
-        const serverTime = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
-        const isUpdating = !!nomorToEdit;
-        const isWH20 = data.GudangKode === 'WH-20';
+    const serverTime = format(new Date(), "yyyy-MM-dd HH:mm:ss");
+    const isUpdating = !!nomorToEdit;
+    const isWH20 = data.GudangKode === "WH-20";
 
-        // 1. GENERATE NOMOR
-        let currentNomor = nomorToEdit;
-        if (!isUpdating) {
-            currentNomor = await exports.generateMaxKode(data.Tanggal, data.GudangKode);
-        }
+    // 1. GENERATE NOMOR
+    let currentNomor = nomorToEdit;
+    if (!isUpdating) {
+      currentNomor = await exports.generateMaxKode(
+        data.Tanggal,
+        data.GudangKode,
+      );
+    }
 
-        // 2. LOGIKA PENGAJUAN / MPPB (SINKRONISASI ACC STATUS)
-        // 🚀 Solusi: Ambil nilai default dari payload frontend terlebih dahulu
-        let accStatus = data.AccSpv === 'Y' ? 'Y' : 'N';
-        let accUser = data.AccSpvUser || null;
+    // 2. LOGIKA PENGAJUAN / MPPB (SINKRONISASI ACC STATUS)
+    // 🚀 Solusi: Ambil nilai default dari payload frontend terlebih dahulu
+    let accStatus = data.AccSpv === "Y" ? "Y" : "N";
+    let accUser = data.AccSpvUser || null;
 
-        // Jika ada referensi NoPengajuan, lakukan validasi database seperti biasa
-        if (data.NoPengajuan) {
-            const [rows] = await connection.query(
-                `SELECT pp_acc_req, pp_acc_req_user FROM tpengajuan_permintaan_hdr WHERE pp_nomor = ? LIMIT 1`,
-                [data.NoPengajuan]
-            );
-            if (rows.length && rows[0].pp_acc_req === 'Y') {
-                accStatus = 'Y';
-                accUser = rows[0].pp_acc_req_user;
-            } else {
-                accStatus = 'N';
-                accUser = null;
-            }
-        }
+    // Jika ada referensi NoPengajuan, lakukan validasi database seperti biasa
+    if (data.NoPengajuan) {
+      const [rows] = await connection.query(
+        `SELECT pp_acc_req, pp_acc_req_user FROM tpengajuan_permintaan_hdr WHERE pp_nomor = ? LIMIT 1`,
+        [data.NoPengajuan],
+      );
+      if (rows.length && rows[0].pp_acc_req === "Y") {
+        accStatus = "Y";
+        accUser = rows[0].pp_acc_req_user;
+      } else {
+        accStatus = "N";
+        accUser = null;
+      }
+    }
 
-        // 3. SEPARASI PENYIMPANAN
-        if (isWH20) {
-            // --- LOGIKA TABEL TOBAT (WH-20) ---
-            if (isUpdating) {
-                await connection.query(`
+    // 3. SEPARASI PENYIMPANAN
+    if (isWH20) {
+      // --- LOGIKA TABEL TOBAT (WH-20) ---
+      if (isUpdating) {
+        await connection.query(
+          `
                     UPDATE tobatmintabeli_hdr SET
                         mb_tanggal = ?, mb_ket = ?, mb_status = ?, mb_mintake = ?, 
                         date_modified = ?, user_modified = ?
                     WHERE mb_nomor = ?
-                `, [data.Tanggal, data.Keterangan, 'OPEN', data.PabrikKode || '', serverTime, userLogin, currentNomor]);
+                `,
+          [
+            data.Tanggal,
+            data.Keterangan,
+            "OPEN",
+            data.PabrikKode || "",
+            serverTime,
+            userLogin,
+            currentNomor,
+          ],
+        );
 
-                await connection.query('DELETE FROM tobatmintabeli_dtl WHERE mbd_nomor = ?', [currentNomor]);
-            } else {
-                await connection.query(`
+        await connection.query(
+          "DELETE FROM tobatmintabeli_dtl WHERE mbd_nomor = ?",
+          [currentNomor],
+        );
+      } else {
+        await connection.query(
+          `
                     INSERT INTO tobatmintabeli_hdr 
                     (mb_nomor, mb_tanggal, mb_ket, mb_status, mb_mintake, date_create, user_create) 
                     VALUES (?, ?, ?, ?, ?, ?, ?)
-                `, [currentNomor, data.Tanggal, data.Keterangan, 'OPEN', data.PabrikKode || '', serverTime, userLogin]);
-            }
+                `,
+          [
+            currentNomor,
+            data.Tanggal,
+            data.Keterangan,
+            "OPEN",
+            data.PabrikKode || "",
+            serverTime,
+            userLogin,
+          ],
+        );
+      }
 
-            if (Array.isArray(data.Detail) && data.Detail.length > 0) {
-                const detailValues = data.Detail
-                    .filter(d => (d.SKU || d.KodeObat))
-                    .map((item, index) => [
-                        currentNomor,
-                        item.SKU || item.KodeObat,
-                        parseFloat(item.QTY || item.Jumlah) || 0,
-                        item.KeteranganItem || item.Keterangan || '',
-                        index + 1
-                    ]);
+      if (Array.isArray(data.Detail) && data.Detail.length > 0) {
+        const detailValues = data.Detail.filter((d) => d.SKU || d.KodeObat).map(
+          (item, index) => [
+            currentNomor,
+            item.SKU || item.KodeObat,
+            parseFloat(item.QTY || item.Jumlah) || 0,
+            item.KeteranganItem || item.Keterangan || "",
+            index + 1,
+          ],
+        );
 
-                if (detailValues.length > 0) {
-                    await connection.query(`
+        if (detailValues.length > 0) {
+          await connection.query(
+            `
                         INSERT INTO tobatmintabeli_dtl (mbd_nomor, mbd_o_kode, mbd_jumlah, mbd_ket, mbd_nourut) 
                         VALUES ?
-                    `, [detailValues]);
-                }
-            }
-
-        } else {
-            // --- LOGIKA TABEL MMT (WH-16 / Lainnya) ---
-            if (isUpdating) {
-                await connection.query(`
+                    `,
+            [detailValues],
+          );
+        }
+      }
+    } else {
+      // --- LOGIKA TABEL MMT (WH-16 / Lainnya) ---
+      if (isUpdating) {
+        await connection.query(
+          `
                     UPDATE tmintabahan_mmt_hdr SET
                         mb_gdg_kode = ?, mb_tanggal = ?, mb_to_user = ?, mb_to_cab = ?,
                         mb_priority = ?, mb_keterangan = ?, mb_acc_req = ?, mb_acc_req_user = ?,
                         mb_pp_nomor = ?, date_modified = ?, user_modified = ?
                     WHERE mb_nomor = ?
-                `, [
-                    data.GudangKode, data.Tanggal, data.Kepada, data.Cabang,
-                    data.Priority, data.Keterangan, accStatus, accUser,
-                    data.NoPengajuan || null, serverTime, userLogin, currentNomor
-                ]);
+                `,
+          [
+            data.GudangKode,
+            data.Tanggal,
+            data.Kepada,
+            data.Cabang,
+            data.Priority,
+            data.Keterangan,
+            accStatus,
+            accUser,
+            data.NoPengajuan || null,
+            serverTime,
+            userLogin,
+            currentNomor,
+          ],
+        );
 
-                await connection.query('DELETE FROM tmintabahan_mmt_dtl WHERE mbd_mb_nomor = ?', [currentNomor]);
-            } else {
-                await connection.query(`
+        await connection.query(
+          "DELETE FROM tmintabahan_mmt_dtl WHERE mbd_mb_nomor = ?",
+          [currentNomor],
+        );
+      } else {
+        await connection.query(
+          `
                     INSERT INTO tmintabahan_mmt_hdr 
                     (mb_nomor, mb_tanggal, mb_gdg_kode, mb_to_user, mb_to_cab, mb_priority, 
                      mb_keterangan, mb_pp_nomor, date_create, user_create, mb_acc_req, mb_acc_req_user) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `, [
-                    currentNomor, data.Tanggal, data.GudangKode, data.Kepada, data.Cabang,
-                    data.Priority, data.Keterangan, data.NoPengajuan || null,
-                    serverTime, userLogin, accStatus, accUser
-                ]);
-            }
+                `,
+          [
+            currentNomor,
+            data.Tanggal,
+            data.GudangKode,
+            data.Kepada,
+            data.Cabang,
+            data.Priority,
+            data.Keterangan,
+            data.NoPengajuan || null,
+            serverTime,
+            userLogin,
+            accStatus,
+            accUser,
+          ],
+        );
+      }
 
-            // Simpan Detail MMT
-            if (Array.isArray(data.Detail) && data.Detail.length > 0) {
-                const detailValues = data.Detail
-                    .filter(d => d.SKU && (d.QTY || d.Jumlah) > 0)
-                    .map((d, index) => [
-                        currentNomor,
-                        d.spk || d.SPK || null,
-                        d.sku || d.SKU,
-                        d.satuan || d.Satuan,
-                        parseFloat(d.qty || d.QTY || d.Jumlah),
-                        d.keterangan || d.KeteranganItem || null,
-                        index + 1,
-                        // 🚀 Solusi Detail: Jika NoPengajuan kosong, percayakan status IsAcc tiap baris item dari frontend payload
-                        data.NoPengajuan ? accStatus : (d.IsAcc === 'Y' ? 'Y' : 'N')
-                    ]);
+      // Simpan Detail MMT
+      if (Array.isArray(data.Detail) && data.Detail.length > 0) {
+        const detailValues = data.Detail.filter(
+          (d) => d.SKU && (d.QTY || d.Jumlah) > 0,
+        ).map((d, index) => [
+          currentNomor,
+          d.spk || d.SPK || null,
+          d.sku || d.SKU,
+          d.satuan || d.Satuan,
+          parseFloat(d.qty || d.QTY || d.Jumlah),
+          d.keterangan || d.KeteranganItem || null,
+          index + 1,
+          // 🚀 Solusi Detail: Jika NoPengajuan kosong, percayakan status IsAcc tiap baris item dari frontend payload
+          data.NoPengajuan ? accStatus : d.IsAcc === "Y" ? "Y" : "N",
+        ]);
 
-                if (detailValues.length > 0) {
-                    await connection.query(`
+        if (detailValues.length > 0) {
+          await connection.query(
+            `
                         INSERT INTO tmintabahan_mmt_dtl 
                         (mbd_mb_nomor, mbd_spk_nomor, mbd_brg_kode, mbd_brg_satuan, mbd_qty, mbd_keterangan, mbd_nourut, mbd_acc) 
                         VALUES ?
-                    `, [detailValues]);
-                }
-            }
+                    `,
+            [detailValues],
+          );
         }
-
-        await connection.commit();
-        return { success: true, Nomor: currentNomor };
-
-    } catch (error) {
-        await connection.rollback();
-        console.error("Error in savePermintaanBahan Gabungan:", error);
-        throw error;
-    } finally {
-        connection.release();
+      }
     }
+
+    await connection.commit();
+    return { success: true, Nomor: currentNomor };
+  } catch (error) {
+    await connection.rollback();
+    console.error("Error in savePermintaanBahan Gabungan:", error);
+    throw error;
+  } finally {
+    connection.release();
+  }
 };
 
-
-
 exports.getPermintaanBahanForPrint = async (nomor) => {
-    try {
-        const sqlHeader = `
+  try {
+    const sqlHeader = `
             SELECT
                 t1.mb_nomor AS NoPermintaan,
                 IFNULL(CONCAT(t1.mb_to_user, ' - ', t1.mb_to_cab), t1.mb_to_cab) AS Kepada,
@@ -619,13 +689,13 @@ exports.getPermintaanBahanForPrint = async (nomor) => {
             WHERE t1.mb_nomor = ?;
         `;
 
-        const [headerResult] = await pool.query(sqlHeader, [nomor]);
-        if (headerResult.length === 0) throw new Error("Data tidak ditemukan.");
+    const [headerResult] = await pool.query(sqlHeader, [nomor]);
+    if (headerResult.length === 0) throw new Error("Data tidak ditemukan.");
 
-        const header = headerResult[0];
+    const header = headerResult[0];
 
-        // Query Detail (Tetap sama seperti sebelumnya)
-        const sqlDetail = `
+    // Query Detail (Tetap sama seperti sebelumnya)
+    const sqlDetail = `
             SELECT
                 mbd_nourut AS No, mbd_spk_nomor AS SPK, 
                 IF(brg_panjang IS NULL, TRIM(brg_nama), CONCAT(TRIM(brg_nama), ' (', brg_panjang, ' x ', brg_lebar, ')')) AS Jenis,
@@ -638,60 +708,62 @@ exports.getPermintaanBahanForPrint = async (nomor) => {
             WHERE mbd_mb_nomor = ?
             ORDER BY mbd_nourut;
         `;
-        const [detailResults] = await pool.query(sqlDetail, [nomor]);
+    const [detailResults] = await pool.query(sqlDetail, [nomor]);
 
-        return {
-            ...header,
-            Details: detailResults,
-            // Fallback jika nama kosong agar tampilan cetak rapi
-            Dibuat: header.Dibuat || '................',
-            Diketahui: header.Diketahui || '................',
-            Disetujui: header.Disetujui || '................'
-        };
-    } catch (error) {
-        throwDbError(`Gagal mengambil data cetak`, error);
-    }
+    return {
+      ...header,
+      Details: detailResults,
+      // Fallback jika nama kosong agar tampilan cetak rapi
+      Dibuat: header.Dibuat || "................",
+      Diketahui: header.Diketahui || "................",
+      Disetujui: header.Disetujui || "................",
+    };
+  } catch (error) {
+    throwDbError(`Gagal mengambil data cetak`, error);
+  }
 };
 
 // backend/src/services/permintaanBahan.service.js
 
 exports.approveByManager = async (nomor, userKD, itemApprovals) => {
-    const connection = await pool.getConnection();
-    try {
-        await connection.beginTransaction();
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
 
-        // 1. Update Header: Set Manager ACC = 'Y'
-        const sqlHeader = `
+    // 1. Update Header: Set Manager ACC = 'Y'
+    const sqlHeader = `
             UPDATE tmintabahan_mmt_hdr 
             SET mb_acc = 'Y', mb_acc_user = ?, date_modified = NOW() 
             WHERE mb_nomor = ? AND mb_acc_req = 'Y'
         `;
-        const [headerResult] = await connection.query(sqlHeader, [userKD, nomor]);
+    const [headerResult] = await connection.query(sqlHeader, [userKD, nomor]);
 
-        if (headerResult.affectedRows === 0) {
-            throw new Error("Gagal ACC Header. Pastikan SPV sudah melakukan ACC terlebih dahulu.");
-        }
+    if (headerResult.affectedRows === 0) {
+      throw new Error(
+        "Gagal ACC Header. Pastikan SPV sudah melakukan ACC terlebih dahulu.",
+      );
+    }
 
-        // 2. Update Detail: Loop melalui item yang dikirim dari frontend
-        // itemApprovals diharapkan berisi: [{ sku: 'A', isAcc: true }, { sku: 'C', isAcc: false }]
-        if (itemApprovals && itemApprovals.length > 0) {
-            const queries = itemApprovals.map(item => {
-                return connection.query(
-                    `UPDATE tmintabahan_mmt_dtl 
+    // 2. Update Detail: Loop melalui item yang dikirim dari frontend
+    // itemApprovals diharapkan berisi: [{ sku: 'A', isAcc: true }, { sku: 'C', isAcc: false }]
+    if (itemApprovals && itemApprovals.length > 0) {
+      const queries = itemApprovals.map((item) => {
+        return connection.query(
+          `UPDATE tmintabahan_mmt_dtl 
                      SET mbd_acc = ? 
                      WHERE mbd_mb_nomor = ? AND mbd_brg_kode = ?`,
-                    [item.isAcc ? 'Y' : 'N', nomor, item.sku]
-                );
-            });
-            await Promise.all(queries);
-        }
-
-        await connection.commit();
-        return true;
-    } catch (error) {
-        await connection.rollback();
-        throw error;
-    } finally {
-        connection.release();
+          [item.isAcc ? "Y" : "N", nomor, item.sku],
+        );
+      });
+      await Promise.all(queries);
     }
+
+    await connection.commit();
+    return true;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 };

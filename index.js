@@ -4,7 +4,7 @@ const cookieParser = require("cookie-parser");
 const fs = require("fs");
 const path = require("path");
 const clientCertAuth = require("./middleware/clientCertAuth");
-const imageFolderPath = "/mnt/image"; 
+const imageFolderPath = "/mnt/image";
 
 require("dotenv").config();
 
@@ -47,13 +47,13 @@ const mesinMmtRoutes = require("./routes/mesinMmt.routes");
 const masterObatRoutes = require("./routes/masterObat.routes");
 const lapLsTintaRoutes = require("./routes/lapLsTinta.routes");
 const returProduksiRoutes = require("./routes/returProduksi.routes");
-const penerimaanPoExtMmtRoutes =require("./routes/penerimaanPoExtMmt.routes");
-const returBeliRoutes =require("./routes/returBeli.routes");
-const poExtMmtRoutes =require("./routes/poExtMmt.routes");
-const stbjRoutes =require("./routes/stbj.routes");
-const lapPemakaianBahanRoutes =require("./routes/lapPemakaianBahan.routes");
-const mutasiGudangRoutes =require("./routes/mutasiGudang.routes");
-const searchBarcodeRoutes =require("./routes/searchBarcode.routes");
+const penerimaanPoExtMmtRoutes = require("./routes/penerimaanPoExtMmt.routes");
+const returBeliRoutes = require("./routes/returBeli.routes");
+const poExtMmtRoutes = require("./routes/poExtMmt.routes");
+const stbjRoutes = require("./routes/stbj.routes");
+const lapPemakaianBahanRoutes = require("./routes/lapPemakaianBahan.routes");
+const mutasiGudangRoutes = require("./routes/mutasiGudang.routes");
+const searchBarcodeRoutes = require("./routes/searchBarcode.routes");
 const jadwalKirimRoutes = require("./routes/jadwalKirim.routes");
 const lapMonFinishingRoutes = require("./routes/lapMonFinishing.routes");
 const lapMonTekstilRoutes = require("./routes/lapMonTekstil.route");
@@ -77,42 +77,44 @@ const masterBahanSpandukRoutes = require("./routes/spanduk/masterBahanSpanduk.ro
 const penerimaanBahanPenolongRoutes = require("./routes/spanduk/penerimaanBahanPenolong.routes");
 const lapKartuStokMmtRoutes = require("./routes/lapKartuStokMmt.routes");
 const lapMonJadwalKirimRoutes = require("./routes/lapMonJadwalKirim.routes");
+const soToSpkRoutes = require("./routes/soToSpk.routes");
+const salesOrderRoutes = require("./routes/salesOrder.routes");
 
 // Konfigurasi
 
 const app = express();
 const allowedOrigins = [
-    "http://localhost:5173",
-    "http://103.94.238.252",
-    "http://103.94.238.252:88",
-    "http://192.168.1.191:5173",
-    "https://103.94.238.252",
+  "http://localhost:5173",
+  "http://103.94.238.252",
+  "http://103.94.238.252:88",
+  "http://192.168.1.191:5173",
+  "https://103.94.238.252",
 ];
 
 // Folder dan direktori yang dibutuhkan
 app.use("/images", express.static(imageFolderPath));
 const requiredDirs = [
-    path.join(process.cwd(), "temp"),
-    path.join(process.cwd(), "public"),
-    path.join(process.cwd(), "public", "images"),
+  path.join(process.cwd(), "temp"),
+  path.join(process.cwd(), "public"),
+  path.join(process.cwd(), "public", "images"),
 ];
 // Middleware
 app.use(
-    cors({
-        origin: function (origin, callback) {
-            if (!origin) return callback(null, true);
-            if (allowedOrigins.includes(origin)) {
-                return callback(null, true);
-            } else {
-                console.warn("❌ CORS Blocked:", origin);
-                return callback(new Error("Not allowed by CORS"));
-            }
-        },
-        methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        allowedHeaders: ["Content-Type", "Authorization"],
-        exposedHeaders: ["Content-Disposition"],
-        credentials: true,
-    }),
+  cors({
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      } else {
+        console.warn("❌ CORS Blocked:", origin);
+        return callback(new Error("Not allowed by CORS"));
+      }
+    },
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    exposedHeaders: ["Content-Disposition"],
+    credentials: true,
+  }),
 );
 
 app.use(express.json());
@@ -121,18 +123,26 @@ app.use(express.urlencoded({ extended: true }));
 app.disable("etag");
 
 requiredDirs.forEach((dir) => {
-    if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-        console.log(" Created directory:", dir);
-    }
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+    console.log(" Created directory:", dir);
+  }
 });
 
 app.use("/api/auth", clientCertAuth, authRoutes);
 app.use("/api/mmt/lhk-cetak", clientCertAuth, lhkMesinCetakRoutes);
 app.use("/api/mmt/lhk-finishing", clientCertAuth, lhkFinishingRoutes);
 app.use("/api/mmt/laporan-stbj", clientCertAuth, stbjMmtRoutes);
-app.use("/api/mmt/laporan-ls-bahan-utama", clientCertAuth, lapLsBahanUtamaRoutes);
-app.use("/api/mmt/laporan-ls-bahan-penolong", clientCertAuth, lapLsBahanPenolongRoutes);
+app.use(
+  "/api/mmt/laporan-ls-bahan-utama",
+  clientCertAuth,
+  lapLsBahanUtamaRoutes,
+);
+app.use(
+  "/api/mmt/laporan-ls-bahan-penolong",
+  clientCertAuth,
+  lapLsBahanPenolongRoutes,
+);
 app.use("/api/mmt/laporan-spk-mmt", clientCertAuth, lapSpkMmtRoutes);
 app.use("/api/mmt/monitoring/laporan-lmkp", clientCertAuth, lapLmkpMmtRoutes);
 app.use("/api/mmt/monitoring-finishing", clientCertAuth, lapMonFinishingRoutes);
@@ -140,7 +150,11 @@ app.use("/api/mmt/monitoring-cetak", clientCertAuth, lapMonCetakRoutes);
 app.use("/api/mmt/monitoring-tekstil", clientCertAuth, lapMonTekstilRoutes);
 app.use("/api/mmt/permintaan-bahan", clientCertAuth, permintaanBahanRoutes);
 app.use("/api/mmt/penerimaan-bahan", clientCertAuth, penerimaanBahanRoutes);
-app.use("/api/mmt/permintaan-produksi", clientCertAuth, permintaanProduksiRoutes);
+app.use(
+  "/api/mmt/permintaan-produksi",
+  clientCertAuth,
+  permintaanProduksiRoutes,
+);
 app.use("/api/supplier", clientCertAuth, supplierRoutes);
 
 app.use("/api/mmt/koreksi-stok", clientCertAuth, koreksiStokMmtRoutes);
@@ -155,25 +169,45 @@ app.use("/api/mmt/request-pinjam", clientCertAuth, mmtPinjamRoutes);
 app.use("/api/mmt/lookup-pabrik", clientCertAuth, lookupPabrikRoutes);
 app.use("/api/mmt/invoice", clientCertAuth, invoicePembelianRoutes);
 app.use("/api/mmt/customer", clientCertAuth, customerRoutes);
-app.use("/api/mmt/pengajuan-permintaan", clientCertAuth, pengajuanPermintaanRoutes);
-app.use("/api/mmt/permintaan-produksi-bahan", clientCertAuth, permintaanProduksiBahanRoutes);
+app.use(
+  "/api/mmt/pengajuan-permintaan",
+  clientCertAuth,
+  pengajuanPermintaanRoutes,
+);
+app.use(
+  "/api/mmt/permintaan-produksi-bahan",
+  clientCertAuth,
+  permintaanProduksiBahanRoutes,
+);
 app.use("/api/mmt/planning-produksi", clientCertAuth, planningProduksiRoutes);
 app.use("/api/mmt/lhk-tekstil-mmt", clientCertAuth, lhkTekstilMmtRoutes);
 app.use("/api/mmt/lhk-proof", clientCertAuth, lhkProofRoutes);
 app.use("/api/mmt/lhk-cetak-mmt", clientCertAuth, lhkCetakMmtRoutes);
 app.use("/api/mmt/stok-opname", clientCertAuth, stokOpnameRoutes);
-app.use("/api/mmt/pelunasan-pembelian", clientCertAuth, pelunasanPembelianRoutes);
+app.use(
+  "/api/mmt/pelunasan-pembelian",
+  clientCertAuth,
+  pelunasanPembelianRoutes,
+);
 app.use("/api/mmt/mesin", clientCertAuth, mesinMmtRoutes);
 app.use("/api/master/bahan/obat", clientCertAuth, masterObatRoutes);
 app.use("/api/master/bahan", clientCertAuth, masterBahanRoutes);
 app.use("/api/mmt/master-obatt", clientCertAuth, masterObatRoutes);
 app.use("/api/mmt/laporan-ls-tinta", clientCertAuth, lapLsTintaRoutes);
 app.use("/api/mmt/retur-produksi", clientCertAuth, returProduksiRoutes);
-app.use("/api/mmt/penerimaan-po-ext-mmt", clientCertAuth, penerimaanPoExtMmtRoutes);
+app.use(
+  "/api/mmt/penerimaan-po-ext-mmt",
+  clientCertAuth,
+  penerimaanPoExtMmtRoutes,
+);
 app.use("/api/mmt/retur-beli", clientCertAuth, returBeliRoutes);
 app.use("/api/mmt/po-external-mmt", clientCertAuth, poExtMmtRoutes);
 app.use("/api/mmt/stbj", clientCertAuth, stbjRoutes);
-app.use("/api/mmt/lap-pemakaian-bahan", clientCertAuth, lapPemakaianBahanRoutes);
+app.use(
+  "/api/mmt/lap-pemakaian-bahan",
+  clientCertAuth,
+  lapPemakaianBahanRoutes,
+);
 app.use("/api/mmt/mutasi-gudang", clientCertAuth, mutasiGudangRoutes);
 app.use("/api/mmt/search-barcode", clientCertAuth, searchBarcodeRoutes);
 app.use("/api/mmt/jadwal-kirim", clientCertAuth, jadwalKirimRoutes);
@@ -191,23 +225,31 @@ app.use("/api/mmt/lhk-pola", clientCertAuth, lhkPolaRoutes);
 app.use("/api/mmt/lhk-layout", clientCertAuth, lhkLayoutRoutes);
 app.use("/api/mmt/surat-jalan", clientCertAuth, suratJalanRoutes);
 app.use("/api/mmt/mutasi-internal", clientCertAuth, mutasiInternalRoutes);
-app.use("/api/mmt/laporan-bs", clientCertAuth, lapMonBSRoutes); 
-app.use("/api/spanduk/mutasi-bahan", clientCertAuth, mutasiBahanRoutes); 
-app.use("/api/spanduk/permintaan-bahan", clientCertAuth, permintaanBahanSpandukRoutes); 
+app.use("/api/mmt/laporan-bs", clientCertAuth, lapMonBSRoutes);
+app.use("/api/spanduk/mutasi-bahan", clientCertAuth, mutasiBahanRoutes);
+app.use(
+  "/api/spanduk/permintaan-bahan",
+  clientCertAuth,
+  permintaanBahanSpandukRoutes,
+);
 app.use("/api/spanduk/master-bahan", clientCertAuth, masterBahanSpandukRoutes);
-app.use("/api/spanduk/penerimaan-bahan", clientCertAuth, penerimaanBahanPenolongRoutes);
+app.use(
+  "/api/spanduk/penerimaan-bahan",
+  clientCertAuth,
+  penerimaanBahanPenolongRoutes,
+);
 app.use("/api/mmt/lap-kartu-stok", clientCertAuth, lapKartuStokMmtRoutes);
-app.use("/api/mmt/lap-mon-jadwalkirim", clientCertAuth, lapMonJadwalKirimRoutes);
-
-
-
-
-
-
+app.use(
+  "/api/mmt/lap-mon-jadwalkirim",
+  clientCertAuth,
+  lapMonJadwalKirimRoutes,
+);
+app.use("/api/mmt/so-spk", clientCertAuth, soToSpkRoutes);
+app.use("/api/mmt/sales-order", clientCertAuth, salesOrderRoutes);
 
 const port = process.env.PORT || 8003;
 
 // Jalankan server
 app.listen(port, () => {
-    console.log(`⚡️[server]: Server berjalan di http://localhost:${port}`);
+  console.log(`⚡️[server]: Server berjalan di http://localhost:${port}`);
 });
