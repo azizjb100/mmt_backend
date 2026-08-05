@@ -268,7 +268,9 @@ const saveLhk = async (data) => {
     let nomorLhk = header.nomor;
     let isActuallyNew = false;
     const currentStatus = header.lstatus || "DRAFT";
+    const currentUser = header.user || "SYSTEM";
 
+    // 1. Cek / Generate Nomor LHK
     if (!nomorLhk || nomorLhk === "AUTO") {
       nomorLhk = await generateNewNomor(header.tanggal, conn);
       isActuallyNew = true;
@@ -280,7 +282,7 @@ const saveLhk = async (data) => {
       isActuallyNew = rows.length === 0;
     }
 
-    // 1. Ekstrak Semua Nomor SPK unik untuk pencatatan di kartu stok
+    // 2. Ekstrak Semua Nomor SPK unik untuk pencatatan di kartu stok
     const uniqueSpks =
       details && details.length > 0
         ? [
@@ -291,22 +293,22 @@ const saveLhk = async (data) => {
         : [];
     const combinedSpkNomor = uniqueSpks.join(", ") || "";
 
-    // 2. Insert atau Update Header
+    // 3. Insert atau Update Header
     if (isActuallyNew) {
       const sqlInsHeader = `
-                INSERT INTO tlhk_mesintekstil_hdr (
-                    lth_nomor, lth_tanggal, lth_shift, lth_gdg_prod, 
-                    lth_user_create, lth_date_create, lth_brg_kode, lth_barcode, lth_status,
-                    lth_panjang_bs, lth_lebar_bs
-                ) VALUES (?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?)
-            `;
+        INSERT INTO tlhk_mesintekstil_hdr (
+          lth_nomor, lth_tanggal, lth_shift, lth_gdg_prod, 
+          lth_user_create, lth_date_create, lth_brg_kode, lth_barcode, lth_status,
+          lth_panjang_bs, lth_lebar_bs
+        ) VALUES (?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?)
+      `;
 
       await conn.query(sqlInsHeader, [
         nomorLhk,
         header.tanggal,
         header.shift || 1,
         header.gdgKode,
-        header.user || "SYSTEM",
+        currentUser,
         header.brg_kode,
         header.barcode_input,
         currentStatus,
@@ -314,13 +316,23 @@ const saveLhk = async (data) => {
         Number(header.lebar_bs || 0),
       ]);
     } else {
+      // 1. Query Update Header
       const sqlUpdHeader = `
-                UPDATE tlhk_mesintekstil_hdr SET 
-                    lth_tanggal = ?, lth_shift = ?, lth_gdg_prod = ?, 
-                    lth_status = ?, lth_brg_kode = ?, lth_barcode = ?,
-                    lth_panjang_bs = ?, lth_lebar_bs = ?
-                WHERE lth_nomor = ?
-            `;
+      UPDATE tlhk_mesintekstil_hdr SET 
+        lth_tanggal = ?, 
+        lth_shift = ?, 
+        lth_gdg_prod = ?, 
+        lth_status = ?, 
+        lth_brg_kode = ?, 
+        lth_barcode = ?,
+        lth_panjang_bs = ?, 
+        lth_lebar_bs = ?,
+        lth_date_modified = NOW(),
+        lth_user_modified = ?
+      WHERE lth_nomor = ?
+    `;
+
+      // 2. Parameter Array (Murni JavaScript tanpa komentar --)
       await conn.query(sqlUpdHeader, [
         header.tanggal,
         header.shift || 1,
@@ -330,49 +342,46 @@ const saveLhk = async (data) => {
         header.barcode_input,
         Number(header.panjang_bs || 0),
         Number(header.lebar_bs || 0),
+        currentUser,
         nomorLhk,
       ]);
 
-      // Bersihkan data lama sebelum insert ulang (Mode Edit)
+      // Bersihkan data detail lama sebelum insert ulang (Mode Edit)
       await conn.query(
         "DELETE FROM tlhk_mesintekstil_dtl WHERE ltd_lth_nomor = ?",
         [nomorLhk],
       );
+    }
 
+    // 4. Bersihkan stok lama di tmasterstok_mmt untuk nomor LHK ini (terlepas dari status baru)
+    if (!isActuallyNew) {
       await conn.query(
-        `
-                DELETE FROM tmasterstok_mmt 
-                WHERE mst_noreferensi = ? OR mst_spk_nomor = ?
-            `,
+        `DELETE FROM tmasterstok_mmt WHERE mst_noreferensi = ? OR mst_spk_nomor = ?`,
         [nomorLhk, nomorLhk],
       );
     }
 
-    // 3. Simpan Data Detail Pekerjaan & Hitung P. Pakai Sistem (Include Padding)
-    let totalPanjangPakaiMeter = 0; // Ini adalah "P. Pakai Sistem" dalam satuan Meter
+    // 5. Simpan Data Detail Pekerjaan
+    let totalPanjangPakaiMeter = 0;
 
     if (details && details.length > 0) {
       const sqlDetail = `
-    INSERT INTO tlhk_mesintekstil_dtl (
-      ltd_lth_nomor, ltd_no_urut, ltd_jns_mesin, ltd_spk_nomor, 
-      ltd_qty_Cetak, ltd_brg_kode, ltd_panjang_pakai, ltd_lebar_pakai,
-      ltd_cetak1, ltd_cetak2, ltd_cetak3, ltd_cetak4, ltd_cetak5, ltd_cetak6, ltd_cetak7,
-      ltd_ambil_bahan, ltd_pad, ltd_sisameter
-    ) VALUES ?
-  `;
+        INSERT INTO tlhk_mesintekstil_dtl (
+          ltd_lth_nomor, ltd_no_urut, ltd_jns_mesin, ltd_spk_nomor, 
+          ltd_qty_Cetak, ltd_brg_kode, ltd_panjang_pakai, ltd_lebar_pakai,
+          ltd_cetak1, ltd_cetak2, ltd_cetak3, ltd_cetak4, ltd_cetak5, ltd_cetak6, ltd_cetak7,
+          ltd_ambil_bahan, ltd_pad, ltd_sisameter
+        ) VALUES ?
+      `;
 
       const values = details.map((d, i) => {
         const panjangPerPcs = Number(d.panjang_per_pcs || d.Panjang || 0);
         const jmlCetak = Number(d.jumlah_cetak || d.Jml_Cetak || 0);
         const paddingPerPcs = Number(d.padding ?? d.ltd_pad ?? 0);
 
-        // SISTEM: (Panjang Riil Gambar + Padding) x Qty Cetak SPK
         const subtotalMeter = (panjangPerPcs + paddingPerPcs) * jmlCetak;
-
-        // Akumulasi total panjang yang dipakai oleh sistem
         totalPanjangPakaiMeter += subtotalMeter;
 
-        // Ambil nilai sisa fisik METER (prioritaskan sisabahan_meter yang dikirim frontend)
         const sisaFisikMeter = Number(
           d.sisabahan_meter ?? d.ltd_sisameter ?? 0,
         );
@@ -384,7 +393,7 @@ const saveLhk = async (data) => {
           d.nomor_spk || d.Nomor_SPK,
           jmlCetak,
           header.brg_kode,
-          subtotalMeter, // Masuk ke kolom ltd_panjang_pakai (Sudah include padding)
+          subtotalMeter,
           d.lebar_spk || d.Lebar || 0,
           Number(d.cetak_1 ?? d.cetak1 ?? 0),
           Number(d.cetak_2 ?? d.cetak2 ?? 0),
@@ -395,38 +404,28 @@ const saveLhk = async (data) => {
           Number(d.cetak_7 ?? d.cetak7 ?? 0),
           Number(d.ltd_ambil_bahan || d.ambil_bahan || d.PanjangBahanAwal || 0),
           paddingPerPcs,
-          sisaFisikMeter, // <-- DISIMPAN KE KOLOM ltd_sisameter (SATUAN METER)
+          sisaFisikMeter,
         ];
       });
 
       await conn.query(sqlDetail, [values]);
     }
 
-    // 4. Logika Potong & Perbarui Stok Otomatis (Jika Status POSTED)
+    // 6. Potong & Perbarui Stok Otomatis (Hanya jika Status POSTED)
     if (currentStatus === "POSTED" && header.barcode_input) {
-      if (!isActuallyNew) {
-        await conn.query(
-          `
-                    DELETE FROM tmasterstok_mmt 
-                    WHERE mst_noreferensi = ? OR mst_spk_nomor = ?
-                `,
-          [nomorLhk, nomorLhk],
-        );
-      }
-
       const [rows] = await conn.query(
         `
-                SELECT 
-                    s.mst_hargabeli, 
-                    s.mst_satuan_harga, 
-                    s.mst_lebar, 
-                    brg.brg_type 
-                FROM tmasterstok_mmt s
-                LEFT JOIN tbarang_mmt brg ON s.mst_brg_kode = brg.brg_kode
-                WHERE s.mst_barcode = ? 
-                ORDER BY s.id DESC 
-                LIMIT 1
-            `,
+          SELECT 
+            s.mst_hargabeli, 
+            s.mst_satuan_harga, 
+            s.mst_lebar, 
+            brg.brg_type 
+          FROM tmasterstok_mmt s
+          LEFT JOIN tbarang_mmt brg ON s.mst_brg_kode = brg.brg_kode
+          WHERE s.mst_barcode = ? 
+          ORDER BY s.id DESC 
+          LIMIT 1
+        `,
         [header.barcode_input],
       );
 
@@ -446,14 +445,14 @@ const saveLhk = async (data) => {
           Number(header.panjang_awal || header.panjang_bahan).toFixed(2),
         ) || 0;
 
-      // --- PROSES MUTASI 1: OUT ---
+      // MUTASI 1: OUT (Keluarkan Roll Awal)
       const sqlOut = `
-                INSERT INTO tmasterstok_mmt (
-                    mst_brg_kode, mst_barcode, mst_gdg_kode, mst_stok_in, mst_stok_out, 
-                    mst_tanggal, mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi, 
-                    mst_satuan_harga, mst_hargabeli, date_create, mst_kategori
-                ) VALUES (?, ?, ?, 0, 1, ?, ?, ?, ?, ?, ?, ?, NOW(), 'ROLL')
-            `;
+        INSERT INTO tmasterstok_mmt (
+          mst_brg_kode, mst_barcode, mst_gdg_kode, mst_stok_in, mst_stok_out, 
+          mst_tanggal, mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi, 
+          mst_satuan_harga, mst_hargabeli, date_create, mst_kategori
+        ) VALUES (?, ?, ?, 0, 1, ?, ?, ?, ?, ?, ?, ?, NOW(), 'ROLL')
+      `;
       await conn.query(sqlOut, [
         header.brg_kode,
         header.barcode_input,
@@ -467,18 +466,18 @@ const saveLhk = async (data) => {
         hargaBeliLama,
       ]);
 
-      // --- PROSES MUTASI 2: IN (Pengurangan bahan berdasarkan Sisa Manual) ---
+      // MUTASI 2: IN (Masukkan Sisa Roll Baru)
       const sisaBaru =
         Number(Number(header.sisa_panjang_manual).toFixed(2)) || 0;
 
       if (sisaBaru > 0) {
         const sqlIn = `
-                    INSERT INTO tmasterstok_mmt (
-                        mst_brg_kode, mst_barcode, mst_gdg_kode, mst_stok_in, mst_stok_out, 
-                        mst_tanggal, mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi, 
-                        mst_satuan_harga, mst_hargabeli, date_create, mst_kategori
-                    ) VALUES (?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, NOW(), 'ROLL')
-                `;
+          INSERT INTO tmasterstok_mmt (
+            mst_brg_kode, mst_barcode, mst_gdg_kode, mst_stok_in, mst_stok_out, 
+            mst_tanggal, mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi, 
+            mst_satuan_harga, mst_hargabeli, date_create, mst_kategori
+          ) VALUES (?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, NOW(), 'ROLL')
+        `;
         await conn.query(sqlIn, [
           header.brg_kode,
           header.barcode_input,
@@ -495,7 +494,7 @@ const saveLhk = async (data) => {
     }
 
     await conn.commit();
-    // Anda juga bisa menyertakan totalPanjangPakaiMeter ke response jika frontend membutuhkannya saat callback sukses
+
     return {
       success: true,
       nomor: nomorLhk,
