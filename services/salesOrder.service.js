@@ -2,10 +2,26 @@ const pool = require("../config/db.config");
 const db = pool;
 
 // ============================================================
-// HELPER: cari lokasi fisik SO — "new" (tsalesorder) atau
-// "legacy" (tspk, data lama pre-migrasi). Dipakai oleh semua
-// fungsi tulis (delete/close/pin/approve) supaya tau harus
-// UPDATE/DELETE ke tabel yang mana.
+// HELPER: Menyusun URL Gambar Desain
+// Prioritas: MAP > Nomor SO/SPK
+// ============================================================
+const resolveImageUrl = (cabang, mapNomor, soNomor) => {
+  const mediaBase = process.env.MEDIA_SERVER_URL || "https://manksi.com";
+  const cab = (cabang || "P05").trim();
+  const map = (mapNomor || "").trim();
+  const nomor = (soNomor || "").trim();
+
+  if (map) {
+    return `${mediaBase}/images/${cab}/map/${map}.jpg`;
+  }
+  if (nomor) {
+    return `${mediaBase}/images/${cab}/${nomor}.jpg`;
+  }
+  return null;
+};
+
+// ============================================================
+// HELPER: cari lokasi fisik SO — "new" (tsalesorder) atau "legacy"
 // ============================================================
 const resolveSoLocation = async (nomor) => {
   const [rows] = await db.query(
@@ -128,7 +144,6 @@ const getBrowseList = async (filters) => {
     LEFT JOIN tcustomer_pin i ON i.cusp_nomor = s.spk_nomor
     LEFT JOIN tspk_pin j ON j.pin_nomor = s.spk_nomor
 
-    -- 🔧 PERBAIKAN DI SINI: Subquery disesuaikan agar kompatibel dengan ONLY_FULL_GROUP_BY
     LEFT JOIN (
       SELECT d1.lds_spk, d1.lds_user, d1.lds_tgl, d1.lds_note
       FROM tlhkdesign_status d1
@@ -153,10 +168,15 @@ const getBrowseList = async (filters) => {
     ORDER BY s.spk_tanggal DESC, s.spk_nomor DESC
   `;
   const [rows] = await db.query(query, params);
-  return rows;
+
+  // 🖼️ SUNTIKKAN URL GAMBAR UNTUK SETIAP BARIS DATA
+  return rows.map((row) => ({
+    ...row,
+    GambarUrl: resolveImageUrl(row.Cab, row.MAP, row.Nomor),
+  }));
 };
 
-// --- GET DETAIL SIZE (Untuk Expand Baris) ---
+// --- GET DETAIL SIZE ---
 const getSizes = async (nomor) => {
   const [newRows] = await db.query(
     `SELECT 
@@ -267,7 +287,7 @@ const toggleStatus = async (nomor, alasan, isClose) => {
   }
 };
 
-// --- REQUEST PIN (EDIT DATA CLOSED) ---
+// --- REQUEST PIN ---
 const requestPin = async (nomor, alasan, userKode) => {
   const loc = await resolveSoLocation(nomor);
   if (!loc) throw new Error("SO tidak ditemukan.");
@@ -389,7 +409,7 @@ const getPembatalanDetail = async (fbNomor, spkNomor) => {
         ? await db.query(
             `SELECT so_nomor AS spk_nomor, so_tanggal AS spk_tanggal,
                     so_cus_kode AS spk_cus_kode, so_nama AS spk_nama,
-                    so_jumlah AS spk_jumlah, c.cus_nama AS cus_nama
+                    so_jumlah AS spk_jumlah, so_cab AS spk_cab, so_memo AS spk_memo, c.cus_nama AS cus_nama
              FROM tsalesorder s
              LEFT JOIN tcustomer c ON c.Cus_kode = s.so_cus_kode
              WHERE s.so_nomor = ?`,
@@ -397,7 +417,7 @@ const getPembatalanDetail = async (fbNomor, spkNomor) => {
           )
         : await db.query(
             `SELECT s.spk_nomor, s.spk_tanggal, s.spk_cus_kode, s.spk_nama,
-                    s.spk_jumlah, c.cus_nama
+                    s.spk_jumlah, s.spk_cab, s.spk_memo, c.cus_nama
              FROM tspk s
              LEFT JOIN tcustomer c ON c.Cus_kode = s.spk_cus_kode
              WHERE s.spk_nomor = ?`,
@@ -405,9 +425,15 @@ const getPembatalanDetail = async (fbNomor, spkNomor) => {
           );
     if (!rows[0]) throw new Error("Data SPK/SO tidak ditemukan.");
 
+    const detail = rows[0];
     return {
       fb_nomor: "",
-      ...rows[0],
+      ...detail,
+      GambarUrl: resolveImageUrl(
+        detail.spk_cab,
+        detail.spk_memo,
+        detail.spk_nomor,
+      ),
       fb_abubah: "",
       fb_abmap: "",
       fb_abbahan: "",
@@ -451,7 +477,7 @@ const getPembatalanDetail = async (fbNomor, spkNomor) => {
       ? await db.query(
           `SELECT so_nomor AS spk_nomor, so_tanggal AS spk_tanggal,
                   so_cus_kode AS spk_cus_kode, so_nama AS spk_nama,
-                  so_jumlah AS spk_jumlah, c.cus_nama AS cus_nama
+                  so_jumlah AS spk_jumlah, so_cab AS spk_cab, so_memo AS spk_memo, c.cus_nama AS cus_nama
            FROM tsalesorder s
            LEFT JOIN tcustomer c ON c.Cus_kode = s.so_cus_kode
            WHERE s.so_nomor = ?`,
@@ -459,16 +485,22 @@ const getPembatalanDetail = async (fbNomor, spkNomor) => {
         )
       : await db.query(
           `SELECT s.spk_nomor, s.spk_tanggal, s.spk_cus_kode, s.spk_nama,
-                  s.spk_jumlah, c.cus_nama
+                  s.spk_jumlah, s.spk_cab, s.spk_memo, c.cus_nama
            FROM tspk s
            LEFT JOIN tcustomer c ON c.Cus_kode = s.spk_cus_kode
            WHERE s.spk_nomor = ?`,
           [fb.fb_spk],
         );
 
+  const soData = soRows[0] || {};
   return {
     ...fb,
-    ...(soRows[0] || {}),
+    ...soData,
+    GambarUrl: resolveImageUrl(
+      soData.spk_cab,
+      soData.spk_memo,
+      soData.spk_nomor,
+    ),
     Created: fb.fb_date_create,
     Approved: fb.fb_apv_tgl,
   };
