@@ -171,27 +171,23 @@ const getSoSource = async (req, res) => {
 // --- Save (create & edit) ---
 const save = async (req, res) => {
   try {
-    if (!req.body.isEdit && !req.body.so_nomor) {
-      return res
-        .status(400)
-        .json({ success: false, message: "No. SO sumber wajib dipilih." });
-    }
-    if (req.body.isEdit && !req.body.spk_nomor) {
-      return res
-        .status(400)
-        .json({ success: false, message: "No. SPK wajib diisi." });
-    }
+    const payload = req.body;
+    console.log("📦 Body diterima di backend:", payload);
 
-    const result = await service.saveData(req.body, req.user);
-    res.json({
+    // Panggil service simpan kamu di backend
+    const result = await salesOrderService.saveSoToSpk(payload, req.user?.kode);
+
+    return res.status(200).json({
       success: true,
+      message: "Data SO to SPK berhasil disimpan.",
       data: result,
-      message: req.body.isEdit
-        ? "SPK PPIC berhasil diubah."
-        : "SPK PPIC baru berhasil dibuat.",
     });
   } catch (error) {
-    res.status(400).json({ success: false, message: error.message });
+    console.error("🔴 Backend Save Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Gagal menyimpan data SO to SPK.",
+    });
   }
 };
 
