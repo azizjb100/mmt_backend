@@ -224,8 +224,8 @@ exports.getAllSpkData = async (filters) => {
 
     // 1. Filter Rentang Tanggal
     if (startDate && endDate) {
-      whereReguler += ` AND t.spk_tanggal BETWEEN ? AND ?`;
-      whereMemo += ` AND m.mspk_tanggal BETWEEN ? AND ?`;
+      whereReguler += ` AND DATE(t.spk_tanggal) BETWEEN ? AND ?`;
+      whereMemo += ` AND DATE(m.mspk_tanggal) BETWEEN ? AND ?`;
       params.push(startDate, endDate, startDate, endDate);
     }
 
