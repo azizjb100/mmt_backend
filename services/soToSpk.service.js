@@ -810,6 +810,9 @@ const saveData = async (payload, user) => {
     alokasi,
   } = payload;
 
+  // Pastikan user adalah object yang memiliki properti .kode
+  const userObj = typeof user === "object" ? user : { kode: user || "ADMIN" };
+
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
@@ -819,10 +822,6 @@ const saveData = async (payload, user) => {
 
     if (!isEdit) {
       // --- CREATE: copy header dari SO terpilih ---
-      // UNION-aware: SO sumber bisa berasal dari tsalesorder (baru)
-      // atau tspk legacy (lama, pre-migrasi). Header sudah dalam
-      // bentuk spk_* seragam via getSoHeaderUnified, sehingga
-      // seluruh logic copy-ke-tspk di bawah TIDAK berubah sama sekali.
       if (!so_nomor) throw new Error("No. SO sumber wajib dipilih.");
       const { header: soHeader } = await getSoHeaderUnified(so_nomor, conn);
       if (!soHeader) throw new Error("Sales Order tidak ditemukan.");
@@ -832,13 +831,20 @@ const saveData = async (payload, user) => {
         );
       }
 
+      // 🟢 Isikan cabang untuk penentuan flow
+      cabForFlow = soHeader.spk_cab;
+
       nomor = isLegacySpkFlow(soHeader.spk_divisi)
         ? await generateNomorLegacy(
             soHeader.spk_perush_kode,
             soHeader.spk_jo_kode,
             conn,
           )
-        : await generateNomor(soHeader.spk_perush_kode, soHeader.spk_jo_kode);
+        : await generateNomor(
+            soHeader.spk_perush_kode,
+            soHeader.spk_jo_kode,
+            conn, // 🟢 Oper koneksi transaksi conn
+          );
 
       const newHeader = { ...soHeader };
       delete newHeader.spk_nomor;
@@ -850,26 +856,19 @@ const saveData = async (payload, user) => {
       newHeader.spk_ketbeli = spk_ketbeli || "";
       newHeader.spk_keterangan = spk_keterangan || "";
       newHeader.spk_tanggal = new Date();
-      newHeader.user_create = user.kode;
+      newHeader.user_create = userObj.kode;
       newHeader.date_create = new Date();
       delete newHeader.user_modified;
       delete newHeader.date_modified;
       const filteredHeader = await filterToTspkColumns(newHeader, conn);
       await conn.query(`INSERT INTO tspk SET ?`, [filteredHeader]);
-      // Copy size dari SO (tsalesorder_size ATAU tspk_size, tergantung
-      // sumber) sebagai starting point, lalu override dengan dtlSize
-      // dari payload kalau user sudah sesuaikan di form
+
       const sizeSource =
         dtlSize && dtlSize.length > 0
           ? dtlSize
           : await getSoSizeListUnified(so_nomor);
       await saveSizeList(conn, nomor, sizeSource);
 
-      // ⚠️ BARU: auto-copy alokasi dari SO sumber (kalau ada) saat create.
-      // Hanya relevan untuk legacy flow, tapi dijalankan apa adanya untuk
-      // semua cab — kalau SO tidak punya alokasi, otomatis no-op (array kosong).
-      // Payload.alokasi (kalau user sudah edit manual di form sebelum submit
-      // pertama) diprioritaskan; kalau kosong, baru fallback copy dari SO.
       const alokasiSource =
         alokasi && alokasi.length > 0
           ? alokasi
@@ -885,15 +884,18 @@ const saveData = async (payload, user) => {
       nomor = spk_nomor;
 
       const [exist] = await conn.query(
-        `SELECT spk_nomor FROM tspk WHERE spk_nomor = ? AND spk_is_so = 0`,
+        `SELECT spk_nomor, spk_cab FROM tspk WHERE spk_nomor = ? AND spk_is_so = 0`,
         [nomor],
       );
       if (exist.length === 0) throw new Error("Data SPK PPIC tidak ditemukan.");
 
+      // 🟢 Isikan cabang dari record yang di-edit
+      cabForFlow = exist[0].spk_cab;
+
       await conn.query(
         `UPDATE tspk SET spk_ketbeli = ?, spk_keterangan = ?, user_modified = ?, date_modified = NOW()
          WHERE spk_nomor = ?`,
-        [spk_ketbeli || "", spk_keterangan || "", user.kode, nomor],
+        [spk_ketbeli || "", spk_keterangan || "", userObj.kode, nomor],
       );
 
       if (dtlSize) {
@@ -902,8 +904,7 @@ const saveData = async (payload, user) => {
     }
 
     // ─────────────────────────────────────────────
-    // CABANG PREMIUM vs LEGACY — hanya P04 yang proses
-    // Komponen/Layout-Proses(Excel)/Keterangan; selain itu simpan Alokasi.
+    // CABANG PREMIUM vs LEGACY
     // ─────────────────────────────────────────────
     if (isPremiumWorkshop(cabForFlow)) {
       await refreshKomponenFromProof(conn, nomor, komponenSpk || {});
@@ -926,8 +927,6 @@ const saveData = async (payload, user) => {
         }
       }
     } else if (isEdit && alokasi !== undefined) {
-      // Create sudah di-handle di atas (auto-copy dari SO / payload awal).
-      // Blok ini khusus edit, supaya user bisa update alokasi manual.
       await saveAlokasi(conn, nomor, alokasi);
     }
 

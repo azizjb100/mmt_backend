@@ -171,11 +171,12 @@ const getSoSource = async (req, res) => {
 // --- Save (create & edit) ---
 const save = async (req, res) => {
   try {
-    const payload = req.body;
-    console.log("📦 Body diterima di backend:", payload);
+    console.log("📦 Payload diterima di backend:", req.body);
 
-    // Panggil service simpan kamu di backend
-    const result = await salesOrderService.saveSoToSpk(payload, req.user?.kode);
+    const user = {
+      kode: req.user?.kode || req.user?.username || "ADMIN",
+    };
+    const result = await service.saveData(req.body, user);
 
     return res.status(200).json({
       success: true,
@@ -183,7 +184,8 @@ const save = async (req, res) => {
       data: result,
     });
   } catch (error) {
-    console.error("🔴 Backend Save Error:", error);
+    console.error("🔴 SERVER ERROR SAAT SAVE SO TO SPK:", error);
+
     return res.status(500).json({
       success: false,
       message: error.message || "Gagal menyimpan data SO to SPK.",
