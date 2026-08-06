@@ -57,6 +57,7 @@ const searchBarcodeRoutes = require("./routes/searchBarcode.routes");
 const jadwalKirimRoutes = require("./routes/jadwalKirim.routes");
 const lapMonFinishingRoutes = require("./routes/lapMonFinishing.routes");
 const lapMonTekstilRoutes = require("./routes/lapMonTekstil.route");
+const lapMonPaperprintRoutes = require("./routes/lapMonPaperprint.routes");
 const lapMonProofRoutes = require("./routes/lapMonProof.routes");
 const lapBarangJadiRoutes = require("./routes/lapBarangJadi.routes");
 const voucherPelunasanRoutes = require("./routes/voucherPelunasan.routes");
@@ -217,6 +218,11 @@ app.use("/api/mmt/monitoring-proof", clientCertAuth, lapMonProofRoutes);
 app.use("/api/mmt/po-internal", clientCertAuth, poInternalRoutes);
 app.use("/api/mmt/lhk-sublim", clientCertAuth, lhkSublimRoutes);
 app.use("/api/mmt/lhk-paperprint", clientCertAuth, lhkPaperprintRoutes);
+app.use(
+  "/api/mmt/monitoring-paperprint",
+  clientCertAuth,
+  lapMonPaperprintRoutes,
+);
 app.use("/api/mmt/monitoring-sublim", clientCertAuth, lapMonSublimRoutes);
 app.use("/api/mmt/dashboard", clientCertAuth, dashboardRoutes);
 app.use("/api/mmt/mppb", clientCertAuth, mppbRoutes);
