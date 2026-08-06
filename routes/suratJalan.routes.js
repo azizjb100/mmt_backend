@@ -1,37 +1,63 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const sjController = require('../controllers/suratJalan.controller');
+const sjController = require("../controllers/suratJalan.controller");
+const verifyToken = require("../middleware/auth.middleware"); // Sesuaikan jika ada middleware auth
 
 // ==========================================
-// RUTE KHUSUS LOOKUP / DATA FETCHING (Sinkron dengan Vue)
+// 1. MODUL BROWSE TRANSAKSI UTAMA (ufrmBrowseSJ)
 // ==========================================
 
-// 1. Ambil Semua Master Data untuk List Grid 
-// Query Params: ?startDate=...&endDate=...&cab=...&zcus=...&pendingOnly=...
-router.get('/lookup', sjController.browseMasterSj);
+// Get List Master Surat Jalan (Query: ?startDate=...&endDate=...&zcus=...&zdivisi=...)
+router.get("/", verifyToken, sjController.browseSJ);
 
-// 2. Ambil Semua Detail Data untuk Grid Detail
-// Query Params: ?startDate=...&endDate=...&cab=...&pendingOnly=...
-router.get('/lookup/details', sjController.getDetailSj);
+// Get Detail Surat Jalan berdasarkan Nomor SJ (Query: ?nomor=SJ-001)
+router.get("/detail", verifyToken, sjController.getDetailSJByNomor);
 
+// Cek Urutan Pengajuan Edit Terakhir
+router.get(
+  "/pengajuan/urut/:nomor",
+  verifyToken,
+  sjController.getUrutPengajuan,
+);
+
+// Submit Form Pengajuan Edit Perubahan Data
+router.post("/pengajuan", verifyToken, sjController.submitPengajuan);
+
+// Hapus Surat Jalan
+router.delete("/:nomor", verifyToken, sjController.deleteSJ);
 
 // ==========================================
-// RUTE STANDAR ACTIONS (Proses Tombol Klik di Delphi)
+// 2. MODUL APPROVAL SURAT JALAN (ufrmApproveSJ)
 // ==========================================
-router.get('/', sjController.browseMasterSj);
-router.get('/details', sjController.getDetailSj);
 
-// Jalankan Approval1Click (Ubah status = 1, insert ke tsj_approve)
-// Body: { "kodeGdg": "GJ002" } atau dikirim via path /approve/SJ-001
-router.post('/approve', sjController.approveSj);
-router.post('/approve/:nomor', sjController.approveSj); 
+// Lookup Data Master Approval (Query: ?startDate=...&endDate=...&cab=...&zcus=...&pendingOnly=...)
+router.get(
+  "/approval/lookup",
+  verifyToken,
+  sjController.browseMasterApprovalSj,
+);
 
-// Jalankan Pending1Click (Kembalikan status = 0, hapus dari tsj_approve)
-router.post('/pending', sjController.pendingSj);
-router.post('/pending/:nomor', sjController.pendingSj);
+// Lookup Data Detail Approval
+router.get(
+  "/approval/lookup/details",
+  verifyToken,
+  sjController.getDetailApprovalSj,
+);
 
-// Jalankan BatalSJ1Click (Ubah status = 2, potong spk_prasj)
-router.post('/batal', sjController.batalSj);
-router.post('/batal/:nomor', sjController.batalSj);
+// ==========================================
+// 3. ACTION TOMBOL APPROVAL / PENDING / BATAL
+// ==========================================
+
+// Approve Surat Jalan
+router.post("/approve", verifyToken, sjController.approveSj);
+router.post("/approve/:nomor", verifyToken, sjController.approveSj);
+
+// Pending Surat Jalan (Batal Approve)
+router.post("/pending", verifyToken, sjController.pendingSj);
+router.post("/pending/:nomor", verifyToken, sjController.pendingSj);
+
+// Batal Surat Jalan
+router.post("/batal", verifyToken, sjController.batalSj);
+router.post("/batal/:nomor", verifyToken, sjController.batalSj);
 
 module.exports = router;
