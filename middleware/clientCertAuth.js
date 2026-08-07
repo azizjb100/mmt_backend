@@ -1,12 +1,17 @@
 // middleware/clientCertAuth.js
 
 const clientCertAuth = (req, res, next) => {
-  // Jika bukan di mode produksi, pura-pura ada user dan langsung lolos.
-  if (process.env.NODE_ENV !== "production") {
-    req.user = { kode: "DEV_USER" }; // User dummy untuk development
+  // 🟢 Jika req.user SUDAH diisi oleh JWT auth (verifyToken), jangan timpa lagi!
+  if (req.user && (req.user.kdUser || req.user.kode)) {
     return next();
   }
-  
+
+  // Jika bukan di mode produksi dan belum ada user dari JWT, baru pakai fallback
+  if (process.env.NODE_ENV !== "production") {
+    req.user = req.user || { kode: "DEV_USER" };
+    return next();
+  }
+
   // Ambil header 'X-SSL-Client-DN' yang di-set oleh Nginx
   const userDN = req.headers["x-ssl-client-dn"];
 
@@ -17,8 +22,6 @@ const clientCertAuth = (req, res, next) => {
     });
   }
 
-  // Ekstrak Common Name (CN) dari string DN untuk mendapatkan username
-  // Contoh userDN: "C=ID, ST=JawaTengah, O=Kencana Print, CN=admin"
   const cnMatch = userDN.match(/CN=([^,]+)/);
   const username = cnMatch ? cnMatch[1] : null;
 
@@ -28,17 +31,11 @@ const clientCertAuth = (req, res, next) => {
     });
   }
 
-  // Di sini Anda berhasil mengidentifikasi user.
-  // Lampirkan informasi user ke object request agar bisa digunakan di controller selanjutnya.
   req.user = {
     kode: username,
-    // Anda bisa menambahkan data lain di sini jika perlu,
-    // misalnya dengan query ke database berdasarkan username.
   };
 
   console.log(`User terautentikasi via sertifikat: ${username}`);
-
-  // Lanjutkan ke proses berikutnya
   next();
 };
 
