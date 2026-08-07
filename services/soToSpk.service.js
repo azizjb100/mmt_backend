@@ -810,8 +810,15 @@ const saveData = async (payload, user) => {
     alokasi,
   } = payload;
 
-  // Pastikan user adalah object yang memiliki properti .kode
-  const userObj = typeof user === "object" ? user : { kode: user || "ADMIN" };
+  // 💡 FIX: Ekstraksi user kode yang tangguh (bisa terima string, obj {kode}, atau obj {kdUser})
+  const userKode =
+    typeof user === "object" && user !== null
+      ? user.kode || user.kdUser || user.user_kode || "ADMIN"
+      : typeof user === "string" && user.trim() !== ""
+        ? user
+        : "ADMIN";
+
+  const userObj = { kode: userKode };
 
   const conn = await db.getConnection();
   try {
@@ -843,7 +850,7 @@ const saveData = async (payload, user) => {
         : await generateNomor(
             soHeader.spk_perush_kode,
             soHeader.spk_jo_kode,
-            conn, // 🟢 Oper koneksi transaksi conn
+            conn,
           );
 
       const newHeader = { ...soHeader };

@@ -171,9 +171,22 @@ const getSoSource = async (req, res) => {
 // --- Save (create & edit) ---
 const save = async (req, res) => {
   try {
-    const userLogin = req.user?.kdUser;
+    // 💡 Defensif: Cek berbagai opsi penamaan objek user dari auth middleware & key dari JWT
+    const userObj = req.user || req.userData || req.auth || {};
+    const userLogin =
+      userObj.kdUser ||
+      userObj.kode ||
+      userObj.user_kode ||
+      userObj.usr ||
+      (typeof req.user === "string" ? req.user : null);
 
     if (!userLogin) {
+      console.error(
+        "🔴 AUTH ERROR: req.user kosong atau tidak memiliki identitas user.",
+      );
+      console.error("   DEBUG req.user:", req.user);
+      console.error("   DEBUG req.userData:", req.userData);
+
       return res.status(401).json({
         success: false,
         message: "User login tidak valid. Silakan login ulang.",
@@ -181,9 +194,12 @@ const save = async (req, res) => {
     }
 
     console.log("📦 Payload diterima di backend:", req.body);
+    console.log("👤 User executing save:", userLogin);
 
     const user = {
       kode: userLogin,
+      cab: userObj.cab || "",
+      divisi: userObj.divisi || "",
     };
 
     const result = await service.saveData(req.body, user);
