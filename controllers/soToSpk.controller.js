@@ -171,11 +171,21 @@ const getSoSource = async (req, res) => {
 // --- Save (create & edit) ---
 const save = async (req, res) => {
   try {
+    const userLogin = req.user?.kdUser;
+
+    if (!userLogin) {
+      return res.status(401).json({
+        success: false,
+        message: "User login tidak valid. Silakan login ulang.",
+      });
+    }
+
     console.log("📦 Payload diterima di backend:", req.body);
 
     const user = {
-      kode: req.user?.kode || req.user?.username || "ADMIN",
+      kode: userLogin,
     };
+
     const result = await service.saveData(req.body, user);
 
     return res.status(200).json({
