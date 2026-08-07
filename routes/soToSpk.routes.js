@@ -4,7 +4,7 @@ const router = express.Router();
 const controller = require("../controllers/soToSpk.controller");
 
 // 🟢 1. IMPORT MIDDLEWARE AUTH JWT
-const verifyToken = require("../middlewares/auth.middleware"); // Sesuaikan path file auth.middleware.js Anda
+const verifyToken = require("../middleware/auth.middleware"); // Sesuaikan path file auth.middleware.js Anda
 
 // 💡 Pilihan A: Jika SEMUA route di file ini wajib login, pasang router.use di sini:
 router.use(verifyToken);
