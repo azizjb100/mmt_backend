@@ -84,6 +84,7 @@ const getDetailsByNomor = async (nomor) => {
             -- --- TAMBAHKAN KOLOM HISTORI UTK FORM EDIT DI FRONTEND ---
             lprd_barcode AS barcode_detail,    -- Barcode roll yang dipakai
             lprd_panjang_awal AS panjang_roll_awal, -- Panjang awal roll saat itu (Yard/Meter)
+            lprd_panjang_terpakai AS panjang_terpakai, -- Panjang terpakai riil (Yard/Meter)
             lprd_sisa_bahan AS sisabahan       -- Sisa bahan setelah potong (Yard/Meter)
         FROM tlhk_proofmmt_dtl 
         LEFT JOIN (
