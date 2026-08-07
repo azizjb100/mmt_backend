@@ -3,6 +3,12 @@ const express = require("express");
 const router = express.Router();
 const controller = require("../controllers/soToSpk.controller");
 
+// 🟢 1. IMPORT MIDDLEWARE AUTH JWT
+const verifyToken = require("../middlewares/auth.middleware"); // Sesuaikan path file auth.middleware.js Anda
+
+// 💡 Pilihan A: Jika SEMUA route di file ini wajib login, pasang router.use di sini:
+router.use(verifyToken);
+
 // ==========================================
 // 1. ROUTE STATIS / SPESIFIK (Wajib Di Atas)
 // ==========================================
@@ -10,6 +16,7 @@ const controller = require("../controllers/soToSpk.controller");
 router.get("/detail", controller.getDetail);
 router.get("/so-source", controller.getSoSource);
 
+// 🟢 Rute simpan sekarang sudah terlindungi & membaca JWT user asli
 router.post("/save", controller.save);
 router.put("/save", controller.save);
 
