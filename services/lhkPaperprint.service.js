@@ -11,6 +11,25 @@ const NOMERATOR_APP = "MMT-LHK-SA"; // Untuk tabel sublim (Approval)
  * =============================================================================
  */
 
+const accLhkPaperprint = async (nomor, user = "SYSTEM") => {
+  // Update kolom lsb_acc menjadi 'ACC' (dan status jika diperlukan)
+  const sql = `
+    UPDATE tlhk_sublim_hdr 
+    SET lsb_acc = 'ACC',
+        lsb_user_modified = ?,
+        lsb_date_modified = NOW()
+    WHERE lsb_nomor = ?
+  `;
+
+  const [result] = await pool.query(sql, [user, nomor]);
+
+  if (result.affectedRows === 0) {
+    throw new Error(`Data LHK Sublim dengan nomor ${nomor} tidak ditemukan.`);
+  }
+
+  return { success: true, nomor };
+};
+
 const getAllHeaders = async (startDate, endDate, search = "") => {
   const tglMulai = format(new Date(startDate), "yyyy-MM-dd");
   const tglSelesai = format(new Date(endDate), "yyyy-MM-dd");
@@ -22,22 +41,19 @@ const getAllHeaders = async (startDate, endDate, search = "") => {
     t1.lsb_nomor AS Nomor, 
     t1.lsb_shift AS Shift, 
     DATE_FORMAT(t1.lsb_tanggal, '%Y-%m-%d') AS Tanggal, 
-    
-    -- 🌟 PERBAIKAN: Mengambil Lokasi Mesin dari subquery detail (x) bukan dari header (t1)
     IFNULL(x.mesin_lokasi, 'SB01') AS Mesin,
     
     t1.lsb_status AS Status,
+    IFNULL(t1.lsb_acc, '') AS Status_Acc, -- 🌟 TAMBAHAN: Kolom status ACC
     t1.lsb_panjang_bs AS lsb_panjang_bs,
     t1.lsb_lebar_bs AS lsb_lebar_bs,
     t1.lsb_gdg_kode AS Gudang,
     g.gdg_nama AS Nama_Gudang,
     
-    -- Ambil data barcode material roll utama
     t1.lsb_barcode AS Barcode_Roll,
     t1.lsb_brg_kode AS Kode_Bahan,
     t3.brg_nama AS Nama_Bahan,
 
-    -- Ambil data dari subquery rekapitulasi baris detail (x)
     IFNULL(x.combined_spk, '-') AS NomorSPK,
     IFNULL(x.combined_spk_nama, '-') AS NamaOrder,
     IFNULL(x.qtytotalcetak, 0) AS TotalCetak,
@@ -45,7 +61,6 @@ const getAllHeaders = async (startDate, endDate, search = "") => {
     IFNULL(x.sisa_akhir, 0) AS SisaMeterAkhir,
     IFNULL(x.total_luas_m2, 0) AS total_meter,
     
-    -- Logika perhitungan Surplus / Minus Kain (Meter Base)
     CASE 
         WHEN x.sisa_akhir < 0 THEN ABS(x.sisa_akhir)
         ELSE 0 
@@ -63,24 +78,12 @@ LEFT JOIN tbarang_mmt t3 ON t3.brg_kode = t1.lsb_brg_kode
 LEFT JOIN (
     SELECT 
         lsbd_lsb_nomor,
-        
-        -- 🌟 PERBAIKAN: Ambil lokasi mesin dari baris paling pertama/maksimal di detail LHK
         MAX(lsbd_lokasi) AS mesin_lokasi,
-        
-        -- Menggabungkan seluruh nomor SPK dan nama order
         GROUP_CONCAT(DISTINCT lsbd_spk_nomor SEPARATOR ', ') AS combined_spk,
         GROUP_CONCAT(DISTINCT lsbd_spk_nama SEPARATOR ', ') AS combined_spk_nama,
-        
-        -- Akumulasi total kuantitas hasil produksi sublim
         SUM(lsbd_jumlah) AS qtytotalcetak,
-        
-        -- Total akumulasi luas area m2 hasil kerja
         SUM(lsbd_j_meter) AS total_luas_m2,
-        
-        -- Ambil panjang bahan awal roll saat discan pertama kali
         MAX(lsbd_ambilbahan) AS panjang_bahan_awal,
-        
-        -- Kalkulasi sisa meter akhir roll kain
         (
             SELECT (d2.lsbd_ambilbahan - d2.lsbd_panjang_pakai - h2.lsb_panjang_bs)
             FROM tlhk_sublim_dtl d2
@@ -94,7 +97,6 @@ LEFT JOIN (
 WHERE t1.lsb_tanggal BETWEEN ? AND ?
     `;
 
-  // 🌟 SEKSI LIVE FILTER SEARCH UTAMA
   if (search) {
     sql += ` AND (
             t1.lsb_nomor LIKE ? 
@@ -570,4 +572,5 @@ module.exports = {
   saveApproval,
   getAllApprovalHeaders,
   getApprovalDetailsByNomor,
+  accLhkPaperprint,
 };

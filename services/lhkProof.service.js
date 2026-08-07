@@ -31,8 +31,8 @@ const getAllHeaders = async (startDate, endDate) => {
             IF(h.lpr_jenis="M","MMT",IF(h.lpr_jenis="S","SUBLIM",IF(h.lpr_jenis="T","TEKSTIL",""))) AS Jenis, 
             h.lpr_operator AS Operator,
             h.lpr_keterangan AS Keterangan,
+            IFNULL(h.lpr_acc, '') AS Status_Acc, -- <--- DITAMBAHKAN DI SINI
             
-            -- --- TAMBAHAN DATA LOGISTIK DI LEVEL HEADER ---
             d.lprd_barcode AS Barcode_Roll,
             IFNULL(d.total_j_meter, 0) AS Total_J_Meter,
             IFNULL(d.panjang_awal, 0) AS Panjang_Awal,
@@ -41,15 +41,14 @@ const getAllHeaders = async (startDate, endDate) => {
             
         FROM tlhk_proofmmt_hdr h
         LEFT JOIN tGUDANG g ON g.gdg_kode = h.lpr_gdg_kode
-        -- Join dengan subquery detail untuk mengambil snapshot roll bahan pertama & akumulasi meter lari
         LEFT JOIN (
             SELECT 
                 lprd_lpr_nomor,
-                MAX(lprd_barcode) AS lprd_barcode,                   -- Ambil barcode roll yang digunakan
-                SUM(lprd_j_meter) AS total_j_meter,                   -- Total akumulasi J_Meter terpakai
-                MAX(lprd_panjang_awal) AS panjang_awal,               -- Snapshot panjang awal roll
-                MAX(lprd_panjang_terpakai) AS panjang_terpakai,       -- Snapshot panjang terpakai logistik
-                MIN(lprd_sisa_bahan) AS sisa_bahan                    -- Sisa bahan paling akhir setelah potong
+                MAX(lprd_barcode) AS lprd_barcode,
+                SUM(lprd_j_meter) AS total_j_meter,
+                MAX(lprd_panjang_awal) AS panjang_awal,
+                MAX(lprd_panjang_terpakai) AS panjang_terpakai,
+                MIN(lprd_sisa_bahan) AS sisa_bahan
             FROM tlhk_proofmmt_dtl
             GROUP BY lprd_lpr_nomor
         ) d ON d.lprd_lpr_nomor = h.lpr_nomor
@@ -426,6 +425,22 @@ const saveLhk = async (data) => {
   }
 };
 
+const accLhk = async (nomor, user = "SYSTEM") => {
+  const sql = `
+    UPDATE tlhk_proofmmt_hdr 
+    SET lpr_acc = 'ACC'
+    WHERE lpr_nomor = ?
+  `;
+
+  const [result] = await pool.query(sql, [nomor]);
+
+  if (result.affectedRows === 0) {
+    throw new Error(`Data LHK dengan nomor ${nomor} tidak ditemukan.`);
+  }
+
+  return { success: true, nomor };
+};
+
 /**
  * Menghapus LHK Proof
  */
@@ -454,5 +469,7 @@ module.exports = {
   getDetailsByNomor,
   getLhkByNomor,
   saveLhk,
+  generateNewNomor,
+  accLhk,
   deleteLhk,
 };
