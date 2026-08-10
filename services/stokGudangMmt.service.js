@@ -55,7 +55,7 @@ exports.getStokByBarcode = async (barcode) => {
             UNION ALL
 
             -- b. LHK Sublim (Menggunakan lsb_panjang_bs / perhitungan terpakai)
-            SELECT (d.lsbd_ambilbahan - d.lsbd_panjang_pakai) AS sisa_meter, h.lsb_date_Create AS tgl, d.lsbd_no_urut AS urut
+            SELECT d.lsbd_sisameter AS sisa_meter, h.lsb_date_Create AS tgl, d.lsbd_no_urut AS urut
             FROM tlhk_sublim_dtl d
             INNER JOIN tlhk_sublim_hdr h ON h.lsb_nomor = d.lsbd_lsb_nomor
             WHERE h.lsb_barcode = ?

@@ -145,10 +145,12 @@ const getDetailsByNomor = async (nomor) => {
             h.lsb_gdg_kode AS lsb_gdg_kode,
             h.lsb_status AS lstatus,
             h.lsb_barcode AS Barcode_Roll,  -- 🌟 Tambahkan ini agar barcode roll ter-load saat edit
-            h.lsb_brg_kode AS Kode_Bahan    -- 🌟 Tambahkan ini agar kode barang ter-load saat edit
-            
+            h.lsb_brg_kode AS Kode_Bahan,    -- 🌟 Tambahkan ini agar kode barang ter-load saat edit
+            d.lsbd_ambilbahan AS panjang_awal,
+            d.lsbd_panjang_pakai AS panjang_terpakai,
+            d.lsbd_sisameter AS lsbd_sisameter
         FROM tlhk_sublim_dtl d
-        LEFT JOIN tlhk_sublim_hdr h ON h.lsb_nomor = d.lsbd_lsb_nomor -- 🌟 UBAH KE LEFT JOIN
+        LEFT JOIN tlhk_sublim_hdr h ON h.lsb_nomor = d.lsbd_lsb_nomor 
         LEFT JOIN (
             SELECT spk_nomor, spk_nama FROM tspk 
             UNION ALL 
@@ -180,13 +182,25 @@ const saveLhkMesin = async (data) => {
     const formattedDate = format(new Date(tanggalForm), "yyyy-MM-dd");
     const formattedNow = format(new Date(), "yyyy-MM-dd HH:mm:ss");
 
-    // 🌟 PERBAIKAN: Pindahkan deklarasi variabel ini ke atas agar bisa dibaca di proses HEADER maupun DETAIL
     const usedBarcode = header.barcode_input || "";
     const usedKodeBahan = header.brg_kode || "";
-    let maxAmbilPanjang = parseFloat(header.Panjang_bahan || 0);
-    const initialLebar = parseFloat(header.Lebar_bahan || 0);
+    let maxAmbilPanjang = parseFloat(
+      header.Panjang_bahan || header.panjang_bahan || 0,
+    );
+    const initialLebar = parseFloat(
+      header.Lebar_bahan || header.lebar_bahan || 0,
+    );
 
-    // Mengambil daftar nomor SPK unik untuk kolom lspk_nomor gabungan
+    // 🌟 HITUNG NILAI SISA METER (Prioritas Manual -> Otomatis -> 0)
+    const sisaManual = header.sisa_panjang_manual;
+    const sisaOtomatis = header.sisabahan ?? header.sisa_panjang_otomatis ?? 0;
+    const finalSisaMeter =
+      sisaManual !== null &&
+      sisaManual !== undefined &&
+      String(sisaManual).trim() !== ""
+        ? parseFloat(sisaManual)
+        : parseFloat(sisaOtomatis);
+
     const uniqueSpks = [
       ...new Set(details.map((d) => d.spk_nomor).filter((s) => s)),
     ];
@@ -222,11 +236,9 @@ const saveLhkMesin = async (data) => {
         };
 
         await conn.query(
-          `
-                    INSERT INTO tlhk_history_log (
-                        lhl_nomor_lhk, lhl_action, lhl_data_old, lhl_user_action, lhl_date_action
-                    ) VALUES (?, 'EDIT', ?, ?, ?)
-                `,
+          `INSERT INTO tlhk_history_log (
+              lhl_nomor_lhk, lhl_action, lhl_data_old, lhl_user_action, lhl_date_action
+           ) VALUES (?, 'EDIT', ?, ?, ?)`,
           [
             nomorLhk,
             JSON.stringify(snapshotDataLama),
@@ -236,7 +248,6 @@ const saveLhkMesin = async (data) => {
         );
       }
 
-      // Bersihkan data mutasi stok lama dan detail lama sebelum ditulis ulang
       await conn.query(`DELETE FROM tlhk_sublim_dtl WHERE lsbd_lsb_nomor = ?`, [
         nomorLhk,
       ]);
@@ -246,13 +257,13 @@ const saveLhkMesin = async (data) => {
       );
     }
 
-    // 2. PROSES INSERT / UPDATE HEADER SUBLIM (Sekarang aman dari error initialization)
+    // 2. PROSES INSERT / UPDATE HEADER SUBLIM
     if (!nomorLhk || nomorLhk === "AUTO") {
       const yymm = format(new Date(tanggalForm), "yyMM");
       const [maxRows] = await conn.query(
         `SELECT MAX(CAST(SUBSTRING_INDEX(lsb_nomor, '.', -1) AS UNSIGNED)) AS max_num 
-                 FROM tlhk_sublim_hdr 
-                 WHERE lsb_nomor LIKE ?`,
+         FROM tlhk_sublim_hdr 
+         WHERE lsb_nomor LIKE ?`,
         [`${NOMERATOR_MESIN}.${yymm}.%`],
       );
 
@@ -261,8 +272,8 @@ const saveLhkMesin = async (data) => {
 
       await conn.query(
         `INSERT INTO tlhk_sublim_hdr 
-                (lsb_nomor, lsb_tanggal, lsb_jenis, lsb_shift, lsb_date_Create, lsb_user_create, lsb_gdg_kode, lsb_status, lsb_barcode, lsb_brg_kode, lsb_panjang_bs, lsb_lebar_bs) 
-                VALUES (?, ?, 'S', ?, NOW(), ?, ?, ?, ?, ?, ?, ?)`,
+            (lsb_nomor, lsb_tanggal, lsb_jenis, lsb_shift, lsb_date_Create, lsb_user_create, lsb_gdg_kode, lsb_status, lsb_barcode, lsb_brg_kode, lsb_panjang_bs, lsb_lebar_bs) 
+         VALUES (?, ?, 'S', ?, NOW(), ?, ?, ?, ?, ?, ?, ?)`,
         [
           nomorLhk,
           tanggalForm,
@@ -279,8 +290,8 @@ const saveLhkMesin = async (data) => {
     } else {
       await conn.query(
         `UPDATE tlhk_sublim_hdr 
-                 SET lsb_tanggal=?, lsb_shift=?, lsb_user_modified=?, lsb_gdg_kode=?, lsb_status=?, lsb_barcode=?, lsb_brg_kode=?, lsb_panjang_bs=?, lsb_lebar_bs=?, lsb_date_modified=NOW() 
-                 WHERE lsb_nomor=?`,
+         SET lsb_tanggal=?, lsb_shift=?, lsb_user_modified=?, lsb_gdg_kode=?, lsb_status=?, lsb_barcode=?, lsb_brg_kode=?, lsb_panjang_bs=?, lsb_lebar_bs=?, lsb_date_modified=NOW() 
+         WHERE lsb_nomor=?`,
         [
           tanggalForm,
           shiftForm,
@@ -296,7 +307,7 @@ const saveLhkMesin = async (data) => {
       );
     }
 
-    // 3. PROSES DATA DETAIL
+    // 3. PROSES DATA DETAIL (🌟 DITAMBAHKAN LSBD_SISAMETER)
     if (details && details.length > 0) {
       const values = details.map((d, i) => {
         const p = parseFloat(d.spk_panjang || 0);
@@ -304,6 +315,12 @@ const saveLhkMesin = async (data) => {
         const qtyHasilLhk = parseFloat(d.jumlah_sublim || 0);
         const qtyOrderSpk = parseFloat(d.spk_jmlorder || 0);
         const jMeter = p * l * qtyHasilLhk;
+
+        // Ambil nilai sisa per-baris jika dikirim detail, atau fallback ke finalSisaMeter
+        const sisaMeterBaris =
+          d.lsbd_sisameter !== undefined && d.lsbd_sisameter !== null
+            ? parseFloat(d.lsbd_sisameter)
+            : finalSisaMeter;
 
         return [
           nomorLhk,
@@ -322,22 +339,23 @@ const saveLhkMesin = async (data) => {
           i + 1,
           0,
           0,
-          "",
-          "",
+          d.lsbd_poi_nomor || "",
+          d.lsbd_poid_size || "",
           parseFloat(d.lsbd_ambilbahan || maxAmbilPanjang),
           parseFloat(d.lsbd_panjang_pakai || 0),
           parseFloat(d.lsbd_lebar_pakai || 0),
+          sisaMeterBaris, // 🌟 VALUE LSBD_SISAMETER
         ];
       });
 
       const sqlInsertDtl = `
-                INSERT INTO tlhk_sublim_dtl (
-                    lsbd_lsb_nomor, lsbd_spk_nomor, lsbd_spk_nama, lsbd_spk_tanggal, lsbd_dateline, 
-                    lsbd_jumlah_order, lsbd_panjang, lsbd_lebar, lsbd_mesin, lsbd_jumlah, 
-                    lsbd_j_meter, lsbd_lokasi, lsbd_bahan, lsbd_no_urut, lsbd_toleransi, 
-                    lsbd_waste, lsbd_poi_nomor, lsbd_poid_size,
-                    lsbd_ambilbahan, lsbd_panjang_pakai, lsbd_lebar_pakai
-                ) VALUES ?`;
+        INSERT INTO tlhk_sublim_dtl (
+            lsbd_lsb_nomor, lsbd_spk_nomor, lsbd_spk_nama, lsbd_spk_tanggal, lsbd_dateline, 
+            lsbd_jumlah_order, lsbd_panjang, lsbd_lebar, lsbd_mesin, lsbd_jumlah, 
+            lsbd_j_meter, lsbd_lokasi, lsbd_bahan, lsbd_no_urut, lsbd_toleransi, 
+            lsbd_waste, lsbd_poi_nomor, lsbd_poid_size,
+            lsbd_ambilbahan, lsbd_panjang_pakai, lsbd_lebar_pakai, lsbd_sisameter
+        ) VALUES ?`;
 
       await conn.query(sqlInsertDtl, [values]);
     }
@@ -346,12 +364,10 @@ const saveLhkMesin = async (data) => {
     if (currentStatus === "POSTED") {
       if (usedBarcode && maxAmbilPanjang > 0) {
         const [oldStockData] = await conn.query(
-          `
-                    SELECT mst_hargabeli, mst_satuan_harga, mst_lebar 
-                    FROM tmasterstok_mmt 
-                    WHERE mst_barcode = ? 
-                    ORDER BY id DESC LIMIT 1
-                `,
+          `SELECT mst_hargabeli, mst_satuan_harga, mst_lebar 
+           FROM tmasterstok_mmt 
+           WHERE mst_barcode = ? 
+           ORDER BY id DESC LIMIT 1`,
           [usedBarcode],
         );
 
@@ -362,18 +378,13 @@ const saveLhkMesin = async (data) => {
         const lebarAwal =
           oldStockData.length > 0 ? oldStockData[0].mst_lebar : initialLebar;
 
-        const finalSisaMeter = parseFloat(header.sisa_panjang_manual || 0);
-        const finalLebarInput = initialLebar;
-
         // A. MUTASI KELUAR
         await conn.query(
-          `
-                    INSERT INTO tmasterstok_mmt (
-                        mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
-                        mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi,
-                        mst_hargabeli, mst_satuan_harga, mst_tanggal, mst_barcode, mst_kategori
-                    ) VALUES (?, ?, 0, 1, ?, ?, ?, ?, ?, ?, ?, ?, 'RETUR')
-                `,
+          `INSERT INTO tmasterstok_mmt (
+              mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
+              mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi,
+              mst_hargabeli, mst_satuan_harga, mst_tanggal, mst_barcode, mst_kategori
+           ) VALUES (?, ?, 0, 1, ?, ?, ?, ?, ?, ?, ?, ?, 'RETUR')`,
           [
             usedKodeBahan,
             gdgKode,
@@ -388,23 +399,20 @@ const saveLhkMesin = async (data) => {
           ],
         );
 
-        // B. MUTASI MASUK
+        // B. MUTASI MASUK (SISA METER)
         if (finalSisaMeter > 0) {
-          const kategoriSisa = getKategori(finalSisaMeter, finalLebarInput);
+          const kategoriSisa = getKategori(finalSisaMeter, initialLebar);
           await conn.query(
-            `
-                        INSERT INTO tmasterstok_mmt (
-                            mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
-                            mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi,
-                            mst_hargabeli, mst_satuan_harga, mst_tanggal, mst_barcode,
-                            mst_kategori
-                        ) VALUES (?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    `,
+            `INSERT INTO tmasterstok_mmt (
+                mst_brg_kode, mst_gdg_kode, mst_stok_in, mst_stok_out,
+                mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi,
+                mst_hargabeli, mst_satuan_harga, mst_tanggal, mst_barcode, mst_kategori
+             ) VALUES (?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               usedKodeBahan,
               gdgKode,
               finalSisaMeter,
-              finalLebarInput,
+              initialLebar,
               combinedSpkNomor,
               nomorLhk,
               hargaBeliLama,
