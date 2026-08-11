@@ -79,6 +79,7 @@ const penerimaanBahanPenolongRoutes = require("./routes/spanduk/penerimaanBahanP
 const lapKartuStokMmtRoutes = require("./routes/lapKartuStokMmt.routes");
 const lapMonJadwalKirimRoutes = require("./routes/lapMonJadwalKirim.routes");
 const soToSpkRoutes = require("./routes/soToSpk.routes");
+const mapRoutes = require("./routes/map.routes"); // <- Ditambahkan di sini
 const salesOrderRoutes = require("./routes/salesOrder.routes");
 
 // Konfigurasi
@@ -157,6 +158,7 @@ app.use(
   permintaanProduksiRoutes,
 );
 app.use("/api/supplier", clientCertAuth, supplierRoutes);
+app.use("/api/mmt/map", clientCertAuth, mapRoutes); // <- Ditambahkan di sini
 
 app.use("/api/mmt/koreksi-stok", clientCertAuth, koreksiStokMmtRoutes);
 app.use("/api/mmt/po-paperprint", clientCertAuth, poPaperprintRoutes);

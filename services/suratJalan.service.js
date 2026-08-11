@@ -16,6 +16,7 @@ const throwDbError = (message, error) => {
 /**
  * BROWSE DATA SURAT JALAN UTAMA (Logika btnRefreshClick Delphi)
  */
+
 const getBrowseSJ = async (
   startDate,
   endDate,
@@ -44,6 +45,7 @@ const getBrowseSJ = async (
 
     selectCols += `
             a.sj_keterangan AS Keterangan, 
+            a.sj_gdg_kode AS KodeGdg, 
             g.gdg_nama AS Gudang, 
             SUM(d.sjd_jumlah) AS QtyKirim, 
             (IF(a.sj_approve = 2, "Batal", IF(a.sj_approve = 1, "Sudah", ""))) AS Approved, 
