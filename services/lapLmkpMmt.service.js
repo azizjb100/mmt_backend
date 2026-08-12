@@ -146,7 +146,7 @@ exports.getMonitoringData = async (cbJenisIndex, startDate, endDate) => {
             ) gg ON gg.lfd_spk_nomor = spk_nomor
 
             WHERE spk_aktif = 'Y' 
-              AND spk_close = 0
+
               ${conditionExtra}
               AND spk_tanggal BETWEEN ? AND ?
             ORDER BY spk_nama
