@@ -9,7 +9,17 @@ const throwDbError = (message, error) => {
 };
 
 // ========================================================
-// GENERATE MAX NOMOR (getmaxnomor - Format: PP.YYYYMM.XXXX)
+// HELPER FORMAT TANGGAL SQL (YYYY-MM-DD)
+// ========================================================
+const toSqlDate = (dateVal) => {
+  if (!dateVal) return format(new Date(), "yyyy-MM-dd");
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) return format(new Date(), "yyyy-MM-dd");
+  return format(d, "yyyy-MM-dd");
+};
+
+// ========================================================
+// GENERATE MAX NOMOR (Format: PP.YYYYMM.XXXX)
 // ========================================================
 const generateMaxNomor = async (tanggal, connection = pool) => {
   const yyyymm = format(new Date(tanggal || new Date()), "yyyyMM");
@@ -30,7 +40,79 @@ const generateMaxNomor = async (tanggal, connection = pool) => {
 };
 
 // ========================================================
-// READ MASTER DATA (btnRefreshClick - SQLMaster)
+// MASTER OPTIONS & RESOLVERS (Lookup Auto-Fill & Dropdowns)
+// ========================================================
+const getPaperUkuran = async () => {
+  const sql = `SELECT Ukuran FROM tpaper_ukuran ORDER BY Ukuran`;
+  try {
+    const [rows] = await pool.query(sql);
+    return rows.map((r) => r.Ukuran);
+  } catch (error) {
+    return ["A4", "A3", "F4", "70x100"]; // Fallback jika tabel master belum ada
+  }
+};
+
+const getPaperBahan = async () => {
+  const sql = `SELECT Bahan FROM tpaper_bahan ORDER BY Bahan`;
+  try {
+    const [rows] = await pool.query(sql);
+    return rows.map((r) => r.Bahan);
+  } catch (error) {
+    return ["Art Paper", "HVS", "Ivory", "Duplex"]; // Fallback
+  }
+};
+
+const getSupplierByKode = async (kode) => {
+  const sql = `
+    SELECT Sup_kode AS kode, Sup_nama AS nama, Sup_alamat AS alamat 
+    FROM tsupplier 
+    WHERE Sup_kode = ?
+  `;
+  try {
+    const [rows] = await pool.query(sql, [kode]);
+    return rows[0] || null;
+  } catch (error) {
+    throwDbError("Gagal mencari data Supplier", error);
+  }
+};
+
+const getSpkByKode = async (kode) => {
+  const sql = `
+    SELECT * FROM (
+      SELECT 
+        spk_nomor AS SPK, 
+        spk_nama AS Nama, 
+        spk_ukuran AS Ukuran, 
+        spk_kain AS Bahan, 
+        spk_finishing AS Finishing,
+        spk_jumlah AS Jumlah
+      FROM tspk 
+      WHERE spk_aktif = 'Y'
+      
+      UNION ALL
+      
+      SELECT 
+        mspk_nomor AS SPK, 
+        mspk_nama AS Nama, 
+        mspk_ukuran AS Ukuran, 
+        mspk_kain AS Bahan, 
+        mspk_finishing AS Finishing,
+        mspk_jumlah AS Jumlah
+      FROM tmemospk
+    ) x 
+    WHERE x.SPK = ? 
+    LIMIT 1
+  `;
+  try {
+    const [rows] = await pool.query(sql, [kode]);
+    return rows[0] || null;
+  } catch (error) {
+    throwDbError("Gagal mencari data SPK", error);
+  }
+};
+
+// ========================================================
+// READ MASTER DATA (Browse - SQLMaster)
 // ========================================================
 const getPoPaperprintMaster = async (startDate, endDate) => {
   const sqlMaster = `
@@ -59,7 +141,7 @@ const getPoPaperprintMaster = async (startDate, endDate) => {
 };
 
 // ========================================================
-// READ DETAIL DATA (loadDetails - SQLDetail)
+// READ DETAIL DATA (Form Load)
 // ========================================================
 const getPoPaperprintDetail = async (nomor) => {
   const sqlDetail = `
@@ -89,163 +171,191 @@ const getPoPaperprintDetail = async (nomor) => {
 };
 
 // ========================================================
-// CREATE / SIMPAN DATA (simpandata - Mode Add)
+// CREATE / SIMPAN DATA (Mode Add)
 // ========================================================
-const createPoPaperprint = async (payload, user = "ADMIN") => {
-  const { header, details } = payload;
+const createPoPaperprint = async (dataPayload, files, user) => {
+  const header = dataPayload.header || dataPayload;
+  const details = dataPayload.details || [];
+
   const connection = await pool.getConnection();
 
   try {
     await connection.beginTransaction();
 
-    // 1. Generate Nomor Otomatis jika belum diisi dari frontend
-    const nomorPO =
-      header.nomor && header.nomor.startsWith("PP.")
-        ? header.nomor
-        : await generateMaxNomor(header.tanggal, connection);
+    // 1. AUTO GENERATE NOMOR JIKA KOSONG
+    let nomor = header.nomor || header.pjh_nomor;
+    if (
+      !nomor ||
+      String(nomor).trim() === "" ||
+      String(nomor).includes("Kosong")
+    ) {
+      nomor = await generateMaxNomor(header.tanggal, connection);
+    }
 
-    // 2. Insert Header (tpopaper_hdr)
-    const sqlInsertHeader = `
-            INSERT INTO tpopaper_hdr
-            (pjh_nomor, pjh_tanggal, pjh_dateline, pjh_sup_kode, pjh_ket, pjh_cab, user_create, date_create)
-            VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
-        `;
+    const tanggal = toSqlDate(header.tanggal || header.pjh_tanggal);
+    const dateline = toSqlDate(
+      header.dateline || header.pjh_dateline || tanggal,
+    );
+    const cabang = header.cabang || header.cab || header.pjh_cab || "P01";
+    const supKode =
+      header.supKode || header.sup_kode || header.pjh_sup_kode || "00164";
+    const keterangan = header.keterangan || header.ket || header.pjh_ket || "";
+    const kdUser = user?.kdUser || user?.username || header.kdUser || "ADMIN";
 
-    await connection.query(sqlInsertHeader, [
-      nomorPO,
-      header.tanggal,
-      header.dateline || header.tanggal,
-      header.supKode,
-      header.keterangan || "",
-      header.cab || "P01",
-      user,
-    ]);
+    // 2. QUERY INSERT HEADER
+    const sqlHeader = `
+      INSERT INTO tpopaper_hdr (
+        pjh_nomor, 
+        pjh_tanggal, 
+        pjh_dateline, 
+        pjh_sup_kode, 
+        pjh_ket, 
+        pjh_cab, 
+        user_create, 
+        date_create
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+    `;
 
-    // 3. Insert Details (tpopaper_dtl)
-    if (details && details.length > 0) {
-      const detailValues = details.map((item, idx) => [
-        nomorPO,
-        item.spk || "",
-        item.nama || "",
-        item.ukuran || "",
-        item.bahan || "",
-        item.finishing || "",
-        parseFloat(item.jumlah || item.qty || 0),
-        parseFloat(item.harga || 0),
-        item.ket || item.keterangan || "",
-        item.idgambar || String(idx + 1).padStart(2, "0"),
+    const valuesHeader = [
+      nomor,
+      tanggal,
+      dateline,
+      supKode,
+      keterangan,
+      cabang,
+      kdUser,
+    ];
+
+    await connection.query(sqlHeader, valuesHeader);
+
+    // 3. QUERY INSERT DETAIL
+    if (details.length > 0) {
+      const sqlDetail = `
+        INSERT INTO tpopaper_dtl (
+          pjd_nomor, pjd_spk, pjd_nama, pjd_ukuran, pjd_bahan, pjd_finishing, pjd_qty, pjd_ket
+        ) VALUES ?
+      `;
+
+      const valuesDetail = details.map((row) => [
+        nomor,
+        row.spk || row.pjd_spk || "",
+        row.nama || row.pjd_nama || "",
+        row.ukuran || row.pjd_ukuran || "",
+        row.bahan || row.pjd_bahan || "",
+        row.finishing || row.pjd_finishing || "",
+        Number(row.jumlah || row.pjd_qty || row.qty) || 0,
+        row.ket || row.pjd_ket || "",
       ]);
 
-      const sqlInsertDetail = `
-                INSERT INTO tpopaper_dtl
-                (pjd_nomor, pjd_spk, pjd_nama, pjd_ukuran, pjd_bahan, pjd_finishing, pjd_qty, pjd_harga, pjd_ket, pjd_idgambar)
-                VALUES ?
-            `;
-
-      await connection.query(sqlInsertDetail, [detailValues]);
+      await connection.query(sqlDetail, [valuesDetail]);
     }
 
     await connection.commit();
-    return { nomor: nomorPO, message: "PO Paperprint berhasil disimpan" };
+    return { nomor };
   } catch (error) {
-    if (connection) await connection.rollback();
+    await connection.rollback();
     throwDbError("Gagal menyimpan PO Paperprint", error);
   } finally {
-    if (connection) connection.release();
+    connection.release();
   }
 };
 
 // ========================================================
-// UPDATE / EDIT DATA (simpandata - Mode Edit)
+// UPDATE / EDIT DATA (Mode Edit)
 // ========================================================
-const updatePoPaperprint = async (nomor, payload, user = "ADMIN") => {
-  const { header, details } = payload;
+const updatePoPaperprint = async (nomor, dataPayload, files, user) => {
+  const header = dataPayload.header || dataPayload;
+  const details = dataPayload.details || [];
+
+  const tanggal = toSqlDate(header.tanggal || header.pjh_tanggal);
+  const dateline = toSqlDate(header.dateline || header.pjh_dateline || tanggal);
+  const cabang = header.cabang || header.cab || header.pjh_cab || "P01";
+  const supKode =
+    header.supKode || header.sup_kode || header.pjh_sup_kode || "00164";
+  const keterangan = header.keterangan || header.ket || header.pjh_ket || "";
+  const kdUser = user?.kdUser || user?.username || header.kdUser || "ADMIN";
+
   const connection = await pool.getConnection();
 
   try {
     await connection.beginTransaction();
 
-    // 1. Update Header (tpopaper_hdr)
-    const sqlUpdateHeader = `
-            UPDATE tpopaper_hdr SET
-                pjh_tanggal = ?,
-                pjh_dateline = ?,
-                pjh_sup_kode = ?,
-                pjh_ket = ?,
-                pjh_cab = ?,
-                user_modified = ?,
-                date_modified = NOW()
-            WHERE pjh_nomor = ?
-        `;
+    const sqlHeader = `
+      UPDATE tpopaper_hdr SET
+        pjh_tanggal = ?, 
+        pjh_dateline = ?, 
+        pjh_sup_kode = ?, 
+        pjh_ket = ?, 
+        pjh_cab = ?, 
+        user_modified = ?, 
+        date_modified = NOW()
+      WHERE pjh_nomor = ?
+    `;
 
-    const [headerResult] = await connection.query(sqlUpdateHeader, [
-      header.tanggal,
-      header.dateline || header.tanggal,
-      header.supKode,
-      header.keterangan || "",
-      header.cab,
-      user,
+    const valuesHeader = [
+      tanggal,
+      dateline,
+      supKode,
+      keterangan,
+      cabang,
+      kdUser,
+      nomor,
+    ];
+
+    await connection.query(sqlHeader, valuesHeader);
+
+    // Hapus detail lama dan ganti dengan detail baru
+    await connection.query(`DELETE FROM tpopaper_dtl WHERE pjd_nomor = ?`, [
       nomor,
     ]);
 
-    if (headerResult.affectedRows === 0) {
-      throw new Error(
-        `Transaksi PO Paper dengan nomor ${nomor} tidak ditemukan.`,
-      );
-    }
+    if (details.length > 0) {
+      const sqlDetail = `
+        INSERT INTO tpopaper_dtl (
+          pjd_nomor, pjd_spk, pjd_nama, pjd_ukuran, pjd_bahan, pjd_finishing, pjd_qty, pjd_ket
+        ) VALUES ?
+      `;
 
-    // 2. Hapus detail lama
-    const sqlDeleteOldDetails = `DELETE FROM tpopaper_dtl WHERE pjd_nomor = ?`;
-    await connection.query(sqlDeleteOldDetails, [nomor]);
-
-    // 3. Insert ulang details baru
-    if (details && details.length > 0) {
-      const detailValues = details.map((item, idx) => [
+      const valuesDetail = details.map((row) => [
         nomor,
-        item.spk || "",
-        item.nama || "",
-        item.ukuran || "",
-        item.bahan || "",
-        item.finishing || "",
-        parseFloat(item.jumlah || item.qty || 0),
-        parseFloat(item.harga || 0),
-        item.ket || item.keterangan || "",
-        item.idgambar || String(idx + 1).padStart(2, "0"),
+        row.spk || row.pjd_spk || "",
+        row.nama || row.pjd_nama || "",
+        row.ukuran || row.pjd_ukuran || "",
+        row.bahan || row.pjd_bahan || "",
+        row.finishing || row.pjd_finishing || "",
+        Number(row.jumlah || row.pjd_qty || row.qty) || 0,
+        row.ket || row.pjd_ket || "",
       ]);
 
-      const sqlInsertDetail = `
-                INSERT INTO tpopaper_dtl
-                (pjd_nomor, pjd_spk, pjd_nama, pjd_ukuran, pjd_bahan, pjd_finishing, pjd_qty, pjd_harga, pjd_ket, pjd_idgambar)
-                VALUES ?
-            `;
-
-      await connection.query(sqlInsertDetail, [detailValues]);
+      await connection.query(sqlDetail, [valuesDetail]);
     }
 
     await connection.commit();
-    return { nomor, message: "PO Paperprint berhasil diperbarui" };
+    return { nomor };
   } catch (error) {
-    if (connection) await connection.rollback();
-    throwDbError("Gagal mengedit PO Paperprint", error);
+    await connection.rollback();
+    throwDbError("Gagal mengubah PO Paperprint", error);
   } finally {
-    if (connection) connection.release();
+    connection.release();
   }
 };
 
 // ========================================================
-// DELETE (cxButton4Click)
+// DELETE
 // ========================================================
 const deletePoPaperprint = async (nomor) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
 
-    // FIX: Nama tabel disesuaikan dengan tpopaper_dtl & tpopaper_hdr
-    const sqlDeleteDetail = "DELETE FROM tpopaper_dtl WHERE pjd_nomor = ?";
-    await connection.query(sqlDeleteDetail, [nomor]);
+    await connection.query("DELETE FROM tpopaper_dtl WHERE pjd_nomor = ?", [
+      nomor,
+    ]);
 
-    const sqlDeleteHeader = "DELETE FROM tpopaper_hdr WHERE pjh_nomor = ?";
-    const [headerResult] = await connection.query(sqlDeleteHeader, [nomor]);
+    const [headerResult] = await connection.query(
+      "DELETE FROM tpopaper_hdr WHERE pjh_nomor = ?",
+      [nomor],
+    );
 
     if (headerResult.affectedRows === 0) {
       throw new Error("Nomor transaksi tidak ditemukan atau sudah terhapus.");
@@ -264,6 +374,10 @@ const deletePoPaperprint = async (nomor) => {
 // --- EKSPOR FINAL ---
 module.exports = {
   generateMaxNomor,
+  getPaperUkuran,
+  getPaperBahan,
+  getSupplierByKode,
+  getSpkByKode,
   getPoPaperprintMaster,
   getPoPaperprintDetail,
   createPoPaperprint,

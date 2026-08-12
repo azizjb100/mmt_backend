@@ -63,56 +63,74 @@ const getMaxNomor = async (req, res) => {
   }
 };
 
-// CREATE (Simpan Transaksi Baru)
 const createPoPaperprint = async (req, res) => {
   try {
-    // Parsing otomatis jika dikirim via FormData (String) atau JSON
-    const header =
-      typeof req.body.header === "string"
-        ? JSON.parse(req.body.header)
-        : req.body.header;
+    // 1. Parsing payload "data" dari FormData
+    let payload = req.body;
+    if (typeof req.body.data === "string") {
+      payload = JSON.parse(req.body.data);
+    } else if (req.body.data) {
+      payload = req.body.data;
+    }
 
-    const details =
-      typeof req.body.details === "string"
-        ? JSON.parse(req.body.details)
-        : req.body.details;
+    // 2. Ambil header & details (berikan fallback jika struktur bertingkat)
+    const header = payload.header || payload;
+    const details = payload.details || payload.Detail || [];
+    const files = req.files || []; // File gambar yang di-upload via Multer
 
-    const kdUser = req.body.kdUser || "ADMIN";
-
+    // 3. Panggil Service
     const result = await service.createPoPaperprint(
       { header, details },
-      kdUser,
+      files,
+      req.user,
     );
-    res.status(201).json({ success: true, ...result });
+
+    res.status(201).json({
+      success: true,
+      message: "PO Paperprint berhasil disimpan",
+      data: result,
+      nomor: result.nomor || header.nomor,
+    });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error("Error createPoPaperprint:", error);
+    res
+      .status(500)
+      .json({ message: error.message || "Gagal menyimpan PO Paperprint" });
   }
 };
 
-// UPDATE (Edit Transaksi)
 const updatePoPaperprint = async (req, res) => {
   const { nomor } = req.params;
   try {
-    const header =
-      typeof req.body.header === "string"
-        ? JSON.parse(req.body.header)
-        : req.body.header;
+    let payload = req.body;
+    if (typeof req.body.data === "string") {
+      payload = JSON.parse(req.body.data);
+    } else if (req.body.data) {
+      payload = req.body.data;
+    }
 
-    const details =
-      typeof req.body.details === "string"
-        ? JSON.parse(req.body.details)
-        : req.body.details;
-
-    const kdUser = req.body.kdUser || "ADMIN";
+    const header = payload.header || payload;
+    const details = payload.details || payload.Detail || [];
+    const files = req.files || [];
 
     const result = await service.updatePoPaperprint(
       nomor,
       { header, details },
-      kdUser,
+      files,
+      req.user,
     );
-    res.json({ success: true, ...result });
+
+    res.json({
+      success: true,
+      message: "PO Paperprint berhasil diubah",
+      data: result,
+      nomor: result.nomor || nomor,
+    });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error("Error updatePoPaperprint:", error);
+    res
+      .status(500)
+      .json({ message: error.message || "Gagal mengubah PO Paperprint" });
   }
 };
 

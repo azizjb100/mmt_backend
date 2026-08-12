@@ -2,6 +2,8 @@
 
 const express = require("express");
 const router = express.Router();
+const multer = require("multer");
+const upload = multer({ limits: { fileSize: 1 * 1024 * 1024 } });
 const controller = require("../controllers/poPaperprint.controller.js");
 
 // 1. Browse Master List (GET /api/po-paper)
@@ -17,10 +19,8 @@ router.get("/detail", controller.getPoPaperprintDetail);
 router.get("/:nomor", controller.getPoPaperprintByNomor);
 
 // 5. Simpan PO Baru (POST /api/po-paper)
-router.post("/", controller.createPoPaperprint);
-
-// 6. Update/Edit PO (PUT /api/po-paper/PP.202608.0001)
-router.put("/:nomor", controller.updatePoPaperprint);
+router.post("/", upload.any(), controller.createPoPaperprint);
+router.put("/:nomor", upload.any(), controller.updatePoPaperprint);
 
 // 7. Hapus PO (DELETE /api/po-paper/PP.202608.0001)
 router.delete("/:nomor", controller.deletePoPaperprint);

@@ -13,8 +13,11 @@ const getBrowseList = async (filters) => {
     canLihatHarga,
   } = filters;
 
-  let params = [startDate, endDate];
-  let whereClause = `WHERE DATE(x.Tanggal) >= ? AND DATE(x.Tanggal) <= ? AND x.IsSO = 0`;
+  // Parameter tanggal awal untuk inner query (tspk & tsalesorder)
+  let params = [startDate, endDate, startDate, endDate];
+
+  // Gunakan WHERE 1=1 agar parameter tambahan (workshop, customer, dsb) menyambung secara pas
+  let whereClause = `WHERE 1=1`;
 
   if (workshop && workshop !== "ALL" && workshop !== "") {
     whereClause += ` AND x.Cab = ?`;
@@ -34,11 +37,6 @@ const getBrowseList = async (filters) => {
     params.push(userCabang);
   }
 
-  // ⚠️ Kolom nama customer digated flag lihatCus (user_lihat_cus), dan
-  // Harga digated flag lihatHarga (user_lihat_harga) — replikasi
-  // `if zcus=1` / `if zLihatHarga=1` di ufrmBrowseSPK.btnRefreshClick.
-  // Pola sama persis dengan salesOrderService (SPK PPIC = form yang
-  // sama, cuma filter is_so beda).
   const custNameCol = canLihatCus
     ? "c.cus_nama AS Customer,"
     : "NULL AS Customer,";
@@ -65,10 +63,13 @@ const getBrowseList = async (filters) => {
       (x.Pesan - (x.Jahit0 + x.Jahit1 + x.jht1)) AS Kurang_Jahit,
       (x.Pesan - (x.Lipat0 + x.Lipat1 + x.lpt1)) AS Kurang_Lipat
     FROM (
+      /* ==========================================
+         BAGIAN 1: Ambil Data SPK (tspk)
+         ========================================== */
       SELECT 
+        s.spk_so_ref AS SO,              -- Kolom SO sebelum Nomor SPK
         s.spk_nomor AS Nomor,
-        s.spk_so_ref AS SO,
-         s.user_create AS MO, s.spk_cmo AS CMO,
+        s.user_create AS MO, s.spk_cmo AS CMO,
         s.spk_tanggal AS Tanggal, s.spk_dateline AS Dateline,
         s.spk_statuskerja AS Kepentingan, v.divisi AS Divisi,
         s.spk_cus_kode AS KodeCustomer, ${custNameCol}
@@ -142,8 +143,6 @@ const getBrowseList = async (filters) => {
       LEFT JOIN tdivisi v ON s.spk_divisi = v.kode
       LEFT JOIN tcustomer_pin i ON i.cusp_nomor = s.spk_nomor
       LEFT JOIN tspk_pin j ON j.pin_nomor = s.spk_nomor
-
-      /* 💡 SUBQUERY 'k' YANG SUDAH DIPERBAIKI */
       LEFT JOIN (
         SELECT ds.lds_spk, ds.lds_user, ds.lds_tgl, ds.lds_note
         FROM tlhkdesign_status ds
@@ -155,7 +154,6 @@ const getBrowseList = async (filters) => {
         ) max_ds ON ds.lds_spk = max_ds.lds_spk AND ds.lds_tgl = max_ds.max_tgl
         WHERE UPPER(ds.lds_status) = "DONE"
       ) k ON k.lds_spk = s.spk_nomor
-
       LEFT JOIN (
         SELECT lcd_spk_nomor,
           SUM(IFNULL(lcd_qty_Cetak,0)) AS lcd_qty_Cetak,
@@ -164,9 +162,62 @@ const getBrowseList = async (filters) => {
         INNER JOIN tlhk_cetakmmt_hdr ON lch_nomor=lcd_lch_nomor
         GROUP BY 1
       ) l ON l.lcd_spk_nomor = s.spk_nomor
+      WHERE s.spk_tanggal >= CONCAT(?, ' 00:00:00') AND s.spk_tanggal <= CONCAT(?, ' 23:59:59')
+
+      UNION ALL
+
+      /* ==========================================
+         BAGIAN 2: Ambil Data SO (tsalesorder)
+         ========================================== */
+      SELECT 
+        so.so_nomor AS SO,               -- Nomor SO ditaruh di kolom SO
+        NULL AS Nomor,                  -- Belum ada nomor SPK
+        so.user_create AS MO, so.so_cmo AS CMO,
+        so.so_tanggal AS Tanggal, so.so_dateline AS Dateline,
+        so.so_statuskerja AS Kepentingan, v.divisi AS Divisi,
+        so.so_cus_kode AS KodeCustomer, ${custNameCol}
+        so.so_nama AS Nama, so.so_ukuran AS Ukuran,
+        so.so_cab AS Cab, TRIM(so.so_workshop) AS Workshop,
+        so.so_pending AS Pending, so.so_ketpending AS KetPending,
+        so.so_tipe AS Tipe, so.so_panjang AS Panjang,
+        so.so_lebar AS Lebar, so.so_gramasi AS Gramasi,
+        so.so_kain AS Kain, so.so_finishing AS Finishing,
+        ${hargaCol.replace(/s\.spk_harga/g, "so.so_harga")} NULL AS Prasj,
+        so.date_create AS Created, so.so_jumlah AS Pesan,
+        so.so_jumlah_kirim AS Kirim,
+        (so.so_jumlah - so.so_jumlah_kirim) AS Kurang,
+        sl.sal_nama AS Sales,
+        ${groupCusCol}
+        so.so_nomor_po AS PO, so.so_ketpo AS KetPO,
+        so.so_tgl_po AS DatePO, so.so_datelinepo AS DatelinePO,
+        IF(so.so_close=1, "Closed", "Open") AS Status,
+        so.so_close_alasan AS AlasanClose,
+        so.so_pen_nomor AS NoPenawaran,
+        so.so_memo AS MAP, so.so_repeat AS 'Repeat',
+        so.so_aktif AS Aktif, 1 AS IsSO,
+        "" AS Acc, "" AS AccH0,
+        so.so_pinjo AS AccJO, so.so_accpending AS AccPending,
+        so.so_mppb AS MPPB,
+        so.so_newdesign AS Design_Baru,
+        so.so_designdone AS Design_Done,
+        so.so_keterangan AS Keterangan,
+        so.so_invdc AS 'Pesanan/Invoice',
+        0 AS titik, 0 AS Potong0, 0 AS QcPotong0, 0 AS Bordir0, 0 AS Cetak0, 0 AS QcCetak0, 0 AS dc0, 0 AS Jahit0, 0 AS Lipat0,
+        0 AS Potong1, 0 AS QcPotong1, 0 AS Bordir1, 0 AS Cetak1, 0 AS QcCetak1, 0 AS dc1, 0 AS Jahit1, 0 AS Lipat1,
+        0 AS ctk1, 0 AS jht1, 0 AS lpt1, 0 AS ctkm,
+        0 AS Jadi,
+        "" AS pin_acc, "" AS pin_dipakai, "" AS Ngedit,
+        0 AS CetakCount, "" AS CetakApprovalStatus,
+        NULL AS Design_Tanggal, NULL AS Design_User, NULL AS Design_Note
+      FROM tsalesorder so
+      LEFT JOIN tcustomer c ON so.so_cus_kode = c.cus_kode
+      LEFT JOIN tcustomer c1 ON c.cus_kodei = c1.cus_kode
+      LEFT JOIN tsales sl ON so.so_sal_kode = sl.sal_kode
+      LEFT JOIN tdivisi v ON so.so_divisi = v.kode
+      WHERE so.so_tanggal >= CONCAT(?, ' 00:00:00') AND so.so_tanggal <= CONCAT(?, ' 23:59:59')
     ) x
     ${whereClause}
-    ORDER BY x.Tanggal DESC, x.Nomor DESC  `;
+    ORDER BY x.Tanggal DESC, x.SO DESC, x.Nomor DESC`;
 
   const [rows] = await db.query(query, params);
   return rows;
