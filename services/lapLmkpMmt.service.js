@@ -148,7 +148,8 @@ exports.getMonitoringData = async (cbJenisIndex, startDate, endDate) => {
             WHERE spk_aktif = 'Y' 
 
               ${conditionExtra}
-              AND spk_tanggal BETWEEN ? AND ?
+              AND spk_tanggal >= CONCAT(?, ' 00:00:00') 
+              AND spk_tanggal <= CONCAT(?, ' 23:59:59')
             ORDER BY spk_nama
         `;
 
