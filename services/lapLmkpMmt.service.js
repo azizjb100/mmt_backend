@@ -82,11 +82,11 @@ exports.getMonitoringData = async (cbJenisIndex, startDate, endDate) => {
       joinLhkCetak = `
                 LEFT JOIN (
                     SELECT lsbd_spk_nomor, 
-                        SUM(IF(lsbd_jns_mesin='SB01',lsbd_jumlah,0)) SB01,
-                        SUM(IF(lsbd_jns_mesin='SB02',lsbd_jumlah,0)) SB02,
-                        SUM(IF(lsbd_jns_mesin='SB03',lsbd_jumlah,0)) SB03,
-                        SUM(IF(lsbd_jns_mesin='SB04',lsbd_jumlah,0)) SB04,
-                        SUM(IF(lsbd_jns_mesin='SB05',lsbd_jumlah,0)) SB05,
+                        SUM(IF(lsbd_lokasi='SB01',lsbd_jumlah,0)) SB01,
+                        SUM(IF(lsbd_lokasi='SB02',lsbd_jumlah,0)) SB02,
+                        SUM(IF(lsbd_lokasi='SB03',lsbd_jumlah,0)) SB03,
+                        SUM(IF(lsbd_lokasi='SB04',lsbd_jumlah,0)) SB04,
+                        SUM(IF(lsbd_lokasi='SB05',lsbd_jumlah,0)) SB05,
                         SUM(IFNULL(lsbd_jumlah,0)) jml_cetak_sublim
                     FROM tlhk_sublim_dtl
                     GROUP BY 1
