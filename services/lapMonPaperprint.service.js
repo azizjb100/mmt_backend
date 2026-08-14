@@ -3,103 +3,484 @@ const moment = require("moment");
 
 const lapMonCetakPaperprint = async (startDate, endDate) => {
   const tglMulai = moment(startDate).format("YYYY-MM-DD");
-  const tglSelesai = moment(endDate).format("YYYY-MM-DD");
+  const tglSelesai = moment(endDate).add(1, "day").format("YYYY-MM-DD");
 
   const ssql = `
-    SELECT 
-        spk.spk_perush_kode AS PERUSH,
-        IFNULL(DATE_FORMAT(zz.Tanggal, '%Y-%m-%d'), '-') AS TANGGAL_LHK,
-        DATE_FORMAT(spk.spk_tanggal, '%Y-%m-%d') AS TGL_SPK,
-        DATE_FORMAT(spk.spk_dateline, '%Y-%m-%d') AS DEADLINE,
-        spk.spk_nama AS NAMA_ORDER,
-        spk.spk_panjang AS PANJANG,
-        spk.spk_lebar AS LEBAR,
-        spk.spk_nomor AS NO_SPK,
-        spk.spk_jumlah AS ORDER_SPK_PCS,
-        (spk.spk_jumlah * spk.spk_panjang * spk.spk_lebar) AS ORDER_SPK_METER,
+    SELECT
 
-        (spk.spk_jumlah - 
-            (IFNULL(zz.Jml_Cetak, 0) + IFNULL(zz.cetak_luarx, 0))
+        /* =====================================================
+           DATA SPK
+        ===================================================== */
+
+        spk.spk_perush_kode AS PERUSH,
+
+        spk.spk_nomor AS NO_SPK,
+
+        spk.spk_nama AS NAMA_ORDER,
+
+        spk.spk_jumlah AS ORDER_SPK_PCS,
+
+        spk.spk_panjang AS PANJANG,
+
+        spk.spk_lebar AS LEBAR,
+
+        DATE_FORMAT(
+            spk.spk_tanggal,
+            '%Y-%m-%d'
+        ) AS TGL_SPK,
+
+        DATE_FORMAT(
+            spk.spk_dateline,
+            '%Y-%m-%d'
+        ) AS DEADLINE,
+
+
+        /* =====================================================
+           DATA LHK
+        ===================================================== */
+
+        COALESCE(
+            lhk.NO_LHK,
+            '-'
+        ) AS NO_LHK,
+
+        CASE
+            WHEN lhk.TANGGAL_LHK IS NULL THEN '-'
+            ELSE DATE_FORMAT(
+                lhk.TANGGAL_LHK,
+                '%Y-%m-%d'
+            )
+        END AS TANGGAL_LHK,
+
+
+        /* =====================================================
+           ORDER METER
+        ===================================================== */
+
+        (
+            COALESCE(spk.spk_jumlah, 0)
+            *
+            COALESCE(spk.spk_panjang, 0)
+            *
+            COALESCE(spk.spk_lebar, 0)
+        ) AS ORDER_SPK_METER,
+
+
+        /* =====================================================
+           KURANG VARIANT
+        ===================================================== */
+
+        (
+            COALESCE(spk.spk_jumlah, 0)
+            -
+            (
+                COALESCE(lhk.JUMLAH_PCS, 0)
+                +
+                COALESCE(ext.CETAK_LUAR, 0)
+            )
         ) AS KURANG_VARIANT,
 
-        IFNULL(zz.cetak_luarx, 0) AS CETAK_LUAR,
 
-        -- Grouping PCS berdasarkan Mesin Sublim / Lokasi (SB01 - SB05)
-        IFNULL(zz.sb01, 0) AS PCS_SB01,
-        IFNULL(zz.sb02, 0) AS PCS_SB02,
-        IFNULL(zz.sb03, 0) AS PCS_SB03,
-        IFNULL(zz.sb04, 0) AS PCS_SB04,
-        IFNULL(zz.sb05, 0) AS PCS_SB05,
-        IFNULL(zz.Jml_Cetak, 0) AS JUMLAH_PCS,
+        /* =====================================================
+           CETAK LUAR
+        ===================================================== */
 
-        -- Grouping METER (Akumulasi lsbd_j_meter per Mesin Sublim)
-        IFNULL(zz.jsb01, 0) AS METER_SB01,
-        IFNULL(zz.jsb02, 0) AS METER_SB02,
-        IFNULL(zz.jsb03, 0) AS METER_SB03,
-        IFNULL(zz.jsb04, 0) AS METER_SB04,
-        IFNULL(zz.jsb05, 0) AS METER_SB05,
-        IFNULL(zz.total_m2, 0) AS JUMLAH_METER
+        COALESCE(
+            ext.CETAK_LUAR,
+            0
+        ) AS CETAK_LUAR,
+
+
+        /* =====================================================
+           PCS PER MESIN
+        ===================================================== */
+
+        COALESCE(
+            lhk.PCS_SB01,
+            0
+        ) AS PCS_SB01,
+
+        COALESCE(
+            lhk.PCS_SB02,
+            0
+        ) AS PCS_SB02,
+
+        COALESCE(
+            lhk.PCS_SB03,
+            0
+        ) AS PCS_SB03,
+
+        COALESCE(
+            lhk.PCS_SB04,
+            0
+        ) AS PCS_SB04,
+
+        COALESCE(
+            lhk.PCS_SB05,
+            0
+        ) AS PCS_SB05,
+
+        COALESCE(
+            lhk.JUMLAH_PCS,
+            0
+        ) AS JUMLAH_PCS,
+
+
+        /* =====================================================
+           METER PER MESIN
+        ===================================================== */
+
+        COALESCE(
+            lhk.METER_SB01,
+            0
+        ) AS METER_SB01,
+
+        COALESCE(
+            lhk.METER_SB02,
+            0
+        ) AS METER_SB02,
+
+        COALESCE(
+            lhk.METER_SB03,
+            0
+        ) AS METER_SB03,
+
+        COALESCE(
+            lhk.METER_SB04,
+            0
+        ) AS METER_SB04,
+
+        COALESCE(
+            lhk.METER_SB05,
+            0
+        ) AS METER_SB05,
+
+        COALESCE(
+            lhk.JUMLAH_METER,
+            0
+        ) AS JUMLAH_METER
+
 
     FROM tspk spk
+
+
+    /* =========================================================
+       LHK SUBLIM
+
+       RELASI:
+
+       tlhk_sublim_hdr.lsb_nomor
+                ↓
+       tlhk_sublim_dtl.lsbd_lsb_nomor
+                ↓
+       tlhk_sublim_dtl.lsbd_spk_nomor
+                ↓
+       tspk.spk_nomor
+    ========================================================= */
+
     LEFT JOIN (
-        SELECT 
-            res.lsbd_spk_nomor AS Nomor_SPK,
-            MAX(res.lsb_tanggal) AS Tanggal,
-            SUM(res.lsbd_jumlah) AS Jml_Cetak,
-            SUM(res.lsbd_j_meter) AS total_m2,
-            
-            -- Grouping PCS per Mesin (Menggunakan lsbd_lokasi)
-            SUM(IF(res.lsbd_lokasi='SB01', res.lsbd_jumlah, 0)) AS sb01,
-            SUM(IF(res.lsbd_lokasi='SB02', res.lsbd_jumlah, 0)) AS sb02,
-            SUM(IF(res.lsbd_lokasi='SB03', res.lsbd_jumlah, 0)) AS sb03,
-            SUM(IF(res.lsbd_lokasi='SB04', res.lsbd_jumlah, 0)) AS sb04,
-            SUM(IF(res.lsbd_lokasi='SB05', res.lsbd_jumlah, 0)) AS sb05,
 
-            -- Grouping METER per Mesin (Menggunakan lsbd_lokasi)
-            SUM(IF(res.lsbd_lokasi='SB01', res.lsbd_j_meter, 0)) AS jsb01,
-            SUM(IF(res.lsbd_lokasi='SB02', res.lsbd_j_meter, 0)) AS jsb02,
-            SUM(IF(res.lsbd_lokasi='SB03', res.lsbd_j_meter, 0)) AS jsb03,
-            SUM(IF(res.lsbd_lokasi='SB04', res.lsbd_j_meter, 0)) AS jsb04,
-            SUM(IF(res.lsbd_lokasi='SB05', res.lsbd_j_meter, 0)) AS jsb05,
-            
-            IFNULL(h.cetak_luarx, 0) AS cetak_luarx
+        SELECT
 
-        FROM (
-            SELECT 
-                d.lsbd_spk_nomor, 
-                h.lsb_tanggal, 
-                d.lsbd_lokasi, 
-                d.lsbd_jumlah, 
-                IFNULL(d.lsbd_j_meter, (d.lsbd_panjang * d.lsbd_lebar * d.lsbd_jumlah)) AS lsbd_j_meter
-            FROM tlhk_sublim_dtl d
-            INNER JOIN tlhk_sublim_hdr h ON h.lsb_nomor = d.lsbd_lsb_nomor
-            WHERE h.lsb_status = 'POSTED' -- Hanya mengambil data LHK yang sudah POSTED
-        ) res
-        LEFT JOIN (
-            SELECT poe_spk_nomor, 
-                   SUM(IFNULL(poe_jumlah, 0)) AS cetak_luarx
-            FROM tpoexternal_hdr
-            WHERE poe_cab='P05'
-            GROUP BY poe_spk_nomor
-        ) h ON h.poe_spk_nomor = res.lsbd_spk_nomor
-        GROUP BY res.lsbd_spk_nomor
-    ) zz ON zz.Nomor_SPK = spk.spk_nomor
+            d.lsbd_spk_nomor AS NOMOR_SPK,
+
+            /* NOMOR LHK */
+            MAX(
+                h.lsb_nomor
+            ) AS NO_LHK,
+
+            /* TANGGAL LHK */
+            MAX(
+                h.lsb_tanggal
+            ) AS TANGGAL_LHK,
+
+
+            /* =================================================
+               TOTAL PCS
+            ================================================= */
+
+            SUM(
+                COALESCE(
+                    d.lsbd_jumlah,
+                    0
+                )
+            ) AS JUMLAH_PCS,
+
+
+            /* =================================================
+               TOTAL METER
+            ================================================= */
+
+            SUM(
+                COALESCE(
+                    d.lsbd_j_meter,
+
+                    (
+                        COALESCE(
+                            d.lsbd_panjang,
+                            0
+                        )
+                        *
+                        COALESCE(
+                            d.lsbd_lebar,
+                            0
+                        )
+                        *
+                        COALESCE(
+                            d.lsbd_jumlah,
+                            0
+                        )
+                    )
+                )
+            ) AS JUMLAH_METER,
+
+
+            /* =================================================
+               PCS SB01
+            ================================================= */
+
+            SUM(
+                CASE
+                    WHEN TRIM(d.lsbd_lokasi) = 'SB01'
+                    THEN COALESCE(d.lsbd_jumlah, 0)
+                    ELSE 0
+                END
+            ) AS PCS_SB01,
+
+
+            /* SB02 */
+            SUM(
+                CASE
+                    WHEN TRIM(d.lsbd_lokasi) = 'SB02'
+                    THEN COALESCE(d.lsbd_jumlah, 0)
+                    ELSE 0
+                END
+            ) AS PCS_SB02,
+
+
+            /* SB03 */
+            SUM(
+                CASE
+                    WHEN TRIM(d.lsbd_lokasi) = 'SB03'
+                    THEN COALESCE(d.lsbd_jumlah, 0)
+                    ELSE 0
+                END
+            ) AS PCS_SB03,
+
+
+            /* SB04 */
+            SUM(
+                CASE
+                    WHEN TRIM(d.lsbd_lokasi) = 'SB04'
+                    THEN COALESCE(d.lsbd_jumlah, 0)
+                    ELSE 0
+                END
+            ) AS PCS_SB04,
+
+
+            /* SB05 */
+            SUM(
+                CASE
+                    WHEN TRIM(d.lsbd_lokasi) = 'SB05'
+                    THEN COALESCE(d.lsbd_jumlah, 0)
+                    ELSE 0
+                END
+            ) AS PCS_SB05,
+
+
+            /* =================================================
+               METER SB01
+            ================================================= */
+
+            SUM(
+                CASE
+                    WHEN TRIM(d.lsbd_lokasi) = 'SB01'
+                    THEN COALESCE(
+                        d.lsbd_j_meter,
+                        (
+                            COALESCE(d.lsbd_panjang, 0)
+                            *
+                            COALESCE(d.lsbd_lebar, 0)
+                            *
+                            COALESCE(d.lsbd_jumlah, 0)
+                        )
+                    )
+                    ELSE 0
+                END
+            ) AS METER_SB01,
+
+
+            /* METER SB02 */
+
+            SUM(
+                CASE
+                    WHEN TRIM(d.lsbd_lokasi) = 'SB02'
+                    THEN COALESCE(
+                        d.lsbd_j_meter,
+                        (
+                            COALESCE(d.lsbd_panjang, 0)
+                            *
+                            COALESCE(d.lsbd_lebar, 0)
+                            *
+                            COALESCE(d.lsbd_jumlah, 0)
+                        )
+                    )
+                    ELSE 0
+                END
+            ) AS METER_SB02,
+
+
+            /* METER SB03 */
+
+            SUM(
+                CASE
+                    WHEN TRIM(d.lsbd_lokasi) = 'SB03'
+                    THEN COALESCE(
+                        d.lsbd_j_meter,
+                        (
+                            COALESCE(d.lsbd_panjang, 0)
+                            *
+                            COALESCE(d.lsbd_lebar, 0)
+                            *
+                            COALESCE(d.lsbd_jumlah, 0)
+                        )
+                    )
+                    ELSE 0
+                END
+            ) AS METER_SB03,
+
+
+            /* METER SB04 */
+
+            SUM(
+                CASE
+                    WHEN TRIM(d.lsbd_lokasi) = 'SB04'
+                    THEN COALESCE(
+                        d.lsbd_j_meter,
+                        (
+                            COALESCE(d.lsbd_panjang, 0)
+                            *
+                            COALESCE(d.lsbd_lebar, 0)
+                            *
+                            COALESCE(d.lsbd_jumlah, 0)
+                        )
+                    )
+                    ELSE 0
+                END
+            ) AS METER_SB04,
+
+
+            /* METER SB05 */
+
+            SUM(
+                CASE
+                    WHEN TRIM(d.lsbd_lokasi) = 'SB05'
+                    THEN COALESCE(
+                        d.lsbd_j_meter,
+                        (
+                            COALESCE(d.lsbd_panjang, 0)
+                            *
+                            COALESCE(d.lsbd_lebar, 0)
+                            *
+                            COALESCE(d.lsbd_jumlah, 0)
+                        )
+                    )
+                    ELSE 0
+                END
+            ) AS METER_SB05
+
+
+        FROM tlhk_sublim_dtl d
+
+        INNER JOIN tlhk_sublim_hdr h
+            ON TRIM(h.lsb_nomor)
+             =
+               TRIM(d.lsbd_lsb_nomor)
+
+        GROUP BY
+            d.lsbd_spk_nomor
+
+    ) lhk
+
+        ON TRIM(lhk.NOMOR_SPK)
+         =
+           TRIM(spk.spk_nomor)
+
+
+    /* =========================================================
+       CETAK LUAR
+    ========================================================= */
+
+    LEFT JOIN (
+
+        SELECT
+
+            poe_spk_nomor,
+
+            SUM(
+                COALESCE(
+                    poe_jumlah,
+                    0
+                )
+            ) AS CETAK_LUAR
+
+        FROM tpoexternal_hdr
+
+        WHERE poe_cab = 'P05'
+
+        GROUP BY
+            poe_spk_nomor
+
+    ) ext
+
+        ON TRIM(ext.poe_spk_nomor)
+         =
+           TRIM(spk.spk_nomor)
+
+
+    /* =========================================================
+       FILTER
+
+       PENTING:
+       Filter menggunakan TANGGAL LHK.
+
+       Jadi kalau:
+       2026-08-10
+       2026-08-13
+
+       maka LHK tersebut akan muncul walaupun
+       tanggal SPK-nya berbeda.
+    ========================================================= */
 
     WHERE spk.spk_aktif = 'Y'
-      AND spk.spk_tanggal BETWEEN ? AND ?
 
-    ORDER BY spk.spk_tanggal ASC, spk.spk_nomor ASC;
+      AND lhk.TANGGAL_LHK >= ?
+
+      AND lhk.TANGGAL_LHK < ?
+
+
+    ORDER BY
+        lhk.TANGGAL_LHK ASC,
+        spk.spk_nomor ASC
   `;
 
-  const params = [tglMulai, tglSelesai];
+  const params = [`${tglMulai} 00:00:00`, `${tglSelesai} 00:00:00`];
 
   const connection = await pool.getConnection();
+
   try {
     const [rows] = await connection.execute(ssql, params);
+
     return rows;
+  } catch (error) {
+    console.error("Error lapMonCetakPaperprint:", error);
+
+    throw error;
   } finally {
     connection.release();
   }
 };
 
-module.exports = { lapMonCetakPaperprint };
+module.exports = {
+  lapMonCetakPaperprint,
+};

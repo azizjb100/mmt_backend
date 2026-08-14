@@ -661,22 +661,37 @@ exports.getMemoSpkLookupData = async (keyword) => {
 };
 
 // ===================================
-// LOOKUP SPK FOR SUBLIM (Include Realisasi Bahan Gudang)
+// LOOKUP SPK FOR SUBLIM (Optimized for Speed)
 // ===================================
 exports.getSpkForSublimLookup = async (keyword) => {
   try {
-    // Ambil base query SPK (UNION Reguler & Memo) agar mendukung kedua tipe SPK
-    const baseQuery = getBaseSpkQuery();
+    const params = [];
 
-    /**
-     * Perbaikan Berdasarkan Struktur Asli:
-     * 1. Hubungkan combined.SPK langsung ke tmkb_hdr (Silakan sesuaikan nama kolom SPK di tmkb_hdr Anda jika berbeda)
-     * 2. Hubungkan tmkb_hdr ke tmkb_dtl via mkb_nomor = mkbd_mkb_nomor
-     */
+    // 1. FILTER LANGSUNG DI TINGKAT TABEL UTAMA (tspk & tmemospk)
+    // Supaya MySQL TIDAK melakukan full scan ke seluruh histori SPK lama
+    let whereReguler = "t.spk_aktif = 'Y' AND LOWER(t.spk_cab) = 'p04'";
+    let whereMemo = "m.mspk_aktif = 'Y' AND LOWER(m.mspk_cab) = 'p04'";
+
+    // 2. SUNTIKKAN KEYWORD LANGSUNG KE SUBQUERY
+    if (keyword) {
+      whereReguler += " AND (t.spk_nomor LIKE ? OR t.spk_nama LIKE ?)";
+      whereMemo += " AND (m.mspk_nomor LIKE ? OR m.mspk_nama LIKE ?)";
+      const searchKeyword = `%${keyword}%`;
+      // Urutan parameter untuk UNION ALL (2 untuk reguler, 2 untuk memo)
+      params.push(searchKeyword, searchKeyword, searchKeyword, searchKeyword);
+    }
+
+    const baseQuery = getBaseSpkQuery(whereReguler, whereMemo);
+
     const sql = `
             SELECT 
                 combined.SPK,
+                combined.SPK AS spk_nomor,
+                combined.SPK AS poi_spk_nomor,
+                combined.SPK AS poi_nomor,
                 combined.Nama,
+                combined.Nama AS spk_nama,
+                combined.Nama AS nama_pekerjaan,
                 combined.Tanggal,
                 combined.Jumlah AS Qty_Order,
                 combined.Bahan AS Nama_Bahan_Rencana,
@@ -689,29 +704,40 @@ exports.getSpkForSublimLookup = async (keyword) => {
                 IFNULL(h.promin_nomor, '-') AS Nomor_Realisasi,
                 IFNULL(d.promind_bhn_kode, '') AS Barang_ID,
                 combined.Bahan AS Nama_Bahan_Realisasi,
-                CAST(IFNULL(d.promind_jumlah, 0) AS DECIMAL(10,2)) AS Bahan_Awal
+                CAST(IFNULL(d.promind_jumlah, 0) AS DECIMAL(10,2)) AS Bahan_Awal,
+
+                -- Data Komponen Potong dari tspk_komponen_potong
+                IFNULL(k.sk_kode, '') AS Kode_Komponen,
+                IFNULL(k.sk_kode, '') AS sk_kode,
+                IFNULL(k.sk_kode, '') AS poid_bhn_kode,
+                
+                -- Master Bahan dari tbahan (b.Bhn_Name)
+                IFNULL(b.Bhn_Name, '') AS Bhn_Name,
+                IFNULL(b.Bhn_Name, '') AS bhn_name,
+                IFNULL(b.Bhn_Name, k.sk_kode) AS Nama_Komponen,
+                IFNULL(b.Bhn_Name, k.sk_kode) AS nama_komponen,
+                
+                IFNULL(k.sk_nourut, 0) AS No_Urut_Komponen
                 
             FROM (${baseQuery}) AS combined
             
-            -- 1. Hubungkan SPK langsung ke tabel Header (tproduksiminta_hdr)
-            -- Catatan: Ganti 'mkb_spk_nomor' dengan nama kolom SPK yang ada di tproduksiminta_hdr Anda
+            -- JOIN Realisasi Gudang
             LEFT JOIN tproduksiminta_hdr h ON h.promin_spk_nomor = combined.SPK
-            
-            -- 2. Dari Header, hubungkan ke tabel Detail (tproduksiminta_dtl) untuk mengambil item kain & qty
             LEFT JOIN tproduksiminta_dtl d ON d.promind_promin_nomor = h.promin_nomor
+
+            -- JOIN Komponen Potong & Master Bahan (Menggunakan Indexing Asli)
+            LEFT JOIN tspk_komponen_potong k ON k.sk_nomor = combined.SPK
+            LEFT JOIN tbahan b ON b.Bhn_kode = k.sk_kode
             
-            WHERE combined.Aktif = 'Y' -- Hanya ambil SPK yang masih Open
-              AND (combined.SPK LIKE ? OR combined.Nama LIKE ?)
-            ORDER BY combined.Tanggal DESC
+            ORDER BY combined.Tanggal DESC, k.sk_nourut ASC
             LIMIT 100
         `;
 
-    const searchKeyword = `%${keyword || ""}%`;
-    const [rows] = await pool.query(sql, [searchKeyword, searchKeyword]);
+    const [rows] = await pool.query(sql, params);
     return rows;
   } catch (error) {
     throwDbError(
-      "Gagal mengambil data SPK untuk Sublim beserta Realisasi Bahan",
+      "Gagal mengambil data SPK untuk Sublim beserta Realisasi Bahan & Komponen Potong",
       error,
     );
   }

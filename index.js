@@ -81,6 +81,7 @@ const lapMonJadwalKirimRoutes = require("./routes/lapMonJadwalKirim.routes");
 const soToSpkRoutes = require("./routes/soToSpk.routes");
 const mapRoutes = require("./routes/map.routes"); // <- Ditambahkan di sini
 const salesOrderRoutes = require("./routes/salesOrder.routes");
+const lapLhkRoutes = require("./routes/lapLhk.routes");
 
 // Konfigurasi
 
@@ -254,6 +255,7 @@ app.use(
 );
 app.use("/api/mmt/so-spk", clientCertAuth, soToSpkRoutes);
 app.use("/api/mmt/sales-order", clientCertAuth, salesOrderRoutes);
+app.use("/api/mmt/laporan-lhk", clientCertAuth, lapLhkRoutes);
 
 const port = process.env.PORT || 8003;
 

@@ -9,10 +9,12 @@ const lapMonProof = async (startDate, endDate) => {
   SELECT 
       mspk.mspk_nomor,
       mspk.mspk_tanggal,
+      mspk.mspk_dateline,
       mspk.mspk_nama AS nama_order,
       mspk.mspk_panjang,
       mspk.mspk_lebar,
       mspk.mspk_jumlah AS jml_order,
+      mspk.mspk_rencana_order AS rencana_order,
       mspk.mspk_keterangan AS keterangan,
       mspk.mspk_cab AS lokasi_proof,
       zz.mesin_proof, -- <--- PERBAIKAN: Diambil dari subquery 'zz'

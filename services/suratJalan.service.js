@@ -109,27 +109,41 @@ const getBrowseSJ = async (
 /**
  * GET DETAIL DATA SURAT JALAN (Sub-grid Utamas)
  */
+/**
+ * GET DETAIL DATA SURAT JALAN (Sub-grid Utama)
+ */
 const getDetailSJ = async (nomor) => {
   try {
     const sqlDetail = `
-            SELECT 
-                d.sjd_sj_nomor AS Nomor, 
-                d.sjd_spk_nomor AS SPK, 
-                s.spk_nama AS Nama, 
-                d.sjd_ukuran AS Ukuran, 
-                s.spk_panjang AS Panjang, 
-                s.spk_lebar AS Lebar, 
-                d.sjd_jumlah AS Jumlah, 
-                d.SJD_Koli AS Koli, 
-                d.sjd_keterangan AS Keterangan, 
-                d.sjd_nokirim AS NoKirim, 
-                d.sjd_idkirim AS IdKirim
-            FROM tsj_hdr h
-            INNER JOIN tsj_dtl d ON h.sj_nomor = d.sjd_sj_nomor 
-            INNER JOIN tspk s ON s.spk_nomor = d.sjd_spk_nomor 
-            WHERE d.sjd_sj_nomor = ? AND h.sj_status_otomatis = 0 
-            ORDER BY d.sjd_sj_nomor, d.sjd_nourut;
-        `;
+      SELECT 
+        d.sjd_sj_nomor AS Nomor, 
+        DATE_FORMAT(h.sj_tanggal, '%Y-%m-%d') AS Tanggal, 
+        h.sj_cus_kode AS KdCus, 
+        c.cus_nama AS Customer, 
+        h.sj_alamat_customer AS Alamat, 
+        h.sj_kota_customer AS Kota, 
+        h.sj_inv_sm AS Invoice, 
+        divi.Divisi AS Divisi, 
+        g.gdg_nama AS Gudang, 
+        d.sjd_spk_nomor AS SPK, 
+        s.spk_nama AS Nama, 
+        d.sjd_ukuran AS Ukuran, 
+        s.spk_panjang AS Panjang, 
+        s.spk_lebar AS Lebar, 
+        d.sjd_jumlah AS Jumlah, 
+        d.SJD_Koli AS Koli, 
+        d.sjd_keterangan AS Keterangan, 
+        d.sjd_nokirim AS NoKirim, 
+        d.sjd_idkirim AS IdKirim
+      FROM tsj_hdr h
+      INNER JOIN tsj_dtl d ON h.sj_nomor = d.sjd_sj_nomor 
+      INNER JOIN tspk s ON s.spk_nomor = d.sjd_spk_nomor 
+      LEFT JOIN tcustomer c ON c.cus_kode = h.sj_cus_kode
+      LEFT JOIN tgudang g ON g.gdg_kode = h.sj_gdg_kode
+      LEFT JOIN tdivisi divi ON divi.kode = h.sj_divisi
+      WHERE d.sjd_sj_nomor = ? AND h.sj_status_otomatis = 0 
+      ORDER BY d.sjd_sj_nomor, d.sjd_nourut;
+    `;
     const [rows] = await pool.query(sqlDetail, [nomor]);
     return rows;
   } catch (error) {

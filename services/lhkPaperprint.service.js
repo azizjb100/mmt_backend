@@ -130,6 +130,11 @@ const getDetailsByNomor = async (nomor) => {
             d.lsbd_lokasi AS Lokasi, 
             d.lsbd_spk_nomor AS Nomor_SPK, 
             IF(LENGTH(d.lsbd_spk_nama) > 0, d.lsbd_spk_nama, x.spk_nama) AS Nama_SPK, 
+            
+            -- 🌟 Tambahkan ini agar nama komponen ter-load saat edit
+            IFNULL(d.lsbd_komponen, 'ALL SET') AS lsbd_komponen,
+            IFNULL(d.lsbd_komponen, 'ALL SET') AS Komponen,
+            
             d.lsbd_panjang AS Panjang, 
             d.lsbd_lebar AS Lebar, 
             d.lsbd_jumlah_order AS J_Order, 
@@ -144,8 +149,8 @@ const getDetailsByNomor = async (nomor) => {
             h.lsb_shift AS lsb_shift,
             h.lsb_gdg_kode AS lsb_gdg_kode,
             h.lsb_status AS lstatus,
-            h.lsb_barcode AS Barcode_Roll,  -- 🌟 Tambahkan ini agar barcode roll ter-load saat edit
-            h.lsb_brg_kode AS Kode_Bahan,    -- 🌟 Tambahkan ini agar kode barang ter-load saat edit
+            h.lsb_barcode AS Barcode_Roll,   -- 🌟 Barcode roll
+            h.lsb_brg_kode AS Kode_Bahan,     -- 🌟 Kode barang
             d.lsbd_ambilbahan AS panjang_awal,
             d.lsbd_panjang_pakai AS panjang_terpakai,
             d.lsbd_sisameter AS lsbd_sisameter
@@ -307,7 +312,7 @@ const saveLhkMesin = async (data) => {
       );
     }
 
-    // 3. PROSES DATA DETAIL (🌟 DITAMBAHKAN LSBD_SISAMETER)
+    // 3. PROSES DATA DETAIL (DITAMBAHKAN LSBD_KOMPONEN)
     if (details && details.length > 0) {
       const values = details.map((d, i) => {
         const p = parseFloat(d.spk_panjang || 0);
@@ -316,11 +321,13 @@ const saveLhkMesin = async (data) => {
         const qtyOrderSpk = parseFloat(d.spk_jmlorder || 0);
         const jMeter = p * l * qtyHasilLhk;
 
-        // Ambil nilai sisa per-baris jika dikirim detail, atau fallback ke finalSisaMeter
         const sisaMeterBaris =
           d.lsbd_sisameter !== undefined && d.lsbd_sisameter !== null
             ? parseFloat(d.lsbd_sisameter)
             : finalSisaMeter;
+
+        // 🌟 Value Nama Komponen / ALL SET
+        const namaKomponen = d.lsbd_komponen || d.spk_komponen || "ALL SET";
 
         return [
           nomorLhk,
@@ -344,7 +351,8 @@ const saveLhkMesin = async (data) => {
           parseFloat(d.lsbd_ambilbahan || maxAmbilPanjang),
           parseFloat(d.lsbd_panjang_pakai || 0),
           parseFloat(d.lsbd_lebar_pakai || 0),
-          sisaMeterBaris, // 🌟 VALUE LSBD_SISAMETER
+          sisaMeterBaris,
+          namaKomponen, // 🌟 LSBD_KOMPONEN
         ];
       });
 
@@ -354,7 +362,8 @@ const saveLhkMesin = async (data) => {
             lsbd_jumlah_order, lsbd_panjang, lsbd_lebar, lsbd_mesin, lsbd_jumlah, 
             lsbd_j_meter, lsbd_lokasi, lsbd_bahan, lsbd_no_urut, lsbd_toleransi, 
             lsbd_waste, lsbd_poi_nomor, lsbd_poid_size,
-            lsbd_ambilbahan, lsbd_panjang_pakai, lsbd_lebar_pakai, lsbd_sisameter
+            lsbd_ambilbahan, lsbd_panjang_pakai, lsbd_lebar_pakai, lsbd_sisameter,
+            lsbd_komponen
         ) VALUES ?`;
 
       await conn.query(sqlInsertDtl, [values]);
