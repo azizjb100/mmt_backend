@@ -3,11 +3,11 @@ const { format } = require("date-fns");
 
 /**
  * Mengambil data laporan BS dari semua modul LHK:
- * 1. Digital Printing MMT (tlhk_mesin_hdr)
- * 2. Mesin Tekstil (tlhk_mesintekstil_hdr)
- * 3. Finishing MMT (tlhk_finishingmmt_hdr & dtl)
- * 4. Paperprint / Sublim Paper (tlhk_sublim_hdr & dtl)
- * 5. Sublim Roll to Roll / RTR (tlhk_rtr_hdr & dtl)
+ * 1. Digital Printing MMT (tlhk_mesin_hdr) -> P x L x 1
+ * 2. Mesin Tekstil (tlhk_mesintekstil_hdr) -> P x L x 1
+ * 3. Finishing MMT (tlhk_finishingmmt_hdr & dtl + tspk) -> P_SPK x L_SPK x Qty_BS
+ * 4. Paperprint / Sublim Paper (tlhk_sublim_hdr & dtl) -> P x L x 1
+ * 5. Sublim Roll to Roll / RTR (tlhk_rtr_hdr & dtl) -> P x L x 1
  */
 const getLaporanBsData = async (filters) => {
   const { startDate, endDate, gdgKode, search, type } = filters;
@@ -19,7 +19,7 @@ const getLaporanBsData = async (filters) => {
   const filterType = (type || "ALL").toUpperCase();
 
   // -------------------------------------------------------------------------
-  // 1. QUERY BS: LHK Mesin MMT
+  // 1. QUERY BS: LHK Mesin MMT (Jumlah BS = 1)
   // -------------------------------------------------------------------------
   let paramsMesin = [tglMulai, tglSelesai];
   let queryMesin = `
@@ -35,7 +35,8 @@ const getLaporanBsData = async (filters) => {
             IFNULL(h.lbarcode_roll, '-') AS Barcode,
             IFNULL(h.lpanjang_bs, 0) AS Panjang_BS,
             IFNULL(h.llebar_bs, 0) AS Lebar_BS,
-            (IFNULL(h.lpanjang_bs, 0) * IFNULL(h.llebar_bs, 0)) AS Luas_BS_M2,
+            1 AS Jumlah_BS,
+            (IFNULL(h.lpanjang_bs, 0) * IFNULL(h.llebar_bs, 0) * 1) AS Luas_BS_M2,
             IFNULL(h.lstatus, 'POSTED') AS Status
         FROM tlhk_mesin_hdr h
         LEFT JOIN tbarang_mmt b ON h.lbahan = b.brg_kode
@@ -53,7 +54,7 @@ const getLaporanBsData = async (filters) => {
   }
 
   // -------------------------------------------------------------------------
-  // 2. QUERY BS: LHK Mesin Tekstil
+  // 2. QUERY BS: LHK Mesin Tekstil (Jumlah BS = 1)
   // -------------------------------------------------------------------------
   let paramsTekstil = [tglMulai, tglSelesai];
   let queryTekstil = `
@@ -73,7 +74,8 @@ const getLaporanBsData = async (filters) => {
             IFNULL(h.lth_barcode, '-') AS Barcode,
             IFNULL(h.lth_panjang_bs, 0) AS Panjang_BS,
             IFNULL(h.lth_lebar_bs, 0) AS Lebar_BS,
-            (IFNULL(h.lth_panjang_bs, 0) * IFNULL(h.lth_lebar_bs, 0)) AS Luas_BS_M2,
+            1 AS Jumlah_BS,
+            (IFNULL(h.lth_panjang_bs, 0) * IFNULL(h.lth_lebar_bs, 0) * 1) AS Luas_BS_M2,
             IFNULL(h.lth_status, 'POSTED') AS Status
         FROM tlhk_mesintekstil_hdr h
         LEFT JOIN tbarang_mmt b ON h.lth_brg_kode = b.brg_kode
@@ -91,7 +93,7 @@ const getLaporanBsData = async (filters) => {
   }
 
   // -------------------------------------------------------------------------
-  // 3. QUERY BS: LHK Finishing MMT
+  // 3. QUERY BS: LHK Finishing MMT (Panjang SPK * Lebar SPK * Jumlah BS)
   // -------------------------------------------------------------------------
   let paramsFinishing = [tglMulai, tglSelesai];
   let queryFinishing = `
@@ -105,12 +107,14 @@ const getLaporanBsData = async (filters) => {
             '-' AS Brg_Kode,
             CONCAT('BS Finishing SPK: ', d.lfd_spk_nomor) AS Brg_Nama,
             '-' AS Barcode,
-            IFNULL(d.lfd_j_bs, 0) AS Panjang_BS,
-            1 AS Lebar_BS,
-            IFNULL(d.lfd_j_bs, 0) AS Luas_BS_M2,
+            IFNULL(spk.spk_panjang, 0) AS Panjang_BS,
+            IFNULL(spk.spk_lebar, 0) AS Lebar_BS,
+            IFNULL(d.lfd_j_bs, 0) AS Jumlah_BS,
+            (IFNULL(spk.spk_panjang, 0) * IFNULL(spk.spk_lebar, 0) * IFNULL(d.lfd_j_bs, 0)) AS Luas_BS_M2,
             'POSTED' AS Status
         FROM tlhk_finishingmmt_dtl d
         INNER JOIN tlhk_finishingmmt_hdr h ON d.lfd_lfh_nomor = h.lfh_nomor
+        LEFT JOIN tspk spk ON d.lfd_spk_nomor = spk.spk_nomor
         WHERE h.lfh_tanggal BETWEEN ? AND ?
           AND d.lfd_j_bs > 0
     `;
@@ -124,7 +128,7 @@ const getLaporanBsData = async (filters) => {
   }
 
   // -------------------------------------------------------------------------
-  // 4. QUERY BS: LHK Paperprint / Sublim Kertas (tlhk_sublim_hdr)
+  // 4. QUERY BS: LHK Paperprint / Sublim Kertas (Jumlah BS = 1)
   // -------------------------------------------------------------------------
   let paramsPaperprint = [tglMulai, tglSelesai];
   let queryPaperprint = `
@@ -144,7 +148,8 @@ const getLaporanBsData = async (filters) => {
             IFNULL(h.lsb_barcode, '-') AS Barcode,
             IFNULL(h.lsb_panjang_bs, 0) AS Panjang_BS,
             IFNULL(h.lsb_lebar_bs, 0) AS Lebar_BS,
-            (IFNULL(h.lsb_panjang_bs, 0) * IFNULL(h.lsb_lebar_bs, 0)) AS Luas_BS_M2,
+            1 AS Jumlah_BS,
+            (IFNULL(h.lsb_panjang_bs, 0) * IFNULL(h.lsb_lebar_bs, 0) * 1) AS Luas_BS_M2,
             IFNULL(h.lsb_status, 'POSTED') AS Status
         FROM tlhk_sublim_hdr h
         LEFT JOIN tbarang_mmt b ON h.lsb_brg_kode = b.brg_kode
@@ -162,7 +167,7 @@ const getLaporanBsData = async (filters) => {
   }
 
   // -------------------------------------------------------------------------
-  // 5. QUERY BS: LHK Sublim RTR / Roll to Roll (tlhk_rtr_dtl)
+  // 5. QUERY BS: LHK Sublim RTR / Roll to Roll (Jumlah BS = 1)
   // -------------------------------------------------------------------------
   let paramsRtr = [tglMulai, tglSelesai];
   let queryRtr = `
@@ -177,8 +182,9 @@ const getLaporanBsData = async (filters) => {
             CONCAT('SPK: ', d.lrd_spk_nomor, ' - ', IFNULL(d.lrd_spk_nama, '')) AS Brg_Nama,
             '-' AS Barcode,
             IFNULL(d.lrd_panjang, 0) AS Panjang_BS,
-            IFNULL(d.lrd_lebar, 1) AS Lebar_BS,
-            (IFNULL(d.lrd_panjang, 0) * IFNULL(d.lrd_lebar, 1)) AS Luas_BS_M2,
+            IFNULL(d.lrd_lebar, 0) AS Lebar_BS,
+            1 AS Jumlah_BS,
+            (IFNULL(d.lrd_panjang, 0) * IFNULL(d.lrd_lebar, 0) * 1) AS Luas_BS_M2,
             'POSTED' AS Status
         FROM tlhk_rtr_dtl d
         INNER JOIN tlhk_rtr_hdr h ON d.lrd_lr_nomor = h.lr_nomor
@@ -196,7 +202,7 @@ const getLaporanBsData = async (filters) => {
   }
 
   // -------------------------------------------------------------------------
-  // EKSEKUSI QUERY DENGAN PARALLEL PROMISE UNTUK PERFORMA OPTIMAL
+  // EKSEKUSI QUERY DENGAN PARALLEL PROMISE
   // -------------------------------------------------------------------------
   let rawData = [];
 
@@ -235,7 +241,6 @@ const getLaporanBsData = async (filters) => {
     );
     rawData = rows;
   } else {
-    // Jika filterType === 'ALL', jalankan seluruh kueri secara eksekusi paralel
     const [
       [rowsMesin],
       [rowsTekstil],
@@ -256,32 +261,32 @@ const getLaporanBsData = async (filters) => {
       ...rowsFinishing,
       ...rowsPaperprint,
       ...rowsRtr,
-    ].sort((a, b) => {
-      return new Date(b.Tanggal).getTime() - new Date(a.Tanggal).getTime();
-    });
+    ].sort(
+      (a, b) => new Date(b.Tanggal).getTime() - new Date(a.Tanggal).getTime(),
+    );
   }
 
   // -------------------------------------------------------------------------
-  // KALKULASI SUMMARY RINGKASAN DATA
+  // SUMMARY DATA
   // -------------------------------------------------------------------------
   const summary = rawData.reduce(
     (acc, cur) => {
       acc.total_records += 1;
-      acc.total_panjang += Number(cur.Panjang_BS || 0);
+      acc.total_qty_bs += Number(cur.Jumlah_BS || 0);
       acc.total_luas_m2 += Number(cur.Luas_BS_M2 || 0);
       return acc;
     },
-    { total_records: 0, total_panjang: 0, total_luas_m2: 0 },
+    { total_records: 0, total_qty_bs: 0, total_luas_m2: 0 },
   );
 
-  // Pembulatan angka desimal
-  summary.total_panjang = Number(summary.total_panjang.toFixed(2));
+  summary.total_qty_bs = Number(summary.total_qty_bs.toFixed(2));
   summary.total_luas_m2 = Number(summary.total_luas_m2.toFixed(2));
 
   const formattedData = rawData.map((row) => ({
     ...row,
     Panjang_BS: Number(Number(row.Panjang_BS || 0).toFixed(2)),
     Lebar_BS: Number(Number(row.Lebar_BS || 0).toFixed(2)),
+    Jumlah_BS: Number(Number(row.Jumlah_BS || 0).toFixed(2)),
     Luas_BS_M2: Number(Number(row.Luas_BS_M2 || 0).toFixed(2)),
   }));
 
