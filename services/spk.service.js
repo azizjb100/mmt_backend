@@ -373,7 +373,6 @@ exports.getStbjFullDetail = async (nomorStbj) => {
 
 exports.getSpkForJadwalKirimLookup = async (keyword) => {
   try {
-    // PERBAIKAN UTAMA: Ditambahkan tanda $ pada fungsi di bawah ini
     const baseQuery = getBaseSpkQuery();
     const sql = `
             SELECT 
@@ -386,21 +385,56 @@ exports.getSpkForJadwalKirimLookup = async (keyword) => {
                 CAST(IFNULL(jdwl.total_terjadwal, 0) AS UNSIGNED) AS Sudah_Kirim,
                 CAST(GREATEST(0, combined.Jumlah - IFNULL(jdwl.total_terjadwal, 0)) AS UNSIGNED) AS Belum_Kirim,
                 combined.Tipe_SPK,
-                combined.Ngedit
+                combined.Ngedit,
+                -- Ringkasan teks kota untuk tampilan lookup
+                alok.daftar_kota AS Alokasi,
+                -- Rincian lengkap alokasi dalam bentuk JSON Array
+                alok.alokasi_list
             FROM (${baseQuery}) AS combined
             LEFT JOIN (
                 SELECT spk_nomor, SUM(jumlah) AS total_terjadwal
                 FROM tjadwalkirim
                 GROUP BY spk_nomor
             ) jdwl ON jdwl.spk_nomor = combined.SPK
-            WHERE (combined.SPK LIKE ? OR combined.Nama LIKE ?)
+            LEFT JOIN (
+                SELECT 
+                    spka_spk_nomor,
+                    GROUP_CONCAT(DISTINCT spka_kota ORDER BY spka_urut SEPARATOR ', ') AS daftar_kota,
+                    JSON_ARRAYAGG(
+                        JSON_OBJECT(
+                            'urut', spka_urut,
+                            'kota', spka_kota,
+                            'alamat', spka_alamat,
+                            'person', spka_person,
+                            'hp', spka_hp,
+                            'jumlah', spka_jumlah
+                        )
+                    ) AS alokasi_list
+                FROM tspk_alokasi
+                GROUP BY spka_spk_nomor
+            ) alok ON alok.spka_spk_nomor = combined.SPK
+            WHERE (combined.SPK LIKE ? OR combined.Nama LIKE ? OR alok.daftar_kota LIKE ?)
             ORDER BY combined.Tanggal DESC
             LIMIT 100
         `;
 
     const searchKeyword = `%${keyword || ""}%`;
-    const [rows] = await pool.query(sql, [searchKeyword, searchKeyword]);
-    return rows;
+    const [rows] = await pool.query(sql, [
+      searchKeyword,
+      searchKeyword,
+      searchKeyword,
+    ]);
+
+    // Parsing alokasi_list jika driver MySQL mengembalikannya sebagai string JSON
+    const parsedRows = rows.map((row) => ({
+      ...row,
+      alokasi_list:
+        typeof row.alokasi_list === "string"
+          ? JSON.parse(row.alokasi_list)
+          : row.alokasi_list || [],
+    }));
+
+    return parsedRows;
   } catch (error) {
     throwDbError("Gagal mengambil data SPK untuk Jadwal Kirim", error);
   }

@@ -2,21 +2,23 @@ const pool = require("../config/db.config");
 const db = pool;
 // const tutupBukuService = require("../tutupBukuService");
 
-const getBrowseList = async (filters) => {
+const getBrowseList = async (filters = {}) => {
   const {
-    startDate,
-    endDate,
-    workshop,
-    customer,
-    userCabang,
-    canLihatCus,
-    canLihatHarga,
+    startDate = "",
+    endDate = "",
+    workshop = "",
+    customer = "",
+    keyword = "",
+    userCabang = "",
+    canLihatCus = false,
+    canLihatHarga = false,
   } = filters;
 
-  // Parameter tanggal awal untuk inner query (tspk & tsalesorder)
-  let params = [startDate, endDate, startDate, endDate];
+  // Default tanggal hari ini jika kosong
+  const tglAwal = startDate || new Date().toISOString().substring(0, 10);
+  const tglAkhir = endDate || tglAwal;
 
-  // Gunakan WHERE 1=1 agar parameter tambahan (workshop, customer, dsb) menyambung secara pas
+  let params = [tglAwal, tglAkhir, tglAwal, tglAkhir];
   let whereClause = `WHERE 1=1`;
 
   if (workshop && workshop !== "ALL" && workshop !== "") {
@@ -26,6 +28,11 @@ const getBrowseList = async (filters) => {
   if (customer) {
     whereClause += ` AND x.KodeCustomer = ?`;
     params.push(customer);
+  }
+  if (keyword && keyword.trim() !== "") {
+    whereClause += ` AND (x.Nomor LIKE ? OR x.SO LIKE ? OR x.Nama LIKE ?)`;
+    const kw = `%${keyword.trim()}%`;
+    params.push(kw, kw, kw);
   }
   if (
     userCabang &&
@@ -67,7 +74,7 @@ const getBrowseList = async (filters) => {
          BAGIAN 1: Ambil Data SPK (tspk)
          ========================================== */
       SELECT 
-        s.spk_so_ref AS SO,              -- Kolom SO sebelum Nomor SPK
+        s.spk_so_ref AS SO,
         s.spk_nomor AS Nomor,
         s.user_create AS MO, s.spk_cmo AS CMO,
         s.spk_tanggal AS Tanggal, s.spk_dateline AS Dateline,
@@ -120,7 +127,7 @@ const getBrowseList = async (filters) => {
         IFNULL((SELECT SUM(lcd_qty_Cetak) FROM tlhk_cetak_dtl WHERE lcd_spk_nomor=s.spk_nomor),0) AS ctk1,
         IFNULL((SELECT SUM(ljd_qty_jahit) FROM tlhk_jahit_dtl WHERE ljd_spk_nomor=s.spk_nomor),0) AS jht1,
         IFNULL((SELECT SUM(lld_qty_lipat) FROM tlhk_lipat_dtl WHERE lld_spk_nomor=s.spk_nomor),0) AS lpt1,
-        IFNULL(l.lcd_qty_Cetak, 0) AS ctkm,
+        IFNULL((SELECT SUM(lcd_qty_Cetak) FROM tlhk_cetakmmt_dtl WHERE lcd_spk_nomor=s.spk_nomor), 0) AS ctkm,
         s.spk_jumlah_jadi AS Jadi,
         IFNULL((SELECT pin_acc FROM tspk_pin5 WHERE pin_trs="SPK" AND pin_nomor=s.spk_nomor ORDER BY pin_urut DESC LIMIT 1),"") AS pin_acc,
         IFNULL((SELECT pin_dipakai FROM tspk_pin5 WHERE pin_trs="SPK" AND pin_nomor=s.spk_nomor ORDER BY pin_urut DESC LIMIT 1),"") AS pin_dipakai,
@@ -134,8 +141,12 @@ const getBrowseList = async (filters) => {
           WHERE pin_trs="SPK CETAK ULANG" AND pin_nomor=s.spk_nomor
           ORDER BY pin_urut DESC LIMIT 1
         ), "") AS CetakApprovalStatus,
-        IF(s.spk_divisi=5 AND (LENGTH(s.spk_repeat)>5 OR LENGTH(s.spk_memo)>5), l.lch_tanggal, k.lds_tgl) AS Design_Tanggal,
-        k.lds_user AS Design_User, k.lds_note AS Design_Note
+        IF(s.spk_divisi=5 AND (LENGTH(s.spk_repeat)>5 OR LENGTH(s.spk_memo)>5),
+          (SELECT MIN(h.lch_tanggal) FROM tlhk_cetakmmt_dtl d INNER JOIN tlhk_cetakmmt_hdr h ON h.lch_nomor=d.lcd_lch_nomor WHERE d.lcd_spk_nomor=s.spk_nomor),
+          (SELECT ds.lds_tgl FROM tlhkdesign_status ds WHERE ds.lds_spk=s.spk_nomor AND UPPER(ds.lds_status)="DONE" ORDER BY ds.lds_tgl DESC LIMIT 1)
+        ) AS Design_Tanggal,
+        (SELECT ds.lds_user FROM tlhkdesign_status ds WHERE ds.lds_spk=s.spk_nomor AND UPPER(ds.lds_status)="DONE" ORDER BY ds.lds_tgl DESC LIMIT 1) AS Design_User,
+        (SELECT ds.lds_note FROM tlhkdesign_status ds WHERE ds.lds_spk=s.spk_nomor AND UPPER(ds.lds_status)="DONE" ORDER BY ds.lds_tgl DESC LIMIT 1) AS Design_Note
       FROM tspk s
       LEFT JOIN tcustomer c ON s.spk_cus_kode = c.cus_kode
       LEFT JOIN tcustomer c1 ON c.cus_kodei = c1.cus_kode
@@ -143,25 +154,6 @@ const getBrowseList = async (filters) => {
       LEFT JOIN tdivisi v ON s.spk_divisi = v.kode
       LEFT JOIN tcustomer_pin i ON i.cusp_nomor = s.spk_nomor
       LEFT JOIN tspk_pin j ON j.pin_nomor = s.spk_nomor
-      LEFT JOIN (
-        SELECT ds.lds_spk, ds.lds_user, ds.lds_tgl, ds.lds_note
-        FROM tlhkdesign_status ds
-        INNER JOIN (
-          SELECT lds_spk, MAX(lds_tgl) AS max_tgl
-          FROM tlhkdesign_status
-          WHERE UPPER(lds_status) = "DONE"
-          GROUP BY lds_spk
-        ) max_ds ON ds.lds_spk = max_ds.lds_spk AND ds.lds_tgl = max_ds.max_tgl
-        WHERE UPPER(ds.lds_status) = "DONE"
-      ) k ON k.lds_spk = s.spk_nomor
-      LEFT JOIN (
-        SELECT lcd_spk_nomor,
-          SUM(IFNULL(lcd_qty_Cetak,0)) AS lcd_qty_Cetak,
-          MIN(lch_tanggal) AS lch_tanggal
-        FROM tlhk_cetakmmt_dtl
-        INNER JOIN tlhk_cetakmmt_hdr ON lch_nomor=lcd_lch_nomor
-        GROUP BY 1
-      ) l ON l.lcd_spk_nomor = s.spk_nomor
       WHERE s.spk_tanggal >= CONCAT(?, ' 00:00:00') AND s.spk_tanggal <= CONCAT(?, ' 23:59:59')
 
       UNION ALL
@@ -170,8 +162,8 @@ const getBrowseList = async (filters) => {
          BAGIAN 2: Ambil Data SO (tsalesorder)
          ========================================== */
       SELECT 
-        so.so_nomor AS SO,               -- Nomor SO ditaruh di kolom SO
-        NULL AS Nomor,                  -- Belum ada nomor SPK
+        so.so_nomor AS SO,
+        NULL AS Nomor,
         so.user_create AS MO, so.so_cmo AS CMO,
         so.so_tanggal AS Tanggal, so.so_dateline AS Dateline,
         so.so_statuskerja AS Kepentingan, v.divisi AS Divisi,
@@ -214,7 +206,14 @@ const getBrowseList = async (filters) => {
       LEFT JOIN tcustomer c1 ON c.cus_kodei = c1.cus_kode
       LEFT JOIN tsales sl ON so.so_sal_kode = sl.sal_kode
       LEFT JOIN tdivisi v ON so.so_divisi = v.kode
-      WHERE so.so_tanggal >= CONCAT(?, ' 00:00:00') AND so.so_tanggal <= CONCAT(?, ' 23:59:59')
+      WHERE so.so_tanggal >= CONCAT(?, ' 00:00:00') 
+        AND so.so_tanggal <= CONCAT(?, ' 23:59:59')
+        -- 🟢 FILTER: Kecualikan SO jika SPK-nya sudah terdaftar di tspk
+        AND NOT EXISTS (
+          SELECT 1 FROM tspk spk_cek 
+          WHERE spk_cek.spk_so_ref = so.so_nomor 
+            AND spk_cek.spk_is_so = 0
+        )
     ) x
     ${whereClause}
     ORDER BY x.Tanggal DESC, x.SO DESC, x.Nomor DESC`;
@@ -851,8 +850,8 @@ const getSoAlokasiReference = async (soNomor) => {
 const saveData = async (payload, user) => {
   const {
     isEdit,
-    spk_nomor, // wajib jika isEdit = true
-    so_nomor, // wajib jika isEdit = false (sumber data SO)
+    spk_nomor,
+    so_nomor,
     spk_ketbeli,
     spk_keterangan,
     dtlSize,
@@ -861,7 +860,7 @@ const saveData = async (payload, user) => {
     alokasi,
   } = payload;
 
-  // 💡 FIX: Ekstraksi user kode yang tangguh (bisa terima string, obj {kode}, atau obj {kdUser})
+  // 💡 Ekstraksi user kode yang tangguh
   const userKode =
     typeof user === "object" && user !== null
       ? user.kode || user.kdUser || user.user_kode || "ADMIN"
@@ -892,17 +891,33 @@ const saveData = async (payload, user) => {
       // 🟢 Isikan cabang untuk penentuan flow
       cabForFlow = soHeader.spk_cab;
 
-      nomor = isLegacySpkFlow(soHeader.spk_divisi)
-        ? await generateNomorLegacy(
-            soHeader.spk_perush_kode,
-            soHeader.spk_jo_kode,
-            conn,
-          )
-        : await generateNomor(
-            soHeader.spk_perush_kode,
-            soHeader.spk_jo_kode,
-            conn,
-          );
+      // 1. Transformasi prefix dari SO (SO- -> SPK-) untuk SEMUA Divisi/Cabang
+      const nomorWarisan = so_nomor.startsWith("SO-")
+        ? so_nomor.replace("SO-", "SPK-")
+        : so_nomor;
+
+      // 2. Validasi & Pengecekan Bentrok (Clash Check)
+      const [clash] = await conn.query(
+        `SELECT spk_so_ref FROM tspk WHERE spk_nomor = ? FOR UPDATE`,
+        [nomorWarisan],
+      );
+      const isClashWithOtherSo =
+        clash.length > 0 && clash[0].spk_so_ref !== so_nomor;
+
+      if (isClashWithOtherSo) {
+        // Fallback jika nomor warisan bentrok dengan record lama
+        nomor = await generateNomor(
+          soHeader.spk_perush_kode,
+          soHeader.spk_jo_kode,
+          conn,
+        );
+      } else if (clash.length > 0) {
+        throw new Error(
+          `SPK untuk SO ${so_nomor} sudah pernah dibuat (${nomorWarisan}). Silakan gunakan mode Ubah.`,
+        );
+      } else {
+        nomor = nomorWarisan;
+      }
 
       const newHeader = { ...soHeader };
       delete newHeader.spk_nomor;
@@ -918,8 +933,17 @@ const saveData = async (payload, user) => {
       newHeader.date_create = new Date();
       delete newHeader.user_modified;
       delete newHeader.date_modified;
+
       const filteredHeader = await filterToTspkColumns(newHeader, conn);
       await conn.query(`INSERT INTO tspk SET ?`, [filteredHeader]);
+
+      // Update referensi SPK balik ke tabel tsalesorder jika berasal dari SO baru
+      if (so_nomor.startsWith("SO-")) {
+        await conn.query(
+          `UPDATE tsalesorder SET so_spk_ref = ? WHERE so_nomor = ?`,
+          [nomor, so_nomor],
+        );
+      }
 
       const sizeSource =
         dtlSize && dtlSize.length > 0

@@ -13,7 +13,7 @@ const getAllHeaders = async (startDate, endDate) => {
     const sql = `
             SELECT 
                 t1.lfh_nomor AS Nomor, 
-                t1.lfh_tanggal AS Tanggal, 
+                DATE_FORMAT(t1.lfh_tanggal, '%Y-%m-%d') AS Tanggal, 
                 t1.lfh_gdg_prod AS Gudang, 
                 t2.gdg_nama AS Nama_Gudang, 
                 t1.lfh_shift AS Shift,
@@ -31,8 +31,7 @@ const getAllHeaders = async (startDate, endDate) => {
                 FROM tlhk_finishingmmt_dtl 
                 WHERE 
                     (lfd_j_mataayam > 0 AND (lfd_mataayam_qty IS NULL OR lfd_mataayam_qty = 0)) 
-                    OR (lfd_xbanner_qty > 0 AND (lfd_xbanner_qty IS NULL OR lfd_xbanner_qty = 0)) -- Sesuaikan field qty jika perlu
-                    -- Tambahkan pengecekan bad items lainnya di sini
+                    OR (lfd_xbanner_qty > 0 AND (lfd_xbanner_qty IS NULL OR lfd_xbanner_qty = 0))
             ) AS bad_items ON t1.lfh_nomor = bad_items.lfd_lfh_nomor
             WHERE t1.lfh_tanggal BETWEEN ? AND ?
             ORDER BY t1.lfh_tanggal DESC, t1.lfh_nomor DESC

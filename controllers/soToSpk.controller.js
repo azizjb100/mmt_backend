@@ -8,21 +8,35 @@ const getBrowse = async (req, res) => {
     const canLihatCus = Number(flags.lihatCus) === 1;
     const canLihatHarga = Number(flags.lihatHarga) === 1;
 
+    const today = new Date().toISOString().substring(0, 10);
+    const startDate = req.query.startDate || today;
+    const endDate = req.query.endDate || startDate;
+
     const filters = {
-      startDate: req.query.startDate,
-      endDate: req.query.endDate,
-      workshop: req.query.workshop,
-      customer: req.query.customer,
-      keyword: req.query.keyword,
+      startDate,
+      endDate,
+      workshop: req.query.workshop || "",
+      customer: req.query.customer || "",
+      keyword: req.query.keyword || "",
       userCabang: user.cabang || "",
       canLihatCus,
       canLihatHarga,
     };
 
     const data = await service.getBrowseList(filters);
-    res.json({ success: true, data, canLihatCus, canLihatHarga });
+    return res.json({
+      success: true,
+      data: Array.isArray(data) ? data : [],
+      canLihatCus,
+      canLihatHarga,
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    console.error("Error getBrowse:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Gagal memuat data",
+      data: [],
+    });
   }
 };
 
