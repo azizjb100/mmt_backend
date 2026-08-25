@@ -373,7 +373,11 @@ exports.getStbjFullDetail = async (nomorStbj) => {
 
 exports.getSpkForJadwalKirimLookup = async (keyword) => {
   try {
-    const baseQuery = getBaseSpkQuery();
+    // Menambahkan filter cabang 'p05' dan status aktif untuk Reguler & Memo
+    const whereReguler = "t.spk_aktif = 'Y' AND t.spk_cab = 'p05'";
+    const whereMemo = "m.mspk_aktif = 'Y' AND m.mspk_cab = 'p05'";
+
+    const baseQuery = getBaseSpkQuery(whereReguler, whereMemo);
     const sql = `
             SELECT 
                 combined.SPK,
@@ -622,8 +626,9 @@ const getBaseSpkRegulerOnlyQuery = (whereClause = "1=1") => {
 
 exports.getSpkForMesin = async (keyword) => {
   try {
-    // Menggunakan variabel terpisah agar string SQL ter-compile dengan sempurna oleh Node.js
-    const baseQuery = getBaseSpkRegulerOnlyQuery("t.spk_aktif = 'Y'");
+    const baseQuery = getBaseSpkRegulerOnlyQuery(
+      "t.spk_aktif = 'Y' AND t.spk_cab = 'p05'",
+    );
     let sql = `SELECT * FROM (${baseQuery}) AS spk_mesin`;
 
     const params = [];
