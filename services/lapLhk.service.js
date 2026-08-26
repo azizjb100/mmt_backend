@@ -4,34 +4,32 @@ const { format } = require("date-fns");
 // =========================================================================
 // HELPER: SUBQUERY GABUNGAN (MMT, TEKSTIL, SUBLIM)
 // =========================================================================
-/**
- * Menyediakan subquery SQL gabungan dari 3 lini produksi:
- * 1. LHK Cetak (MMT)
- * 2. LHK Mesin Tekstil
- * 3. LHK Sublim
- */
 const getUnifiedLhkQuery = () => {
   return `
         SELECT 
             'MMT' AS Kategori,
-            h.lnomor AS Nomor_LHK,
-            h.ltanggal AS Tanggal,
-            h.lshift AS Shift,
-            h.loperator AS Operator,
-            h.lgdg_prod AS Kode_Gudang,
+            h.lch_nomor AS Nomor_LHK,
+            h.lch_tanggal AS Tanggal,
+            h.lch_shift AS Shift,
+            h.lch_operator AS Operator,
+            h.lch_gdg_prod AS Kode_Gudang,
             g.gdg_nama AS Nama_Gudang,
-            h.lmesin AS Mesin,
-            d.ld_spk_nomor AS Nomor_SPK,
-            IFNULL(s.spk_nama, '-') AS Nama_Order,
-            d.ld_total_qtycetak AS Qty_Cetak,
-            IFNULL(s.spk_panjang, 0) AS Panjang,
-            IFNULL(s.spk_lebar, 0) AS Lebar,
-            ROUND(d.ld_total_qtycetak * IFNULL(s.spk_panjang, 0) * IFNULL(s.spk_lebar, 0), 2) AS Total_m2
-        FROM tlhk_mesin_hdr h
-        JOIN tlhk_mesin_dtl d ON h.lnomor = d.ld_lnomor
-        LEFT JOIN tGUDANG g ON g.gdg_kode = h.lgdg_prod
-        LEFT JOIN tspk s ON s.spk_nomor = d.ld_spk_nomor
-        WHERE h.ltanggal BETWEEN ? AND ?
+            d.lcd_jns_mesin AS Mesin,
+            d.lcd_spk_nomor AS Nomor_SPK,
+            IFNULL(x.spk_nama, '-') AS Nama_Order,
+            d.lcd_qty_cetak AS Qty_Cetak,
+            IFNULL(x.spk_panjang, 0) AS Panjang,
+            IFNULL(x.spk_lebar, 0) AS Lebar,
+            ROUND(d.lcd_qty_cetak * IFNULL(x.spk_panjang, 0) * IFNULL(x.spk_lebar, 0), 2) AS Total_m2
+        FROM tlhk_cetakmmt_hdr h
+        JOIN tlhk_cetakmmt_dtl d ON h.lch_nomor = d.lcd_lch_nomor
+        LEFT JOIN tGUDANG g ON g.gdg_kode = h.lch_gdg_prod
+        LEFT JOIN (
+            SELECT spk_nomor, spk_nama, spk_panjang, spk_lebar FROM tspk
+            UNION ALL
+            SELECT mspk_nomor, mspk_nama, mspk_panjang, mspk_lebar FROM tmemospk
+        ) x ON x.spk_nomor = d.lcd_spk_nomor
+        WHERE h.lch_tanggal BETWEEN ? AND ?
 
         UNION ALL
 
@@ -93,9 +91,6 @@ const getUnifiedLhkQuery = () => {
 // FUNGSI LAPORAN & AGREGASI
 // =========================================================================
 
-/**
- * Ringkasan statistik produksi untuk Dashboard
- */
 const getLaporanAgregasi = async (startDate, endDate) => {
   const tglMulai = format(new Date(startDate), "yyyy-MM-dd");
   const tglSelesai = format(new Date(endDate), "yyyy-MM-dd");
@@ -143,9 +138,6 @@ const getLaporanAgregasi = async (startDate, endDate) => {
   return { perMesin: resMesin, perHari: resHarian, perSPK: resSPK };
 };
 
-/**
- * Rekap LHK untuk tampilan tabel report
- */
 const getRekapLhk = async (startDate, endDate) => {
   const tglMulai = format(new Date(startDate), "yyyy-MM-dd");
   const tglSelesai = format(new Date(endDate), "yyyy-MM-dd");
@@ -191,9 +183,6 @@ const getRekapLhk = async (startDate, endDate) => {
   return { rekapMesin, rekapHarian };
 };
 
-/**
- * Export Excel CrossTab (Mesin vs Tanggal)
- */
 const getExportLhkCrossTab = async (month, year) => {
   const sql = `
         SELECT 
@@ -202,21 +191,35 @@ const getExportLhkCrossTab = async (month, year) => {
             DAY(u.Tanggal) AS Hari,
             SUM(u.Total_m2) AS Total_Meter
         FROM (
-            SELECT h.lmesin AS Mesin, 'MMT' AS Kategori, h.ltanggal AS Tanggal, d.ld_luas_m2 AS Total_m2
-            FROM tlhk_mesin_hdr h JOIN tlhk_mesin_dtl d ON h.lnomor = d.ld_lnomor
+            SELECT 
+                d.lcd_jns_mesin AS Mesin, 
+                'MMT' AS Kategori, 
+                h.lch_tanggal AS Tanggal, 
+                ROUND(d.lcd_qty_cetak * IFNULL(x.spk_panjang,0) * IFNULL(x.spk_lebar,0), 2) AS Total_m2
+            FROM tlhk_cetakmmt_hdr h 
+            JOIN tlhk_cetakmmt_dtl d ON h.lch_nomor = d.lcd_lch_nomor
+            LEFT JOIN (SELECT spk_nomor, spk_panjang, spk_lebar FROM tspk UNION ALL SELECT mspk_nomor, mspk_panjang, mspk_lebar FROM tmemospk) x ON x.spk_nomor = d.lcd_spk_nomor
             
             UNION ALL
             
-            SELECT d.ltd_jns_mesin AS Mesin, 'TEKSTIL' AS Kategori, h.lth_tanggal AS Tanggal,
-                   (d.ltd_qty_cetak * IFNULL(x.spk_panjang,0) * IFNULL(x.spk_lebar,0)) AS Total_m2
-            FROM tlhk_mesintekstil_hdr h JOIN tlhk_mesintekstil_dtl d ON h.lth_nomor = d.ltd_lth_nomor
+            SELECT 
+                d.ltd_jns_mesin AS Mesin, 
+                'TEKSTIL' AS Kategori, 
+                h.lth_tanggal AS Tanggal,
+                ROUND(d.ltd_qty_cetak * IFNULL(x.spk_panjang,0) * IFNULL(x.spk_lebar,0), 2) AS Total_m2
+            FROM tlhk_mesintekstil_hdr h 
+            JOIN tlhk_mesintekstil_dtl d ON h.lth_nomor = d.ltd_lth_nomor
             LEFT JOIN (SELECT spk_nomor, spk_panjang, spk_lebar FROM tspk UNION ALL SELECT mspk_nomor, mspk_panjang, mspk_lebar FROM tmemospk) x ON x.spk_nomor = d.ltd_spk_nomor
             
             UNION ALL
             
-            SELECT IFNULL(d.lsbd_lokasi, 'SB01') AS Mesin, 'SUBLIM' AS Kategori, h.lsb_tanggal AS Tanggal,
-                   IFNULL(d.lsbd_j_meter, (d.lsbd_panjang * d.lsbd_lebar * d.lsbd_jumlah)) AS Total_m2
-            FROM tlhk_sublim_hdr h JOIN tlhk_sublim_dtl d ON h.lsb_nomor = d.lsbd_lsb_nomor
+            SELECT 
+                IFNULL(d.lsbd_lokasi, 'SB01') AS Mesin, 
+                'SUBLIM' AS Kategori, 
+                h.lsb_tanggal AS Tanggal,
+                IFNULL(d.lsbd_j_meter, (d.lsbd_panjang * d.lsbd_lebar * d.lsbd_jumlah)) AS Total_m2
+            FROM tlhk_sublim_hdr h 
+            JOIN tlhk_sublim_dtl d ON h.lsb_nomor = d.lsbd_lsb_nomor
         ) u
         WHERE MONTH(u.Tanggal) = ? AND YEAR(u.Tanggal) = ?
         GROUP BY u.Mesin, u.Kategori, DAY(u.Tanggal)
@@ -227,9 +230,6 @@ const getExportLhkCrossTab = async (month, year) => {
   return rows;
 };
 
-/**
- * Export data detail lengkap ke Excel/CSV
- */
 const getAllDataForExport = async (startDate, endDate, mesin) => {
   const tglMulai = format(new Date(startDate), "yyyy-MM-dd");
   const tglSelesai = format(new Date(endDate), "yyyy-MM-dd");
@@ -281,9 +281,6 @@ const getAllDataForExport = async (startDate, endDate, mesin) => {
   return rows;
 };
 
-/**
- * Detail pengerjaan SPK per mesin tertentu
- */
 const getDetailRekapMesin = async (startDate, endDate, mesin) => {
   const tglMulai = format(new Date(startDate), "yyyy-MM-dd");
   const tglSelesai = format(new Date(endDate), "yyyy-MM-dd");
