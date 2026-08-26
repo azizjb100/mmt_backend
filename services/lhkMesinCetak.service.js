@@ -121,15 +121,18 @@ const getLookup = async (startDate, endDate, shift = "", search = "") => {
             t1.lmesin AS Mesin, 
             t1.lspk_nomor AS NomorSPK, 
             t2.spk_nama AS NamaOrder,
-
             IFNULL(t2.spk_jumlah, 0) AS JumlahOrder,
             IFNULL(x.qtytotalcetak, 0) AS TotalCetak,
-            IFNULL(x.totalpadding, 0) AS Padding, /* --- PENAMBAHAN KOLOM PADDING --- */
+            IFNULL(x.totalpadding, 0) AS Padding,
             CAST(GREATEST(0, IFNULL(t2.spk_jumlah, 0) - IFNULL(all_prod.total_pernah_cetak, 0)) AS UNSIGNED) AS KurangCetak,
             t1.loperator AS Operator,
             
-            /* --- PENAMBAHAN STATUS AMBIL --- */
-            IF(rekap.lcd_lnomor IS NOT NULL, 'CLOSED', 'OPEN') AS StatusAmbil
+            /* --- STATUS UTAMA (POSTED / DRAFT) --- */
+            /* Sesuaikan t1.lstatus dengan nama kolom status asli di tabel Anda, atau atur kondisinya */
+            IFNULL(t1.lstatus, 'DRAFT') AS Status,
+            
+            /* --- STATUS CLOSE (OPEN / CLOSED) --- */
+            IF(rekap.lcd_lch_nomor IS NOT NULL, 'CLOSED', 'OPEN') AS StatusClose
             
         FROM tlhk_mesin_hdr t1
         LEFT JOIN tspk t2 ON t2.spk_nomor = t1.lspk_nomor
@@ -137,11 +140,11 @@ const getLookup = async (startDate, endDate, shift = "", search = "") => {
             SELECT 
                 ld_lnomor,
                 SUM(ld_qtyCetak1 + ld_qtyCetak2 + ld_qtyCetak3 + ld_qtyCetak4 + ld_qtyCetak5 + ld_qtyCetak6 + ld_qtyCetak7) AS qtytotalcetak,
-                SUM(IFNULL(ld_padding, 0)) AS totalpadding /* Menghitung total padding per header */
+                SUM(IFNULL(ld_padding, 0)) AS totalpadding
             FROM tlhk_mesin_dtl 
             GROUP BY ld_lnomor
         ) x ON x.ld_lnomor = t1.lnomor
-        /* Subquery untuk menghitung total produksi SPK ini dari semua LHK yang pernah ada */
+        
         LEFT JOIN (
             SELECT h.lspk_nomor, SUM(d.ld_qtyCetak1 + d.ld_qtyCetak2 + d.ld_qtyCetak3 + d.ld_qtyCetak4 + d.ld_qtyCetak5 + d.ld_qtyCetak6 + d.ld_qtyCetak7) as total_pernah_cetak
             FROM tlhk_mesin_hdr h
@@ -150,9 +153,9 @@ const getLookup = async (startDate, endDate, shift = "", search = "") => {
         ) all_prod ON all_prod.lspk_nomor = t1.lspk_nomor
         
         LEFT JOIN (
-            SELECT DISTINCT lcd_lnomor 
+            SELECT DISTINCT lcd_lch_nomor 
             FROM tlhk_cetakmmt_dtl
-        ) rekap ON rekap.lcd_lnomor = t1.lnomor
+        ) rekap ON rekap.lcd_lch_nomor = t1.lnomor
 
         WHERE t1.ltanggal BETWEEN ? AND ?
     `;
