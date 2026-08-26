@@ -26,7 +26,7 @@ const getUnifiedLhkQuery = () => {
             d.ld_total_qtycetak AS Qty_Cetak,
             IFNULL(s.spk_panjang, 0) AS Panjang,
             IFNULL(s.spk_lebar, 0) AS Lebar,
-            d.ld_luas_m2 AS Total_m2
+            ROUND(d.ld_total_qtycetak * IFNULL(s.spk_panjang, 0) * IFNULL(s.spk_lebar, 0), 2) AS Total_m2
         FROM tlhk_mesin_hdr h
         JOIN tlhk_mesin_dtl d ON h.lnomor = d.ld_lnomor
         LEFT JOIN tGUDANG g ON g.gdg_kode = h.lgdg_prod
