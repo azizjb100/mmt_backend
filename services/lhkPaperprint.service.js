@@ -43,8 +43,10 @@ const getAllHeaders = async (startDate, endDate, search = "") => {
     DATE_FORMAT(t1.lsb_tanggal, '%Y-%m-%d') AS Tanggal, 
     IFNULL(x.mesin_lokasi, 'SB01') AS Mesin,
     
-    t1.lsb_status AS Status,
-    IFNULL(t1.lsb_acc, '') AS Status_Acc, -- 🌟 TAMBAHAN: Kolom status ACC
+    -- Status Utama & ACC
+    IFNULL(t1.lsb_status, 'DRAFT') AS Status,
+    IFNULL(t1.lsb_acc, '') AS Status_Acc,
+    
     t1.lsb_panjang_bs AS lsb_panjang_bs,
     t1.lsb_lebar_bs AS lsb_lebar_bs,
     t1.lsb_gdg_kode AS Gudang,
@@ -53,6 +55,8 @@ const getAllHeaders = async (startDate, endDate, search = "") => {
     t1.lsb_barcode AS Barcode_Roll,
     t1.lsb_brg_kode AS Kode_Bahan,
     t3.brg_nama AS Nama_Bahan,
+    -- Cek Kelengkapan Bahan (Y / N)
+    IF(LENGTH(IFNULL(t1.lsb_brg_kode, '')) > 0, 'Y', 'N') AS Lengkap,
 
     IFNULL(x.combined_spk, '-') AS NomorSPK,
     IFNULL(x.combined_spk_nama, '-') AS NamaOrder,

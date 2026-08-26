@@ -17,14 +17,14 @@ const getAllHeaders = async (startDate, endDate) => {
             h.lth_gdg_prod AS Gudang, 
             g.gdg_nama AS Nama_Gudang, 
             h.lth_shift AS Shift,
-            h.lth_status AS Status,
+            IFNULL(h.lth_status, 'DRAFT') AS Status,
             
             -- DATA BAHAN
             IFNULL(h.lth_brg_kode, '') AS Kode_bahan,
             b.brg_nama AS nama_Bahan,
             IF(LENGTH(IFNULL(h.lth_brg_kode, '')) > 0, 'Y', 'N') AS Lengkap,
             
-            -- DATA MESIN & RINGKASAN SPK (Tetap aman seperti kemarin)
+            -- DATA MESIN & RINGKASAN SPK
             (SELECT GROUP_CONCAT(DISTINCT dtl.ltd_jns_mesin SEPARATOR ', ') 
              FROM tlhk_mesintekstil_dtl dtl WHERE dtl.ltd_lth_nomor = h.lth_nomor) AS Mesin,
             
@@ -45,17 +45,12 @@ const getAllHeaders = async (startDate, endDate) => {
             (SELECT MIN(x.spk_lebar) FROM tlhk_mesintekstil_dtl dtl LEFT JOIN (SELECT spk_nomor, spk_lebar FROM tspk UNION ALL SELECT mspk_nomor, mspk_lebar FROM tmemospk) x ON x.spk_nomor = dtl.ltd_spk_nomor WHERE dtl.ltd_lth_nomor = h.lth_nomor) AS spk_lebar,
             IFNULL((SELECT SUM(x.spk_jumlah) FROM tlhk_mesintekstil_dtl dtl LEFT JOIN (SELECT spk_nomor, spk_jumlah FROM tspk UNION ALL SELECT mspk_nomor, mspk_jumlah FROM tmemospk) x ON x.spk_nomor = dtl.ltd_spk_nomor WHERE dtl.ltd_lth_nomor = h.lth_nomor), 0) AS JumlahOrder,
             
-            -- =========================================================================
-            -- PERBAIKAN FORMULA HITUNGAN ANTI LUMPSUM (TUNGGAL)
-            -- =========================================================================
-            
-            -- Total Hasil Cetak Pcs/Meter (Ini tetap di-SUM karena akumulasi pekerjaan)
+            -- Total Hasil Cetak Pcs/Meter
             IFNULL((SELECT SUM(dtl.ltd_qty_cetak) FROM tlhk_mesintekstil_dtl dtl WHERE dtl.ltd_lth_nomor = h.lth_nomor), 0) AS jumlah_cetak,
-            
             
             IFNULL((SELECT MAX(dtl.ltd_ambil_bahan) FROM tlhk_mesintekstil_dtl dtl WHERE dtl.ltd_lth_nomor = h.lth_nomor), 0) AS PanjangBahanAwal,
             
-            -- PERBAIKAN 2: Sisa Bahan Akhir = (Bahan Awal Tunggal) - (Total Akumulasi Semua Qty Cetak)
+            -- Sisa Bahan Akhir
             IFNULL(
                 (SELECT m.mst_panjang 
                  FROM tmasterstok_mmt m 
@@ -65,7 +60,7 @@ const getAllHeaders = async (startDate, endDate) => {
                  LIMIT 1), 
                 0
             ) AS SisaMeterAkhir
-              
+             
         FROM tlhk_mesintekstil_hdr h
         LEFT JOIN tGUDANG g ON g.gdg_kode = h.lth_gdg_prod
         LEFT JOIN tbarang_mmt b ON b.brg_kode = h.lth_brg_kode
