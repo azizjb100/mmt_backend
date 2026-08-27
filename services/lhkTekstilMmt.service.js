@@ -43,6 +43,8 @@ const getAllHeaders = async (startDate, endDate) => {
             
             (SELECT MIN(x.spk_panjang) FROM tlhk_mesintekstil_dtl dtl LEFT JOIN (SELECT spk_nomor, spk_panjang FROM tspk UNION ALL SELECT mspk_nomor, mspk_panjang FROM tmemospk) x ON x.spk_nomor = dtl.ltd_spk_nomor WHERE dtl.ltd_lth_nomor = h.lth_nomor) AS spk_panjang,
             (SELECT MIN(x.spk_lebar) FROM tlhk_mesintekstil_dtl dtl LEFT JOIN (SELECT spk_nomor, spk_lebar FROM tspk UNION ALL SELECT mspk_nomor, mspk_lebar FROM tmemospk) x ON x.spk_nomor = dtl.ltd_spk_nomor WHERE dtl.ltd_lth_nomor = h.lth_nomor) AS spk_lebar,
+            
+            -- JUMLAH ORDER DARI SPK (HEADER)
             IFNULL((SELECT SUM(x.spk_jumlah) FROM tlhk_mesintekstil_dtl dtl LEFT JOIN (SELECT spk_nomor, spk_jumlah FROM tspk UNION ALL SELECT mspk_nomor, mspk_jumlah FROM tmemospk) x ON x.spk_nomor = dtl.ltd_spk_nomor WHERE dtl.ltd_lth_nomor = h.lth_nomor), 0) AS JumlahOrder,
             
             -- Total Hasil Cetak Pcs/Meter
@@ -90,7 +92,7 @@ const getInksByNomor = async (nomor) => {
 };
 
 /**
- * Mengambil detail LHK berdasarkan nomor (Tetap dipertahankan jika komponen expander Vue membutuhkan detail breakdown)
+ * Mengambil detail LHK berdasarkan nomor
  */
 const getDetailsByNomor = async (nomor) => {
   const sqlDetail = `
@@ -98,15 +100,16 @@ const getDetailsByNomor = async (nomor) => {
             d.ltd_lth_nomor AS Nomor,
             d.ltd_no_urut AS urut,
             d.ltd_jns_mesin AS Mesin, 
-            d.ltd_spk_nomor AS Nomor_SPK,  -- KEMBALI KE ALIAS LAMA
-            x.spk_nama AS Nama_SPK,       -- KEMBALI KE ALIAS LAMA
-            x.spk_jumlah AS Jumlah_SPK,   -- KEMBALI KE ALIAS LAMA
+            d.ltd_spk_nomor AS Nomor_SPK,  
+            x.spk_nama AS Nama_SPK,       
+            x.spk_jumlah AS Jumlah_SPK,   -- TAMBAHAN: Jumlah Order dari SPK (Alias alternatif)
+            x.spk_jumlah AS jumlah_spk,   -- TAMBAHAN: Untuk mengcover key huruf kecil
             x.spk_panjang AS Panjang, 
             x.spk_lebar AS Lebar, 
             d.ltd_pad AS Padding,
-            d.ltd_qty_cetak AS Jml_Cetak,  -- KEMBALI KE ALIAS LAMA
+            d.ltd_qty_cetak AS Jml_Cetak,  
             
-            -- HITUNGAN AKUMULASI (Tetap Dipertahankan)
+            -- HITUNGAN AKUMULASI 
             IFNULL((
                 SELECT SUM(dx.ltd_qty_Cetak) 
                 FROM tlhk_mesintekstil_dtl dx
@@ -129,11 +132,11 @@ const getDetailsByNomor = async (nomor) => {
             b.brg_nama AS Nama, 
             
             -- Field Manajemen Bahan Kain/Tekstil
-            d.ltd_ambil_bahan AS Ambil_Bahan, -- KEMBALI KE ALIAS LAMA
+            d.ltd_ambil_bahan AS Ambil_Bahan, 
             IFNULL(d.ltd_aktual_bahan, 0) AS Aktual_Bahan,
             IFNULL(d.ltd_waste_tinta, 0) AS Waste_Tinta,
             
-            -- Track Input Data Cetak Multi-Posisi (Menyediakan versi Huruf Besar & Kecil agar Aman)
+            -- Track Input Data Cetak Multi-Posisi 
             IFNULL(d.ltd_cetak1, 0) AS Cetak_1,
             IFNULL(d.ltd_cetak2, 0) AS Cetak_2,
             IFNULL(d.ltd_cetak3, 0) AS Cetak_3,
@@ -142,7 +145,7 @@ const getDetailsByNomor = async (nomor) => {
             IFNULL(d.ltd_cetak6, 0) AS Cetak_6,
             IFNULL(d.ltd_cetak7, 0) AS Cetak_7,
             
-            -- Alias Cadangan Huruf Kecil untuk handle fungsi backend / frontend dynamic
+            -- Alias Cadangan Huruf Kecil
             IFNULL(d.ltd_qty_cetak, 0) AS totalcetak,
             IFNULL(d.ltd_cetak1, 0) AS cetak1,
             IFNULL(d.ltd_cetak2, 0) AS cetak2,
@@ -311,7 +314,6 @@ const saveLhk = async (data) => {
         Number(header.lebar_bs || 0),
       ]);
     } else {
-      // 1. Query Update Header
       const sqlUpdHeader = `
       UPDATE tlhk_mesintekstil_hdr SET 
         lth_tanggal = ?, 
@@ -327,7 +329,6 @@ const saveLhk = async (data) => {
       WHERE lth_nomor = ?
     `;
 
-      // 2. Parameter Array (Murni JavaScript tanpa komentar --)
       await conn.query(sqlUpdHeader, [
         header.tanggal,
         header.shift || 1,
@@ -341,14 +342,13 @@ const saveLhk = async (data) => {
         nomorLhk,
       ]);
 
-      // Bersihkan data detail lama sebelum insert ulang (Mode Edit)
       await conn.query(
         "DELETE FROM tlhk_mesintekstil_dtl WHERE ltd_lth_nomor = ?",
         [nomorLhk],
       );
     }
 
-    // 4. Bersihkan stok lama di tmasterstok_mmt untuk nomor LHK ini (terlepas dari status baru)
+    // 4. Bersihkan stok lama di tmasterstok_mmt untuk nomor LHK ini
     if (!isActuallyNew) {
       await conn.query(
         `DELETE FROM tmasterstok_mmt WHERE mst_noreferensi = ? OR mst_spk_nomor = ?`,
@@ -506,9 +506,6 @@ const saveLhk = async (data) => {
 };
 
 /**
- * Lookup untuk modal pencarian LHK Tekstil di Approval
- */
-/**
  * Lookup LHK Tekstil dengan Filter Tanggal dan Shift
  */
 const getLookupLhkTekstil = async (tanggal, shift) => {
@@ -517,7 +514,7 @@ const getLookupLhkTekstil = async (tanggal, shift) => {
         SELECT 
             h.lth_nomor AS Nomor, 
             DATE_FORMAT(h.lth_tanggal, '%Y-%m-%d') AS Tanggal, 
-                      CASE 
+            CASE 
                 WHEN h.lth_status = 'APPROVED' THEN 'CLOSED'
                 ELSE 'OPEN'
             END AS StatusAmbil,
@@ -558,7 +555,7 @@ const getLookupLhkTekstil = async (tanggal, shift) => {
             -- Mengambil Total Qty Cetak Pcs (Hasil SUM dari semua detail)
             (SELECT SUM(ltd_qty_Cetak) FROM tlhk_mesintekstil_dtl WHERE ltd_lth_nomor = h.lth_nomor) AS TotalCetak,
             
-            -- Mengambil Total Luas Meter Persegi / Panjang Pakai (Hasil SUM dari semua detail) untuk field qty meter2
+            -- Mengambil Total Luas Meter Persegi / Panjang Pakai
             (SELECT SUM(ltd_panjang_pakai) FROM tlhk_mesintekstil_dtl WHERE ltd_lth_nomor = h.lth_nomor) AS KurangCetak
             
         FROM tlhk_mesintekstil_hdr h
@@ -585,7 +582,6 @@ const getLookupLhkTekstil = async (tanggal, shift) => {
 const generateAppNomor = async (date, connection) => {
   const yymm = format(new Date(date), "yyMM");
   const prefix = `MMT-LHK-TA.${yymm}.%`;
-  // GANTI: tapproval_tekstil_hdr -> tlhk_tekstilmmt_hdr
   const sql = `SELECT MAX(CAST(SUBSTRING_INDEX(lth_nomor, '.', -1) AS UNSIGNED)) AS max_num 
                  FROM tlhk_tekstilmmt_hdr WHERE lth_nomor LIKE ?`;
 
@@ -597,30 +593,20 @@ const generateAppNomor = async (date, connection) => {
 /**
  * Menyimpan data Approval dan Update status LHK asal
  */
-/**
- * Logika Approve:
- * 1. Simpan Header ke tlhk_tekstilmmt_hdr
- * 2. Simpan Detail ke tlhk_tekstilmmt_dtl
- * 3. Update status di tlhk_mesintekstil_hdr menjadi 'APPROVED'
- */
 const saveApproval = async (data) => {
-  // 1. Tangkap properti inkData yang dikirim dari frontend
   const { header, details, inkData } = data;
   const conn = await pool.getConnection();
 
   try {
     await conn.beginTransaction();
 
-    // Antisipasi kapitalisasi nama property nomor dari frontend
     let nomorApp = header.nomor || header.Nomor;
     let isActuallyNew = false;
 
-    // 2. Tentukan apakah data BARU atau EDIT
     if (!nomorApp || nomorApp === "AUTO") {
       nomorApp = await generateAppNomor(header.tanggal, conn);
       isActuallyNew = true;
     } else {
-      // Cek apakah nomor approval ini sudah ada di tabel rekap tekstil
       const [rows] = await conn.query(
         "SELECT lth_nomor FROM tlhk_tekstilmmt_hdr WHERE lth_nomor = ?",
         [nomorApp],
@@ -633,7 +619,6 @@ const saveApproval = async (data) => {
     const sampleBarcode =
       details && details.length > 0 ? details[0].barcode || "" : "";
 
-    // 3. Simpan atau Update ke Header Rekap Tekstil
     if (isActuallyNew) {
       const sqlInsHeader = `
                 INSERT INTO tlhk_tekstilmmt_hdr (
@@ -668,7 +653,6 @@ const saveApproval = async (data) => {
         nomorApp,
       ]);
 
-      // Mode EDIT: Bersihkan data lama detail pekerjaan & data tinta lama agar tidak double
       await conn.query(
         "DELETE FROM tlhk_tekstilmmt_dtl WHERE ltd_lth_nomor = ?",
         [nomorApp],
@@ -679,7 +663,6 @@ const saveApproval = async (data) => {
       );
     }
 
-    // 4. Simpan Detail Pekerjaan
     if (details && details.length > 0) {
       const sqlDetail = `
                 INSERT INTO tlhk_tekstilmmt_dtl (
@@ -702,7 +685,6 @@ const saveApproval = async (data) => {
       ]);
       await conn.query(sqlDetail, [values]);
 
-      // Update status di tabel LHK Mesin asal menjadi APPROVED
       const lhkNomorsAsal = details
         .map((d) => d.lhk_mesin || d.Nomor_Lhk_Mesin)
         .filter((n) => n && n !== "MANUAL");
@@ -714,9 +696,7 @@ const saveApproval = async (data) => {
       }
     }
 
-    // 5. Simpan Data Tinta
     if (inkData && inkData.length > 0) {
-      // Filter ulang untuk memastikan properti msn_kode ada isinya
       const validInkData = inkData.filter(
         (ink) => ink.lci_msn_kode || ink.msn_kode || ink.Mesin,
       );
@@ -763,7 +743,6 @@ const saveApproval = async (data) => {
  * Mengambil daftar history Approval (tlhk_tekstilmmt_hdr)
  */
 const getAllApprovalHeaders = async (startDate, endDate) => {
-  // Memastikan format tanggal aman untuk query MySQL
   const tglMulai = format(new Date(startDate), "yyyy-MM-dd");
   const tglSelesai = format(new Date(endDate), "yyyy-MM-dd");
 
@@ -775,12 +754,10 @@ const getAllApprovalHeaders = async (startDate, endDate) => {
             h.lth_user_create AS Admin,
             h.lth_status AS Status,
             
-            -- Ambil total pemakaian meter langsung dari tabel detail tekstil mmt
             (SELECT IFNULL(SUM(d.ltd_panjang_pakai), 0) 
              FROM tlhk_tekstilmmt_dtl d
              WHERE d.ltd_lth_nomor = h.lth_nomor) AS Total_Meter,
              
-            -- Ambil jumlah item pekerjaan dari tabel detail tekstil mmt
             (SELECT COUNT(*) 
              FROM tlhk_tekstilmmt_dtl d
              WHERE d.ltd_lth_nomor = h.lth_nomor) AS Jumlah_Item
@@ -804,27 +781,26 @@ const getApprovalDetailsByNomor = async (nomor) => {
             d.ltd_jns_mesin AS Mesin, 
             d.ltd_spk_nomor AS Nomor_SPK, 
             x.spk_nama AS Nama_SPK,
+            x.spk_jumlah AS Jumlah_SPK,   -- TAMBAHAN: Jumlah Order dari SPK
+            x.spk_jumlah AS jumlah_spk,   -- TAMBAHAN: Untuk mengcover key huruf kecil
             d.ltd_qty_cetak AS Jml_Cetak, 
             d.ltd_brg_kode AS Kode_Bahan, 
             b.brg_nama AS Nama_Bahan,
             
-            -- 1. PANJANG & LEBAR DIAMBIL LANGSUNG DARI MASTER SPK
             IFNULL(x.spk_panjang, 0) AS Panjang,
             IFNULL(x.spk_lebar, 0) AS Lebar,
             
-            -- 2. TOTAL PANJANG (M2) DIHITUNG OTOMATIS: PANJANG x LEBAR x QTY CETAK
             ROUND(IFNULL(x.spk_panjang, 0) * IFNULL(x.spk_lebar, 0) * IFNULL(d.ltd_qty_cetak, 0), 2) AS Total_Panjang,
             ROUND(IFNULL(x.spk_panjang, 0) * IFNULL(x.spk_lebar, 0) * IFNULL(d.ltd_qty_cetak, 0), 2) AS total_m2,
             
-            d.ltd_lth_mesin_nomor AS Nomor_Lhk_Mesin, -- Ambil nomor LHK Mesin asal
-            d.ltd_shift AS ShiftDetail                 -- Ambil shift detail
+            d.ltd_lth_mesin_nomor AS Nomor_Lhk_Mesin, 
+            d.ltd_shift AS ShiftDetail             
         FROM tlhk_tekstilmmt_dtl d
         LEFT JOIN tbarang_mmt b ON d.ltd_brg_kode = b.brg_kode
-        -- Mengambil data spesifikasi ukuran langsung dari database master SPK & Memo SPK
         LEFT JOIN (
-            SELECT spk_nomor, spk_nama, IFNULL(spk_panjang, 0) AS spk_panjang, IFNULL(spk_lebar, 0) AS spk_lebar FROM tspk 
+            SELECT spk_nomor, spk_nama, IFNULL(spk_jumlah, 0) AS spk_jumlah, IFNULL(spk_panjang, 0) AS spk_panjang, IFNULL(spk_lebar, 0) AS spk_lebar FROM tspk 
             UNION ALL 
-            SELECT mspk_nomor, mspk_nama, IFNULL(mspk_panjang, 0) AS mspk_panjang, IFNULL(mspk_lebar, 0) AS mspk_lebar FROM tmemospk 
+            SELECT mspk_nomor, mspk_nama, IFNULL(mspk_jumlah, 0) AS mspk_jumlah, IFNULL(mspk_panjang, 0) AS mspk_panjang, IFNULL(mspk_lebar, 0) AS mspk_lebar FROM tmemospk 
         ) x ON x.spk_nomor = d.ltd_spk_nomor 
         WHERE d.ltd_lth_nomor = ?
         ORDER BY d.ltd_no_urut
@@ -838,7 +814,6 @@ const getApprovalDetailsByNomor = async (nomor) => {
  * Mengambil data lengkap Approval (Header + Detail)
  */
 const getApprovalFullByNomor = async (nomor) => {
-  // 1. Ambil data Header
   const sqlHeader = `
         SELECT 
             lth_nomor AS Nomor, 
@@ -853,17 +828,13 @@ const getApprovalFullByNomor = async (nomor) => {
   const [headerRows] = await pool.query(sqlHeader, [nomor]);
   if (headerRows.length === 0) return null;
 
-  // 2. Ambil data Detail Pekerjaan (Fungsi yang sudah ada)
   const details = await getApprovalDetailsByNomor(nomor);
-
-  // 3. 🔥 PANGGIL FUNGSI TINTA YANG SUDAH ADA
   const inks = await getInksByNomor(nomor);
 
-  // 4. Kembalikan semua data dengan properti 'inkData' agar pas dengan Frontend
   return {
     header: headerRows[0],
     details: details,
-    inkData: inks, // Ditampung ke properti inkData sesuai kebutuhan `.map` di Vue
+    inkData: inks,
   };
 };
 
