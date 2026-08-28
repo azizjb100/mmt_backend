@@ -2,7 +2,7 @@ const pool = require("../config/db.config");
 const { format } = require("date-fns");
 
 // =========================================================================
-// HELPER: SUBQUERY GABUNGAN (MMT, TEKSTIL, SUBLIM)
+// HELPER: SUBQUERY GABUNGAN (MMT, TEKSTIL, SUBLIM, FINISHING, PAPERPRINT, SUBLIM_RTR)
 // =========================================================================
 const getUnifiedLhkQuery = () => {
   return `
@@ -61,7 +61,7 @@ const getUnifiedLhkQuery = () => {
         UNION ALL
 
         SELECT 
-            'SUBLIM' AS Kategori,
+            'PAPERPRINT' AS Kategori,
             h.lsb_nomor AS Nomor_LHK,
             h.lsb_tanggal AS Tanggal,
             h.lsb_shift AS Shift,
@@ -84,6 +84,55 @@ const getUnifiedLhkQuery = () => {
             SELECT mspk_nomor, mspk_nama FROM tmemospk
         ) x ON x.spk_nomor = d.lsbd_spk_nomor
         WHERE h.lsb_tanggal BETWEEN ? AND ?
+
+        UNION ALL
+
+        SELECT 
+            'FINISHING' AS Kategori,
+            h.lfh_nomor AS Nomor_LHK,
+            h.lfh_tanggal AS Tanggal,
+            h.lfh_shift AS Shift,
+            h.lfh_user_create AS Operator,
+            h.lfh_gdg_prod AS Kode_Gudang,
+            g.gdg_nama AS Nama_Gudang,
+            'FINISHING' AS Mesin,
+            d.lfd_spk_nomor AS Nomor_SPK,
+            IFNULL(x.spk_nama, '-') AS Nama_Order,
+            d.lfd_j_coly AS Qty_Cetak,
+            IFNULL(x.spk_panjang, 0) AS Panjang,
+            IFNULL(x.spk_lebar, 0) AS Lebar,
+            ROUND(d.lfd_j_coly * IFNULL(x.spk_panjang, 0) * IFNULL(x.spk_lebar, 0), 2) AS Total_m2
+        FROM tlhk_finishingmmt_hdr h
+        JOIN tlhk_finishingmmt_dtl d ON h.lfh_nomor = d.lfd_lfh_nomor
+        LEFT JOIN tGUDANG g ON g.gdg_kode = h.lfh_gdg_prod
+        LEFT JOIN (
+            SELECT spk_nomor, spk_nama, spk_panjang, spk_lebar FROM tspk
+            UNION ALL
+            SELECT mspk_nomor, mspk_nama, mspk_panjang, mspk_lebar FROM tmemospk
+        ) x ON x.spk_nomor = d.lfd_spk_nomor
+        WHERE h.lfh_tanggal BETWEEN ? AND ?
+
+        UNION ALL
+
+        SELECT 
+            'SUBLIM' AS Kategori,
+            h.lr_nomor AS Nomor_LHK,
+            h.lr_tanggal AS Tanggal,
+            '-' AS Shift,
+            '-' AS Operator,
+            h.lr_gdg_kode AS Kode_Gudang,
+            g.gdg_nama AS Nama_Gudang,
+            IFNULL(d.lrd_lokasi, 'SB01') AS Mesin,
+            d.lrd_spk_nomor AS Nomor_SPK,
+            IFNULL(d.lrd_spk_nama, '-') AS Nama_Order,
+            d.lrd_jumlah AS Qty_Cetak,
+            IFNULL(d.lrd_panjang, 0) AS Panjang,
+            IFNULL(d.lrd_lebar, 0) AS Lebar,
+            (d.lrd_panjang * d.lrd_lebar * d.lrd_jumlah) AS Total_m2
+        FROM tlhk_rtr_hdr h
+        JOIN tlhk_rtr_dtl d ON h.lr_nomor = d.lrd_lr_nomor
+        LEFT JOIN tGUDANG g ON g.gdg_kode = h.lr_gdg_kode
+        WHERE h.lr_tanggal BETWEEN ? AND ?
     `;
 };
 
@@ -94,14 +143,8 @@ const getUnifiedLhkQuery = () => {
 const getLaporanAgregasi = async (startDate, endDate) => {
   const tglMulai = format(new Date(startDate), "yyyy-MM-dd");
   const tglSelesai = format(new Date(endDate), "yyyy-MM-dd");
-  const dateParams = [
-    tglMulai,
-    tglSelesai,
-    tglMulai,
-    tglSelesai,
-    tglMulai,
-    tglSelesai,
-  ];
+  // Total 5 sumber data (MMT, TEKSTIL, PAPERPRINT, FINISHING, SUBLIM) -> 10 parameter
+  const dateParams = Array(10).fill([tglMulai, tglSelesai]).flat();
 
   const unifiedSql = getUnifiedLhkQuery();
 
@@ -141,14 +184,7 @@ const getLaporanAgregasi = async (startDate, endDate) => {
 const getRekapLhk = async (startDate, endDate) => {
   const tglMulai = format(new Date(startDate), "yyyy-MM-dd");
   const tglSelesai = format(new Date(endDate), "yyyy-MM-dd");
-  const dateParams = [
-    tglMulai,
-    tglSelesai,
-    tglMulai,
-    tglSelesai,
-    tglMulai,
-    tglSelesai,
-  ];
+  const dateParams = Array(10).fill([tglMulai, tglSelesai]).flat();
 
   const unifiedSql = getUnifiedLhkQuery();
 
@@ -161,7 +197,7 @@ const getRekapLhk = async (startDate, endDate) => {
             ROUND(SUM(u.Total_m2), 1) AS Total_Meter,
             IFNULL(m.msn_kapasitas, 0) AS Kapasitas 
         FROM (${unifiedSql}) u
-        LEFT JOIN tmesin_mmt m ON m.msn_nama = u.Mesin
+        LEFT JOIN tmesin_mmt m ON (m.msn_nama = u.Mesin OR (u.Mesin = 'FINISHING' AND m.msn_kode = 'FNSH'))
         GROUP BY u.Mesin, u.Kategori, m.msn_kapasitas
         ORDER BY Total_Meter DESC
     `;
@@ -215,11 +251,32 @@ const getExportLhkCrossTab = async (month, year) => {
             
             SELECT 
                 IFNULL(d.lsbd_lokasi, 'SB01') AS Mesin, 
-                'SUBLIM' AS Kategori, 
+                'PAPERPRINT' AS Kategori, 
                 h.lsb_tanggal AS Tanggal,
                 IFNULL(d.lsbd_j_meter, (d.lsbd_panjang * d.lsbd_lebar * d.lsbd_jumlah)) AS Total_m2
             FROM tlhk_sublim_hdr h 
             JOIN tlhk_sublim_dtl d ON h.lsb_nomor = d.lsbd_lsb_nomor
+
+            UNION ALL
+
+            SELECT 
+                'FINISHING' AS Mesin, 
+                'FINISHING' AS Kategori, 
+                h.lfh_tanggal AS Tanggal,
+                ROUND(d.lfd_j_coly * IFNULL(x.spk_panjang,0) * IFNULL(x.spk_lebar,0), 2) AS Total_m2
+            FROM tlhk_finishingmmt_hdr h 
+            JOIN tlhk_finishingmmt_dtl d ON h.lfh_nomor = d.lfd_lfh_nomor
+            LEFT JOIN (SELECT spk_nomor, spk_panjang, spk_lebar FROM tspk UNION ALL SELECT mspk_nomor, mspk_panjang, mspk_lebar FROM tmemospk) x ON x.spk_nomor = d.lfd_spk_nomor
+
+            UNION ALL
+
+            SELECT 
+                IFNULL(d.lrd_lokasi, 'SB01') AS Mesin, 
+                'SUBLIM' AS Kategori, 
+                h.lr_tanggal AS Tanggal,
+                (d.lrd_panjang * d.lrd_lebar * d.lrd_jumlah) AS Total_m2
+            FROM tlhk_rtr_hdr h 
+            JOIN tlhk_rtr_dtl d ON h.lr_nomor = d.lrd_lr_nomor
         ) u
         WHERE MONTH(u.Tanggal) = ? AND YEAR(u.Tanggal) = ?
         GROUP BY u.Mesin, u.Kategori, DAY(u.Tanggal)
@@ -234,14 +291,7 @@ const getAllDataForExport = async (startDate, endDate, mesin) => {
   const tglMulai = format(new Date(startDate), "yyyy-MM-dd");
   const tglSelesai = format(new Date(endDate), "yyyy-MM-dd");
 
-  let dateParams = [
-    tglMulai,
-    tglSelesai,
-    tglMulai,
-    tglSelesai,
-    tglMulai,
-    tglSelesai,
-  ];
+  let dateParams = Array(10).fill([tglMulai, tglSelesai]).flat();
   let filterMesin = "";
   let extraParams = [];
 
@@ -284,14 +334,7 @@ const getAllDataForExport = async (startDate, endDate, mesin) => {
 const getDetailRekapMesin = async (startDate, endDate, mesin) => {
   const tglMulai = format(new Date(startDate), "yyyy-MM-dd");
   const tglSelesai = format(new Date(endDate), "yyyy-MM-dd");
-  const dateParams = [
-    tglMulai,
-    tglSelesai,
-    tglMulai,
-    tglSelesai,
-    tglMulai,
-    tglSelesai,
-  ];
+  const dateParams = Array(10).fill([tglMulai, tglSelesai]).flat();
 
   const unifiedSql = getUnifiedLhkQuery();
 
