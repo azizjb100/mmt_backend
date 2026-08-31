@@ -66,18 +66,22 @@ const deleteSpk = async (req, res) => {
   }
 };
 
-const toggleClose = async (req, res) => {
+const toggleStatus = async (req, res) => {
   try {
     const { nomor } = req.params;
-    const { alasan, isClose } = req.body;
+    const { isClose, alasan } = req.body;
 
-    await service.toggleStatus(nomor, alasan, isClose);
-    res.json({
+    // Panggil fungsi yang ada di service (atau sesuaikan dengan fungsi service Anda)
+    // Berdasarkan file service Anda, fungsi untuk toggle status bernama toggleStatus(nomor, alasan, isClose)
+    await service.toggleStatus(nomor, alasan || "", isClose);
+
+    return res.json({
       success: true,
-      message: `Status berhasil diubah ke ${isClose ? "Closed" : "Open"}.`,
+      message: "Status SPK berhasil diperbarui.",
     });
   } catch (error) {
-    res.status(400).json({ success: false, message: error.message });
+    console.error("Error toggleStatus:", error);
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -360,7 +364,7 @@ module.exports = {
   getBrowse,
   getSizes,
   deleteSpk,
-  toggleClose,
+  toggleStatus,
   requestPin,
   approveCmo,
   checkPrintPermission,

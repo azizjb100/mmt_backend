@@ -927,7 +927,11 @@ const saveData = async (payload, user) => {
       newHeader.spk_so_ref = so_nomor;
       newHeader.spk_aktif = "Y";
       newHeader.spk_ketbeli = spk_ketbeli || "";
-      newHeader.spk_keterangan = spk_keterangan || "";
+
+      // 🟢 OTOMATIS ISI SPK_KETERANGAN DARI SO_KETERANGAN
+      // Jika payload.spk_keterangan kosong, ambil dari soHeader.so_keterangan
+      newHeader.spk_keterangan = spk_keterangan || soHeader.so_keterangan || "";
+
       newHeader.spk_tanggal = new Date();
       newHeader.user_create = userObj.kode;
       newHeader.date_create = new Date();

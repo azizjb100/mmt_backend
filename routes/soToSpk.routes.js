@@ -43,7 +43,7 @@ router.get("/", controller.getBrowse);
 // Routes dengan parameter ditaruh di bawah agar tidak memblokir route statis
 router.get("/:nomor/sizes", controller.getSizes);
 router.delete("/:nomor", controller.deleteSpk);
-router.put("/:nomor/toggle-close", controller.toggleClose);
+router.put("/:nomor/toggle-close", controller.toggleStatus);
 
 // --- Approval & PIN ---
 router.post("/:nomor/request-pin", controller.requestPin);
