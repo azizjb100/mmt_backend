@@ -708,10 +708,8 @@ exports.getSpkForSublimLookup = async (keyword) => {
 
     // 1. FILTER LANGSUNG DI TINGKAT TABEL UTAMA (tspk & tmemospk)
     // Supaya MySQL TIDAK melakukan full scan ke seluruh histori SPK lama
-    let whereReguler =
-      "t.spk_aktif = 'Y' AND LOWER(t.spk_cab) IN ('p01', 'p04')";
-    let whereMemo =
-      "m.mspk_aktif = 'Y' AND LOWER(m.mspk_cab) IN ('p01', 'p04')";
+    let whereReguler = "t.spk_aktif = 'Y' AND t.spk_sublim = 'Y'";
+    let whereMemo = "m.mspk_aktif = 'Y' AND m.mspk_sublim = 'Y'";
 
     // 2. SUNTIKKAN KEYWORD LANGSUNG KE SUBQUERY
     if (keyword) {
