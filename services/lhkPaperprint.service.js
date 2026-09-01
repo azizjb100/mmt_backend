@@ -200,13 +200,18 @@ const saveLhkMesin = async (data) => {
       header.Lebar_bahan || header.lebar_bahan || 0,
     );
 
-    // 🌟 HITUNG NILAI SISA METER (Prioritas Manual -> Otomatis -> 0)
-    const sisaManual = header.sisa_panjang_manual;
+    // Penanganan Sisa Meter: Prioritas Manual -> Otomatis -> 0
+    const sisaManual =
+      header.sisa_panjang_manual ??
+      header.sisa_manual ??
+      header.sisaPanjangManual;
     const sisaOtomatis = header.sisabahan ?? header.sisa_panjang_otomatis ?? 0;
+
     const finalSisaMeter =
       sisaManual !== null &&
       sisaManual !== undefined &&
-      String(sisaManual).trim() !== ""
+      String(sisaManual).trim() !== "" &&
+      !isNaN(parseFloat(sisaManual))
         ? parseFloat(sisaManual)
         : parseFloat(sisaOtomatis);
 
@@ -246,7 +251,7 @@ const saveLhkMesin = async (data) => {
 
         await conn.query(
           `INSERT INTO tlhk_history_log (
-              lhl_nomor_lhk, lhl_action, lhl_data_old, lhl_user_action, lhl_date_action
+             lhl_nomor_lhk, lhl_action, lhl_data_old, lhl_user_action, lhl_date_action
            ) VALUES (?, 'EDIT', ?, ?, ?)`,
           [
             nomorLhk,
@@ -316,7 +321,7 @@ const saveLhkMesin = async (data) => {
       );
     }
 
-    // 3. PROSES DATA DETAIL (DITAMBAHKAN LSBD_KOMPONEN)
+    // 3. PROSES DATA DETAIL
     if (details && details.length > 0) {
       const values = details.map((d, i) => {
         const p = parseFloat(d.spk_panjang || 0);
@@ -325,12 +330,9 @@ const saveLhkMesin = async (data) => {
         const qtyOrderSpk = parseFloat(d.spk_jmlorder || 0);
         const jMeter = p * l * qtyHasilLhk;
 
-        const sisaMeterBaris =
-          d.lsbd_sisameter !== undefined && d.lsbd_sisameter !== null
-            ? parseFloat(d.lsbd_sisameter)
-            : finalSisaMeter;
+        // Menggunakan finalSisaMeter secara konsisten agar tidak tertimpa nilai 0 dari frontend
+        const sisaMeterBaris = finalSisaMeter;
 
-        // 🌟 Value Nama Komponen / ALL SET
         const namaKomponen = d.lsbd_komponen || d.spk_komponen || "ALL SET";
 
         return [
@@ -356,7 +358,7 @@ const saveLhkMesin = async (data) => {
           parseFloat(d.lsbd_panjang_pakai || 0),
           parseFloat(d.lsbd_lebar_pakai || 0),
           sisaMeterBaris,
-          namaKomponen, // 🌟 LSBD_KOMPONEN
+          namaKomponen,
         ];
       });
 
