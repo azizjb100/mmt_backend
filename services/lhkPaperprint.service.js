@@ -330,8 +330,16 @@ const saveLhkMesin = async (data) => {
         const qtyOrderSpk = parseFloat(d.spk_jmlorder || 0);
         const jMeter = p * l * qtyHasilLhk;
 
-        // Menggunakan finalSisaMeter secara konsisten agar tidak tertimpa nilai 0 dari frontend
-        const sisaMeterBaris = finalSisaMeter;
+        // Tangkap panjang pakai spesifik baris dari payload frontend
+        const panjangPakaiBaris = parseFloat(d.lsbd_panjang_pakai || 0);
+
+        // Tangkap sisa meter spesifik baris, fallback ke finalSisaMeter header jika kosong
+        const sisaMeterBaris =
+          d.lsbd_sisameter !== null &&
+          d.lsbd_sisameter !== undefined &&
+          !isNaN(parseFloat(d.lsbd_sisameter))
+            ? parseFloat(d.lsbd_sisameter)
+            : finalSisaMeter;
 
         const namaKomponen = d.lsbd_komponen || d.spk_komponen || "ALL SET";
 
@@ -355,9 +363,9 @@ const saveLhkMesin = async (data) => {
           d.lsbd_poi_nomor || "",
           d.lsbd_poid_size || "",
           parseFloat(d.lsbd_ambilbahan || maxAmbilPanjang),
-          parseFloat(d.lsbd_panjang_pakai || 0),
+          panjangPakaiBaris, // Menggunakan nilai per baris
           parseFloat(d.lsbd_lebar_pakai || 0),
-          sisaMeterBaris,
+          sisaMeterBaris, // Menggunakan nilai sisa per baris / otomatis
           namaKomponen,
         ];
       });
