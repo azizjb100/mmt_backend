@@ -1,9 +1,9 @@
-const pool = require('../config/db.config');
-const moment = require('moment');
+const pool = require("../config/db.config");
+const moment = require("moment");
 
 const lapMonCetak = async (startDate, endDate) => {
-  const tglMulai = moment(startDate).format('YYYY-MM-DD');
-  const tglSelesai = moment(endDate).format('YYYY-MM-DD');
+  const tglMulai = moment(startDate).format("YYYY-MM-DD");
+  const tglSelesai = moment(endDate).format("YYYY-MM-DD");
 
   const ssql = `
     SELECT 
@@ -87,7 +87,7 @@ const lapMonCetak = async (startDate, endDate) => {
 
     WHERE spk.spk_aktif='Y'
       AND spk.spk_divisi=5
-      AND SUBSTR(spk.spk_nomor,4,2)='MT'
+      AND spk.spk_cab='P05'
       AND spk.spk_tanggal BETWEEN ? AND ?
 
     ORDER BY spk.spk_tanggal ASC, spk.spk_nomor ASC;
