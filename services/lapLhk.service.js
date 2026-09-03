@@ -35,28 +35,28 @@ const getUnifiedLhkQuery = () => {
 
         SELECT 
             'TEKSTIL' AS Kategori,
-            h.lth_nomor AS Nomor_LHK,
-            h.lth_tanggal AS Tanggal,
-            h.lth_shift AS Shift,
-            '-' AS Operator,
-            h.lth_gdg_prod AS Kode_Gudang,
+            h.tth_nomor AS Nomor_LHK,
+            h.tth_tanggal AS Tanggal,
+            h.tth_shift AS Shift,
+            h.tth_user_create AS Operator,
+            h.tth_gdg_prod AS Kode_Gudang,
             g.gdg_nama AS Nama_Gudang,
-            d.ltd_jns_mesin AS Mesin,
-            d.ltd_spk_nomor AS Nomor_SPK,
+            d.ttd_jns_mesin AS Mesin,
+            d.ttd_spk_nomor AS Nomor_SPK,
             IFNULL(x.spk_nama, '-') AS Nama_Order,
-            d.ltd_qty_cetak AS Qty_Cetak,
+            d.ttd_qty_cetak AS Qty_Cetak,
             IFNULL(x.spk_panjang, 0) AS Panjang,
             IFNULL(x.spk_lebar, 0) AS Lebar,
-            ROUND(d.ltd_qty_cetak * IFNULL(x.spk_panjang, 0) * IFNULL(x.spk_lebar, 0), 2) AS Total_m2
-        FROM tlhk_mesintekstil_hdr h
-        JOIN tlhk_mesintekstil_dtl d ON h.lth_nomor = d.ltd_lth_nomor
-        LEFT JOIN tGUDANG g ON g.gdg_kode = h.lth_gdg_prod
+            ROUND(d.ttd_qty_cetak * IFNULL(x.spk_panjang, 0) * IFNULL(x.spk_lebar, 0), 2) AS Total_m2
+        FROM tlhk_tekstilmmt_hdr h
+        JOIN tlhk_tekstilmmt_dtl d ON h.tth_nomor = d.ttd_tth_nomor
+        LEFT JOIN tGUDANG g ON g.gdg_kode = h.tth_gdg_prod
         LEFT JOIN (
             SELECT spk_nomor, spk_nama, spk_panjang, spk_lebar FROM tspk
             UNION ALL
             SELECT mspk_nomor, mspk_nama, mspk_panjang, mspk_lebar FROM tmemospk
-        ) x ON x.spk_nomor = d.ltd_spk_nomor
-        WHERE h.lth_tanggal BETWEEN ? AND ?
+        ) x ON x.spk_nomor = d.ttd_spk_nomor
+        WHERE h.tth_tanggal BETWEEN ? AND ?
 
         UNION ALL
 
@@ -237,15 +237,14 @@ const getExportLhkCrossTab = async (month, year) => {
             
             UNION ALL
             
-            SELECT 
-                d.ltd_jns_mesin AS Mesin, 
+           SELECT 
+                d.ttd_jns_mesin AS Mesin, 
                 'TEKSTIL' AS Kategori, 
-                h.lth_tanggal AS Tanggal,
-                ROUND(d.ltd_qty_cetak * IFNULL(x.spk_panjang,0) * IFNULL(x.spk_lebar,0), 2) AS Total_m2
-            FROM tlhk_mesintekstil_hdr h 
-            JOIN tlhk_mesintekstil_dtl d ON h.lth_nomor = d.ltd_lth_nomor
-            LEFT JOIN (SELECT spk_nomor, spk_panjang, spk_lebar FROM tspk UNION ALL SELECT mspk_nomor, mspk_panjang, mspk_lebar FROM tmemospk) x ON x.spk_nomor = d.ltd_spk_nomor
-            
+                h.tth_tanggal AS Tanggal,
+                ROUND(d.ttd_qty_cetak * IFNULL(x.spk_panjang,0) * IFNULL(x.spk_lebar,0), 2) AS Total_m2
+            FROM tlhk_tekstilmmt_hdr h 
+            JOIN tlhk_tekstilmmt_dtl d ON h.tth_nomor = d.ttd_tth_nomor
+            LEFT JOIN (SELECT spk_nomor, spk_panjang, spk_lebar FROM tspk UNION ALL SELECT mspk_nomor, mspk_panjang, mspk_lebar FROM tmemospk) x ON x.spk_nomor = d.ttd_spk_nomor            
             UNION ALL
             
             SELECT 
@@ -364,21 +363,22 @@ const getDetailRekapMesin = async (startDate, endDate, mesin) => {
             UNION ALL
 
             -- 2. TEKSTIL
-            SELECT 
-                'TEKSTIL' AS Kategori,
-                d.ltd_spk_nomor AS Nomor_SPK,
-                IFNULL(x.spk_nama, '-') AS Nama_Order,
-                d.ltd_qty_cetak AS Qty_Cetak,
-                ROUND(d.ltd_qty_cetak * IFNULL(x.spk_panjang, 0) * IFNULL(x.spk_lebar, 0), 2) AS Total_m2,
-                d.ltd_jns_mesin AS Mesin
-            FROM tlhk_mesintekstil_hdr h
-            JOIN tlhk_mesintekstil_dtl d ON h.lth_nomor = d.ltd_lth_nomor
-            LEFT JOIN (
-                SELECT spk_nomor, spk_nama, spk_panjang, spk_lebar FROM tspk
-                UNION ALL
-                SELECT mspk_nomor, mspk_nama, mspk_panjang, mspk_lebar FROM tmemospk
-            ) x ON x.spk_nomor = d.ltd_spk_nomor
-            WHERE h.lth_tanggal BETWEEN ? AND ?
+            -- 2. TEKSTIL
+    SELECT 
+        'TEKSTIL' AS Kategori,
+        d.ttd_spk_nomor AS Nomor_SPK,
+        IFNULL(x.spk_nama, '-') AS Nama_Order,
+        d.ttd_qty_cetak AS Qty_Cetak,
+        ROUND(d.ttd_qty_cetak * IFNULL(x.spk_panjang, 0) * IFNULL(x.spk_lebar, 0), 2) AS Total_m2,
+        d.ttd_jns_mesin AS Mesin
+    FROM tlhk_tekstilmmt_hdr h
+    JOIN tlhk_tekstilmmt_dtl d ON h.tth_nomor = d.ttd_tth_nomor
+    LEFT JOIN (
+        SELECT spk_nomor, spk_nama, spk_panjang, spk_lebar FROM tspk
+        UNION ALL
+        SELECT mspk_nomor, mspk_nama, mspk_panjang, mspk_lebar FROM tmemospk
+    ) x ON x.spk_nomor = d.ttd_spk_nomor
+    WHERE h.tth_tanggal BETWEEN ? AND ?
 
             UNION ALL
 
