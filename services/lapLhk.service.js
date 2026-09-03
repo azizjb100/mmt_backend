@@ -143,7 +143,6 @@ const getUnifiedLhkQuery = () => {
 const getLaporanAgregasi = async (startDate, endDate) => {
   const tglMulai = format(new Date(startDate), "yyyy-MM-dd");
   const tglSelesai = format(new Date(endDate), "yyyy-MM-dd");
-  // Total 5 sumber data (MMT, TEKSTIL, PAPERPRINT, FINISHING, SUBLIM) -> 10 parameter
   const dateParams = Array(10).fill([tglMulai, tglSelesai]).flat();
 
   const unifiedSql = getUnifiedLhkQuery();
@@ -334,10 +333,9 @@ const getAllDataForExport = async (startDate, endDate, mesin) => {
 const getDetailRekapMesin = async (startDate, endDate, mesin) => {
   const tglMulai = format(new Date(startDate), "yyyy-MM-dd");
   const tglSelesai = format(new Date(endDate), "yyyy-MM-dd");
-  const dateParams = Array(10).fill([tglMulai, tglSelesai]).flat();
 
-  const unifiedSql = getUnifiedLhkQuery();
-
+  // Buat SQL langsung khusus untuk detail mesin,
+  // sehingga parameter `?` hanya ada untuk tanggal (2 buah) dan mesin (1 buah) = Total 3 parameter!
   const sql = `
         SELECT 
             u.Nomor_SPK AS No_SPK,
@@ -345,13 +343,118 @@ const getDetailRekapMesin = async (startDate, endDate, mesin) => {
             u.Kategori,
             SUM(u.Qty_Cetak) AS Total_Pcs,
             SUM(u.Total_m2) AS Total_Meter
-        FROM (${unifiedSql}) u
+        FROM (
+            -- 1. MMT
+            SELECT 
+                'MMT' AS Kategori,
+                d.lcd_spk_nomor AS Nomor_SPK,
+                IFNULL(x.spk_nama, '-') AS Nama_Order,
+                d.lcd_qty_cetak AS Qty_Cetak,
+                ROUND(d.lcd_qty_cetak * IFNULL(x.spk_panjang, 0) * IFNULL(x.spk_lebar, 0), 2) AS Total_m2,
+                d.lcd_jns_mesin AS Mesin
+            FROM tlhk_cetakmmt_hdr h
+            JOIN tlhk_cetakmmt_dtl d ON h.lch_nomor = d.lcd_lch_nomor
+            LEFT JOIN (
+                SELECT spk_nomor, spk_nama, spk_panjang, spk_lebar FROM tspk
+                UNION ALL
+                SELECT mspk_nomor, mspk_nama, mspk_panjang, mspk_lebar FROM tmemospk
+            ) x ON x.spk_nomor = d.lcd_spk_nomor
+            WHERE h.lch_tanggal BETWEEN ? AND ?
+
+            UNION ALL
+
+            -- 2. TEKSTIL
+            SELECT 
+                'TEKSTIL' AS Kategori,
+                d.ltd_spk_nomor AS Nomor_SPK,
+                IFNULL(x.spk_nama, '-') AS Nama_Order,
+                d.ltd_qty_cetak AS Qty_Cetak,
+                ROUND(d.ltd_qty_cetak * IFNULL(x.spk_panjang, 0) * IFNULL(x.spk_lebar, 0), 2) AS Total_m2,
+                d.ltd_jns_mesin AS Mesin
+            FROM tlhk_mesintekstil_hdr h
+            JOIN tlhk_mesintekstil_dtl d ON h.lth_nomor = d.ltd_lth_nomor
+            LEFT JOIN (
+                SELECT spk_nomor, spk_nama, spk_panjang, spk_lebar FROM tspk
+                UNION ALL
+                SELECT mspk_nomor, mspk_nama, mspk_panjang, mspk_lebar FROM tmemospk
+            ) x ON x.spk_nomor = d.ltd_spk_nomor
+            WHERE h.lth_tanggal BETWEEN ? AND ?
+
+            UNION ALL
+
+            -- 3. PAPERPRINT
+            SELECT 
+                'PAPERPRINT' AS Kategori,
+                d.lsbd_spk_nomor AS Nomor_SPK,
+                IF(LENGTH(IFNULL(d.lsbd_spk_nama, '')) > 0, d.lsbd_spk_nama, IFNULL(x.spk_nama, '-')) AS Nama_Order,
+                d.lsbd_jumlah AS Qty_Cetak,
+                IFNULL(d.lsbd_j_meter, (d.lsbd_panjang * d.lsbd_lebar * d.lsbd_jumlah)) AS Total_m2,
+                IFNULL(d.lsbd_lokasi, 'SB01') AS Mesin
+            FROM tlhk_sublim_hdr h
+            JOIN tlhk_sublim_dtl d ON h.lsb_nomor = d.lsbd_lsb_nomor
+            LEFT JOIN (
+                SELECT spk_nomor, spk_nama FROM tspk
+                UNION ALL
+                SELECT mspk_nomor, mspk_nama FROM tmemospk
+            ) x ON x.spk_nomor = d.lsbd_spk_nomor
+            WHERE h.lsb_tanggal BETWEEN ? AND ?
+
+            UNION ALL
+
+            -- 4. FINISHING
+            SELECT 
+                'FINISHING' AS Kategori,
+                d.lfd_spk_nomor AS Nomor_SPK,
+                IFNULL(x.spk_nama, '-') AS Nama_Order,
+                d.lfd_j_potong AS Qty_Cetak,
+                ROUND(d.lfd_j_potong * IFNULL(x.spk_panjang, 0) * IFNULL(x.spk_lebar, 0), 2) AS Total_m2,
+                'FINISHING' AS Mesin
+            FROM tlhk_finishingmmt_hdr h
+            JOIN tlhk_finishingmmt_dtl d ON h.lfh_nomor = d.lfd_lfh_nomor
+            LEFT JOIN (
+                SELECT spk_nomor, spk_nama, spk_panjang, spk_lebar FROM tspk
+                UNION ALL
+                SELECT mspk_nomor, mspk_nama, mspk_panjang, mspk_lebar FROM tmemospk
+            ) x ON x.spk_nomor = d.lfd_spk_nomor
+            WHERE h.lfh_tanggal BETWEEN ? AND ?
+
+            UNION ALL
+
+            -- 5. SUBLIM
+            SELECT 
+                'SUBLIM' AS Kategori,
+                d.lrd_spk_nomor AS Nomor_SPK,
+                IFNULL(d.lrd_spk_nama, '-') AS Nama_Order,
+                d.lrd_jumlah AS Qty_Cetak,
+                (d.lrd_panjang * d.lrd_lebar * d.lrd_jumlah) AS Total_m2,
+                IFNULL(d.lrd_lokasi, 'SB01') AS Mesin
+            FROM tlhk_rtr_hdr h
+            JOIN tlhk_rtr_dtl d ON h.lr_nomor = d.lrd_lr_nomor
+            WHERE h.lr_tanggal BETWEEN ? AND ?
+        ) u
         WHERE u.Mesin = ?
         GROUP BY u.Nomor_SPK, u.Nama_Order, u.Kategori
         ORDER BY Total_Meter DESC
     `;
 
-  const [rows] = await pool.query(sql, [...dateParams, mesin]);
+  // Karena ada 5 blok subquery (masing-masing 2 parameter tanggal = 10 parameter)
+  // ditambah 1 parameter `mesin` di klausa WHERE paling bawah,
+  // kita susun array parameternya dengan urutan yang diulang 5 kali untuk tanggal, lalu mesin di akhir:
+  const params = [
+    tglMulai,
+    tglSelesai, // MMT
+    tglMulai,
+    tglSelesai, // TEKSTIL
+    tglMulai,
+    tglSelesai, // PAPERPRINT
+    tglMulai,
+    tglSelesai, // FINISHING
+    tglMulai,
+    tglSelesai, // SUBLIM
+    mesin, // u.Mesin = ?
+  ];
+
+  const [rows] = await pool.query(sql, params);
   return rows;
 };
 
