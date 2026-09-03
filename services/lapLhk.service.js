@@ -98,10 +98,10 @@ const getUnifiedLhkQuery = () => {
             'FINISHING' AS Mesin,
             d.lfd_spk_nomor AS Nomor_SPK,
             IFNULL(x.spk_nama, '-') AS Nama_Order,
-            d.lfd_j_coly AS Qty_Cetak,
+            d.lfd_j_potong AS Qty_Cetak,
             IFNULL(x.spk_panjang, 0) AS Panjang,
             IFNULL(x.spk_lebar, 0) AS Lebar,
-            ROUND(d.lfd_j_coly * IFNULL(x.spk_panjang, 0) * IFNULL(x.spk_lebar, 0), 2) AS Total_m2
+            ROUND(d.lfd_j_potong * IFNULL(x.spk_panjang, 0) * IFNULL(x.spk_lebar, 0), 2) AS Total_m2
         FROM tlhk_finishingmmt_hdr h
         JOIN tlhk_finishingmmt_dtl d ON h.lfh_nomor = d.lfd_lfh_nomor
         LEFT JOIN tGUDANG g ON g.gdg_kode = h.lfh_gdg_prod
@@ -263,7 +263,7 @@ const getExportLhkCrossTab = async (month, year) => {
                 'FINISHING' AS Mesin, 
                 'FINISHING' AS Kategori, 
                 h.lfh_tanggal AS Tanggal,
-                ROUND(d.lfd_j_coly * IFNULL(x.spk_panjang,0) * IFNULL(x.spk_lebar,0), 2) AS Total_m2
+                ROUND(d.lfd_j_potong * IFNULL(x.spk_panjang,0) * IFNULL(x.spk_lebar,0), 2) AS Total_m2
             FROM tlhk_finishingmmt_hdr h 
             JOIN tlhk_finishingmmt_dtl d ON h.lfh_nomor = d.lfd_lfh_nomor
             LEFT JOIN (SELECT spk_nomor, spk_panjang, spk_lebar FROM tspk UNION ALL SELECT mspk_nomor, mspk_panjang, mspk_lebar FROM tmemospk) x ON x.spk_nomor = d.lfd_spk_nomor
