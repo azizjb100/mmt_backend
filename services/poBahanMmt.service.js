@@ -160,23 +160,26 @@ const getPOById = async (nomor) => {
   const header = headerRows[0];
 
   const [detailRows] = await pool.query(
-    `SELECT d.pod_nourut AS no, d.pod_brg_kode AS kode, b.brg_nama AS nama,
+    `SELECT d.pod_nourut AS no, d.pod_brg_kode AS kode, 
+      COALESCE(b.brg_nama, t.brg_nama) AS nama,
       d.pod_keterangan AS namaext, d.pod_brg_satuan AS satuan, d.pod_qty AS jumlah, d.pod_m2 AS m2,
       d.pod_harga AS harga, d.pod_discpr AS diskon, d.pod_spk_nomor AS spk,
-      d.pod_mb_nomor AS mb_nomor, b.brg_panjang AS panjang, b.brg_lebar AS lebar,
+      d.pod_mb_nomor AS mb_nomor, 
+      COALESCE(b.brg_panjang, 0) AS panjang, 
+      COALESCE(b.brg_lebar, 0) AS lebar,
       d.pod_qty * d.pod_m2 * d.pod_harga * (1 - d.pod_discpr / 100) AS total
     FROM tpo_mmt_dtl d
     LEFT JOIN tbarang_mmt b ON d.pod_brg_kode = b.brg_kode
+    LEFT JOIN tgarmen_brg t ON d.pod_brg_kode = t.brg_kode
     WHERE d.pod_po_nomor = ? ORDER BY d.pod_nourut`,
     [nomor],
   );
 
-  // Cari nomor permintaan dari item detail yang memiliki mb_nomor
   const nomorPermintaan = detailRows.find((d) => d.mb_nomor)?.mb_nomor || "";
 
   return {
     ...header,
-    NomorPermintaan: nomorPermintaan, // <-- Tambahkan ini agar ditangkap frontend
+    NomorPermintaan: nomorPermintaan,
     Detail: detailRows,
     Commitments: [],
     rolls: [],
@@ -396,6 +399,8 @@ const getPoDataForPrint = async (nomor) => {
     const m2 = Number(d.m2) || 0;
     const harga = Number(d.harga) || 0;
     const diskon = Number(d.diskon) || 0;
+    const panjang = Number(d.panjang) || 0;
+    const lebar = Number(d.lebar) || 0;
 
     const qtyHitung = m2 > 0 ? qty * m2 : qty;
     const total = qtyHitung * harga * (1 - diskon / 100);
@@ -404,6 +409,8 @@ const getPoDataForPrint = async (nomor) => {
       NoUrut: d.no,
       Kode: d.kode,
       Deskripsi: d.namaext || d.nama,
+      Panjang: panjang,
+      Lebar: lebar,
       Quantity: qty,
       Satuan: d.satuan,
       UnitPrice: harga,
@@ -438,14 +445,14 @@ const getPoDataForPrint = async (nomor) => {
       IsPpn: poData.IsPpn,
       PpnRate: ppnRate,
 
-      SubTotal: subTotal, // 1383783.7837837838 (DPP)
-      TotalPpn: totalPpn, // 152216.2162162162 (PPN 11%)
-      GrandTotal: grandTotal, // 1536000 (Total Bersih Tagihan)
+      SubTotal: subTotal,
+      TotalPpn: totalPpn,
+      GrandTotal: grandTotal,
 
       NamaSupplier: poData.SupNama,
       AlamatSupplier: poData.SupAlamat,
       KotaSupplier: poData.SupKota,
-      AlamatPabrik: poData.AlamatPabrik,
+      AlamatPbrik: poData.AlamatPabrik,
 
       NamaPerusahaan: comp.perush_nama || "CV. Kencana Print",
       AlamatPerusahaan: comp.perush_alamat,
