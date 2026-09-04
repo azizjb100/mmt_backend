@@ -107,7 +107,10 @@ const getDetailsByNomor = async (nomor, mesin) => {
             (IFNULL(x.spk_panjang, 0) * IFNULL(x.spk_lebar, 0) * d.lcd_qty_cetak) AS m2_cetak,
             d.lcd_lnomor AS Nomor_lhk_mesin,
             d.lcd_loperator AS Operator,
-            d.lcd_lshift AS Shift
+            d.lcd_lshift AS Shift,
+            -- 🔥 TAMBAHKAN KOLOM INI AGAR TERKIRIM KE FRONTEND
+            IFNULL(d.lcd_toleransi, 0) AS toleransi,
+            IFNULL(d.lcd_toleransi2, 0) AS toleransi2
         FROM tlhk_cetakmmt_dtl d
         LEFT JOIN (
             SELECT spk_nomor, spk_nama, spk_jumlah, spk_panjang, spk_lebar FROM tspk

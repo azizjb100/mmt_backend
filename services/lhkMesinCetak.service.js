@@ -128,7 +128,6 @@ const getLookup = async (startDate, endDate, shift = "", search = "") => {
             t1.loperator AS Operator,
             
             /* --- STATUS UTAMA (POSTED / DRAFT) --- */
-            /* Sesuaikan t1.lstatus dengan nama kolom status asli di tabel Anda, atau atur kondisinya */
             IFNULL(t1.lstatus, 'DRAFT') AS Status,
             
             /* --- STATUS CLOSE (OPEN / CLOSED) --- */
@@ -140,7 +139,8 @@ const getLookup = async (startDate, endDate, shift = "", search = "") => {
             SELECT 
                 ld_lnomor,
                 SUM(ld_qtyCetak1 + ld_qtyCetak2 + ld_qtyCetak3 + ld_qtyCetak4 + ld_qtyCetak5 + ld_qtyCetak6 + ld_qtyCetak7) AS qtytotalcetak,
-                SUM(IFNULL(ld_padding, 0)) AS totalpadding
+                -- PERBAIKAN DI SINI: Menjumlahkan padding atas dan samping
+                SUM(IFNULL(ld_padding_atas, 0) + IFNULL(ld_padding_samping, 0)) AS totalpadding
             FROM tlhk_mesin_dtl 
             GROUP BY ld_lnomor
         ) x ON x.ld_lnomor = t1.lnomor
@@ -234,7 +234,8 @@ const getLookupByNomor = async (nomor) => {
                 ROUND(IFNULL(s.spk_panjang, 0) * IFNULL(s.spk_lebar, 0) * IFNULL(d.ld_total_qtycetak, 0), 2) AS m2_cetak,
                 IFNULL(s.spk_panjang, 0) AS spk_panjang,
                 IFNULL(s.spk_lebar, 0) AS spk_lebar,
-                IFNULL(d.ld_padding, 3) AS Padding,
+                IFNULL(d.ld_padding_atas, 3) AS padding_atas,
+IFNULL(d.ld_padding_samping, 1) AS padding_samping,
                 IFNULL(d.ld_tile, 1) AS Tile,
                 
                 -- Field Cetak 1 - 7
@@ -304,7 +305,7 @@ const getLookupByMultipleNomor = async (nomor) => {
 
     const [headerRows] = await pool.query(sqlHeader, [daftarNomor]);
 
-    // 3. Query Detail (Penambahan Field Padding)
+    // 3. Query Detail (PERBAIKAN DI SINI: Menggunakan ld_padding_atas & ld_padding_samping)
     const sqlDetail = `
             SELECT 
                 d.ld_lnomor AS referensi_lhk,
@@ -320,9 +321,10 @@ const getLookupByMultipleNomor = async (nomor) => {
                 d.ld_total_metercetak AS cetakmeter,
                 d.ld_tile AS tile,
                 
-                -- Field Padding (Handling IFNULL agar aman dari null)
-                IFNULL(d.ld_padding, 0) AS padding,
-                IFNULL(d.ld_padding, 0) AS Padding,
+                -- Field Padding Atas & Samping (Handling IFNULL agar aman dari null)
+                IFNULL(d.ld_padding_atas, 3) AS padding_atas,
+                IFNULL(d.ld_padding_atas, 3) AS Padding,
+                IFNULL(d.ld_padding_samping, 1) AS padding_samping,
                 
                 -- Perhitungan m2: Panjang * Lebar * Qty
                 ROUND(IFNULL(s.spk_panjang, 0) * IFNULL(s.spk_lebar, 0) * IFNULL(d.ld_total_qtycetak, 0), 2) AS ld_luas_m2
@@ -700,16 +702,18 @@ const saveLhk = async (
 
       const pAmbil = Number(d.ambilBahanPanjang || d.ld_ambilbahan || 0);
       const lAmbil = Number(d.ambilBahanLebar || d.ld_ambilbahan_lebar || 0);
+      const pAtas = Number(d.padding_atas || 3);
+      const pSamping = Number(d.padding_samping || 1);
 
       await conn.query(
         `
-                INSERT INTO tlhk_mesin_dtl (
-                    ld_lnomor, ld_urut, ld_spk_nomor, ld_ambilbahan, ld_ambilbahan_lebar,
-                    ld_qtyCetak1, ld_qtyCetak2, ld_qtyCetak3, ld_qtyCetak4, ld_qtyCetak5, ld_qtyCetak6, ld_qtyCetak7,
-                    ld_total_qtycetak, ld_total_metercetak, ld_sisameter, ld_sisalebar,
-                    ld_bahan, ld_barcode, ld_tile, ld_luas_m2, ld_padding
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `,
+    INSERT INTO tlhk_mesin_dtl (
+        ld_lnomor, ld_urut, ld_spk_nomor, ld_ambilbahan, ld_ambilbahan_lebar,
+        ld_qtyCetak1, ld_qtyCetak2, ld_qtyCetak3, ld_qtyCetak4, ld_qtyCetak5, ld_qtyCetak6, ld_qtyCetak7,
+        ld_total_qtycetak, ld_total_metercetak, ld_sisameter, ld_sisalebar,
+        ld_bahan, ld_barcode, ld_tile, ld_luas_m2, ld_padding_atas, ld_padding_samping
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
         [
           finalNomor,
           urut,
@@ -731,7 +735,8 @@ const saveLhk = async (
           usedBarcode,
           d.tile || 1,
           d.luasm2 || 0,
-          d.padding || 0,
+          pAtas,
+          pSamping,
         ],
       );
 
@@ -1164,7 +1169,8 @@ const getDetailsByNomor = async (nomor) => {
                 IFNULL(d.ld_sisameter, 0) AS sisabahan,
                 IFNULL(d.ld_sisalebar, 0) AS sisabahanlebar,
                 IFNULL(d.ld_luas_m2, 0) AS luasm2,
-                IFNULL(d.ld_padding, 0) AS padding,
+                IFNULL(d.ld_padding_atas, 3) AS padding_atas,
+IFNULL(d.ld_padding_samping, 1) AS padding_samping,
 
                 -- Akumulasi sebelum LHK ini
                 IFNULL((SELECT SUM(dx.ld_total_qtycetak) 
