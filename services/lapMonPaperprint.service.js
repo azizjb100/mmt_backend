@@ -3,7 +3,7 @@ const moment = require("moment");
 
 const lapMonCetakPaperprint = async (startDate, endDate) => {
   const tglMulai = moment(startDate).format("YYYY-MM-DD");
-  const tglSelesai = moment(endDate).add(1, "day").format("YYYY-MM-DD");
+  const tglSelesai = moment(endDate).format("YYYY-MM-DD");
 
   const ssql = `
     SELECT
@@ -70,8 +70,7 @@ const lapMonCetakPaperprint = async (startDate, endDate) => {
     FROM tspk spk
 
     /* =========================================================
-        LHK SUBLIM (Filter tanggal dimasukkan ke dalam JOIN agar
-        SPK yang belum ada LHK / di luar periode tetap muncul)
+        LHK SUBLIM
     ========================================================= */
     LEFT JOIN (
         SELECT
@@ -167,13 +166,13 @@ const lapMonCetakPaperprint = async (startDate, endDate) => {
     /* FILTER & ORDERING */
     WHERE spk.spk_aktif = 'Y'
       AND spk.spk_sublim = 'Y'
-      AND (lhk.TANGGAL_LHK >= ? AND lhk.TANGGAL_LHK < ? OR lhk.TANGGAL_LHK IS NULL)
+      AND spk.spk_tanggal BETWEEN ? AND ?
     ORDER BY
-      lhk.TANGGAL_LHK ASC,
+      spk.spk_tanggal ASC,
       spk.spk_nomor ASC
   `;
 
-  const params = [`${tglMulai} 00:00:00`, `${tglSelesai} 00:00:00`];
+  const params = [tglMulai, tglSelesai];
   const connection = await pool.getConnection();
 
   try {
