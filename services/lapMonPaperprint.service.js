@@ -8,7 +8,7 @@ const lapMonCetakPaperprint = async (startDate, endDate) => {
   const ssql = `
     SELECT
         /* =====================================================
-           DATA SPK
+            DATA SPK
         ===================================================== */
         spk.spk_perush_kode AS PERUSH,
         spk.spk_nomor AS NO_SPK,
@@ -23,7 +23,7 @@ const lapMonCetakPaperprint = async (startDate, endDate) => {
         DATE_FORMAT(spk.spk_dateline, '%Y-%m-%d') AS DEADLINE,
 
         /* =====================================================
-           DATA LHK
+            DATA LHK
         ===================================================== */
         COALESCE(lhk.NO_LHK, '-') AS NO_LHK,
         CASE
@@ -32,7 +32,7 @@ const lapMonCetakPaperprint = async (startDate, endDate) => {
         END AS TANGGAL_LHK,
 
         /* =====================================================
-           ORDER METER
+            ORDER METER
         ===================================================== */
         (
             COALESCE(spk.spk_jumlah, 0)
@@ -41,7 +41,7 @@ const lapMonCetakPaperprint = async (startDate, endDate) => {
         ) AS ORDER_SPK_METER,
 
         /* =====================================================
-           KURANG VARIANT
+            KURANG VARIANT
         ===================================================== */
         (
             COALESCE(spk.spk_jumlah, 0)
@@ -70,7 +70,8 @@ const lapMonCetakPaperprint = async (startDate, endDate) => {
     FROM tspk spk
 
     /* =========================================================
-       LHK SUBLIM
+        LHK SUBLIM (Filter tanggal dimasukkan ke dalam JOIN agar
+        SPK yang belum ada LHK / di luar periode tetap muncul)
     ========================================================= */
     LEFT JOIN (
         SELECT
@@ -151,7 +152,7 @@ const lapMonCetakPaperprint = async (startDate, endDate) => {
         ON TRIM(lhk.NOMOR_SPK) = TRIM(spk.spk_nomor)
 
     /* =========================================================
-       CETAK LUAR
+        CETAK LUAR
     ========================================================= */
     LEFT JOIN (
         SELECT
@@ -165,11 +166,11 @@ const lapMonCetakPaperprint = async (startDate, endDate) => {
 
     /* FILTER & ORDERING */
     WHERE spk.spk_aktif = 'Y'
-      AND lhk.TANGGAL_LHK >= ?
-      AND lhk.TANGGAL_LHK < ?
+      AND spk.spk_sublim = 'Y'
+      AND (lhk.TANGGAL_LHK >= ? AND lhk.TANGGAL_LHK < ? OR lhk.TANGGAL_LHK IS NULL)
     ORDER BY
-        lhk.TANGGAL_LHK ASC,
-        spk.spk_nomor ASC
+      lhk.TANGGAL_LHK ASC,
+      spk.spk_nomor ASC
   `;
 
   const params = [`${tglMulai} 00:00:00`, `${tglSelesai} 00:00:00`];
