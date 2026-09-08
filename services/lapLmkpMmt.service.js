@@ -146,7 +146,7 @@ exports.getMonitoringData = async (cbJenisIndex, startDate, endDate) => {
             ) gg ON gg.lfd_spk_nomor = spk_nomor
 
             WHERE spk_aktif = 'Y' 
-
+              AND spk_cab = 'P05'
               ${conditionExtra}
               AND spk_tanggal >= CONCAT(?, ' 00:00:00') 
               AND spk_tanggal <= CONCAT(?, ' 23:59:59')

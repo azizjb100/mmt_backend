@@ -257,6 +257,9 @@ const generateNewNomor = async (date, connection = null) => {
 /**
  * Simpan LHK (Create / Update + Stok)
  */
+/**
+ * Simpan LHK (Create / Update + Stok + Afal Sisa Samping)
+ */
 const saveLhk = async (data) => {
   const { header, details } = data;
   const conn = await pool.getConnection();
@@ -486,6 +489,52 @@ const saveLhk = async (data) => {
           hargaBeliLama,
         ]);
       }
+
+      // 7. 🔥 CEK & BUAT BARCODE AFAL BARU JIKA LEBAR SISA > 0.50 METER
+      let afalDataObj = null;
+      const panjangAfal = Number(header.lpanjang_afal || 0);
+      const lebarAfal = Number(header.llebar_afal || 0);
+
+      if (lebarAfal > 0.5 && panjangAfal > 0) {
+        const barcodeAfal = `${header.barcode_input}-AFL-${Date.now().toString().slice(-4)}`;
+
+        const sqlInsertAfal = `
+          INSERT INTO tmasterstok_mmt (
+            mst_brg_kode, mst_barcode, mst_gdg_kode, mst_stok_in, mst_stok_out, 
+            mst_tanggal, mst_panjang, mst_lebar, mst_spk_nomor, mst_noreferensi, 
+            mst_satuan_harga, mst_hargabeli, date_create, mst_kategori
+          ) VALUES (?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, NOW(), 'AFAL')
+        `;
+
+        await conn.query(sqlInsertAfal, [
+          header.brg_kode,
+          barcodeAfal,
+          header.gdgKode,
+          header.tanggal,
+          panjangAfal,
+          lebarAfal,
+          combinedSpkNomor,
+          nomorLhk,
+          satuanHargaLama,
+          hargaBeliLama,
+        ]);
+
+        afalDataObj = {
+          barcode: barcodeAfal,
+          panjang: panjangAfal,
+          lebar: lebarAfal,
+        };
+      }
+
+      await conn.commit();
+
+      return {
+        success: true,
+        nomor: nomorLhk,
+        message: "Data LHK berhasil disimpan",
+        totalPanjangPakaiSistem: totalPanjangPakaiMeter,
+        afalData: afalDataObj,
+      };
     }
 
     await conn.commit();
