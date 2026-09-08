@@ -97,7 +97,7 @@ exports.getMonitoringData = async (cbJenisIndex, startDate, endDate) => {
             SELECT 
                 spk_nomor AS NOMOR, spk_memo, spk_tanggal, spk_dateline AS deadline, spk_nama,
                 spk_statuskerja, spk_workshop, zz.DIVISI, jo_nama,
-                IF(spk_jumlah_kirim >= spk_jumlah, "Closed", "Open") AS status,
+                IF(spk_jumlah_kirim >= spk_jumlah, 'Closed', 'Open') AS status,
                 spk_panjang AS PANJANG, spk_lebar AS LEBAR, spk_kain AS KAIN, spk_gramasi, spk_finishing AS FINISHING,
                 spk_jumlah, spk_jumlah_kirim,
 
