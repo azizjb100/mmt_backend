@@ -1,12 +1,12 @@
 // backend/src/services/koreksiStokService.js
 
-const pool = require('../config/db.config'); // Asumsi modul koneksi database Anda
-const { format } = require('date-fns');
+const pool = require("../config/db.config"); // Asumsi modul koneksi database Anda
+const { format } = require("date-fns");
 
 // Helper untuk penanganan error database
 const throwDbError = (message, error) => {
   console.error(message, error.message);
-  throw new Error(message + ': ' + error.message);
+  throw new Error(message + ": " + error.message);
 };
 
 // ========================================================
@@ -14,7 +14,6 @@ const throwDbError = (message, error) => {
 // ========================================================
 exports.getKoreksiStokData = async (startDate, endDate) => {
   try {
-    // TAHAP 1: Ambil Master (Ditambahkan kolom Kode Gudang untuk filter detail)
     const sqlMaster = `
       SELECT 
         a.korh_nomor AS Nomor, 
@@ -33,66 +32,57 @@ exports.getKoreksiStokData = async (startDate, endDate) => {
       ORDER BY a.korh_tanggal DESC`;
 
     const params = [
-      format(new Date(startDate), 'yyyy-MM-dd'),
-      format(new Date(endDate), 'yyyy-MM-dd')
+      format(new Date(startDate), "yyyy-MM-dd"),
+      format(new Date(endDate), "yyyy-MM-dd"),
     ];
 
     const [masterRows] = await pool.query(sqlMaster, params);
     if (masterRows.length === 0) return [];
 
-    const nomorList = masterRows.map(m => m.Nomor);
+    const nomorList = masterRows.map((m) => m.Nomor);
 
-    // TAHAP 2: Ambil Detail + Subquery Hybrid (MMT & OBAT)
+    // Detail query tanpa tobat dan tmasterstok_obat
     const sqlDetail = `
       SELECT 
         d.kord_korh_nomor AS Nomor, 
         d.kord_brg_kode AS Kode, 
-        COALESCE(b.brg_nama, o.o_nama) AS Nama_Bahan, 
+        b.brg_nama AS Nama_Bahan, 
         d.kord_stok AS Stock, 
         d.kord_panjang AS Panjang, 
         d.kord_lebar AS Lebar,
         d.kord_fisik AS Fisik, 
         d.kord_qty AS Koreksi,
         d.kord_satuan AS Satuan,
-        -- Mengambil barcode dari MMT atau OBAT menggunakan UNION di dalam subquery
         (
           SELECT GROUP_CONCAT(sub.mst_barcode ORDER BY sub.mst_barcode ASC)
-          FROM (
-            SELECT mst_barcode, mst_noreferensi, mst_brg_kode FROM tmasterstok_mmt
-            UNION ALL
-            SELECT mst_barcode, mst_noreferensi, mst_brg_kode FROM tmasterstok_obat
-          ) sub
+          FROM tmasterstok_mmt sub
           WHERE sub.mst_noreferensi = d.kord_korh_nomor 
           AND sub.mst_brg_kode = d.kord_brg_kode
         ) AS List_Barcode
       FROM tkor_dtl_mmt d
       LEFT JOIN tbarang_mmt b ON d.kord_brg_kode = b.brg_kode
-      LEFT JOIN tobat o ON d.kord_brg_kode = o_kode
       WHERE d.kord_korh_nomor IN (?)
       ORDER BY d.kord_korh_nomor, d.kord_nourut`;
 
     const [detailRows] = await pool.query(sqlDetail, [nomorList]);
 
-    // TAHAP 3: Gabungkan
     const dataMap = new Map();
-    masterRows.forEach(item => {
+    masterRows.forEach((item) => {
       dataMap.set(item.Nomor, { ...item, Detail: [] });
     });
 
-    detailRows.forEach(detail => {
+    detailRows.forEach((detail) => {
       if (dataMap.has(detail.Nomor)) {
         dataMap.get(detail.Nomor).Detail.push(detail);
       }
     });
 
     return Array.from(dataMap.values());
-
   } catch (error) {
     console.error("Gagal mengambil data koreksi stok:", error);
     throw error;
   }
 };
-
 
 // ========================================================
 // DELETE (cxButton4Click)
@@ -104,23 +94,23 @@ exports.deleteKoreksiStok = async (nomor, user) => {
     await connection.beginTransaction();
 
     // 1. Hapus Detail (tkor_dtl_mmt)
-    const sqlDeleteDetail = 'DELETE FROM tkor_dtl_mmt WHERE kord_korh_nomor = ?';
+    const sqlDeleteDetail =
+      "DELETE FROM tkor_dtl_mmt WHERE kord_korh_nomor = ?";
     await connection.query(sqlDeleteDetail, [nomor]);
 
     // 2. Hapus Header (tkor_hdr_mmt)
-    const sqlDeleteHeader = 'DELETE FROM tkor_hdr_mmt WHERE korh_nomor = ?';
+    const sqlDeleteHeader = "DELETE FROM tkor_hdr_mmt WHERE korh_nomor = ?";
     const [headerResult] = await connection.query(sqlDeleteHeader, [nomor]);
-    
+
     if (headerResult.affectedRows === 0) {
       throw new Error("Nomor transaksi tidak ditemukan atau sudah terhapus.");
     }
-    
+
     await connection.commit();
     return true;
-    
   } catch (error) {
     await connection.rollback();
-    throwDbError('Gagal menghapus transaksi Koreksi Stok', error);
+    throwDbError("Gagal menghapus transaksi Koreksi Stok", error);
   } finally {
     connection.release();
   }
@@ -130,9 +120,9 @@ exports.deleteKoreksiStok = async (nomor, user) => {
 // GENERATE MAX KODE (getmaxkode)
 // ========================================================
 exports.generateMaxKode = async (tanggal) => {
-  const NOMERATOR = 'KOR'; // Contoh nomerator
-  const yyMm = format(new Date(tanggal), 'yyMM');
-  
+  const NOMERATOR = "KOR"; // Contoh nomerator
+  const yyMm = format(new Date(tanggal), "yyMM");
+
   // Mengambil max nomor (asumsi menggunakan kode 3 digit setelah tanggal)
   const sql = `
     SELECT MAX(RIGHT(korh_nomor, 3)) AS max_num 
@@ -141,16 +131,15 @@ exports.generateMaxKode = async (tanggal) => {
   `;
   const prefix = `${NOMERATOR}.${yyMm}.%`;
   const [rows] = await pool.query(sql, [prefix]);
-  
+
   const maxNum = rows[0].max_num ? parseInt(rows[0].max_num) : 0;
-  const newSequence = maxNum + 1; 
-  
-  return `${NOMERATOR}.${yyMm}.${String(newSequence).padStart(3, '0')}`;
+  const newSequence = maxNum + 1;
+
+  return `${NOMERATOR}.${yyMm}.${String(newSequence).padStart(3, "0")}`;
 };
 
-
 exports.getStokGudangAll = async (gdg_kode, tanggal) => {
-    const sql = `
+  const sql = `
         SELECT 
             brg_kode AS Kode,
             brg_nama AS Nama,
@@ -170,16 +159,16 @@ exports.getStokGudangAll = async (gdg_kode, tanggal) => {
         GROUP BY mst_gdg_kode, brg_kode,  brg_lebar, gdg_nama, brg_nama, brg_satuan
         ORDER BY brg_kode ASC;
     `;
-    try {
-        // Jika parameter tanggal kosong, gunakan tanggal hari ini
-        const [rows] = await pool.query(sql, [gdg_kode, tanggal || new Date()]);
-        return rows;
-    } catch (error) {
-        throw error;
-    }
+  try {
+    // Jika parameter tanggal kosong, gunakan tanggal hari ini
+    const [rows] = await pool.query(sql, [gdg_kode, tanggal || new Date()]);
+    return rows;
+  } catch (error) {
+    throw error;
+  }
 };
 exports.getBarangWithStok = async (keyword, gdg_kode, tanggal) => {
-    const sql = `
+  const sql = `
         SELECT 
             brg_kode AS Kode, 
             brg_nama AS NamaBarang, 
@@ -206,37 +195,31 @@ exports.getBarangWithStok = async (keyword, gdg_kode, tanggal) => {
         WHERE brg_gdg_default = 'WH-16' -- Sesuai filter di Delphi
           AND (brg_kode LIKE ? OR brg_nama LIKE ?)
     `;
-    try {
-        const search = `%${keyword}%`;
-        const [rows] = await pool.query(sql, [gdg_kode, tanggal, search, search]);
-        return rows;
-    } catch (error) {
-        throw error;
-    }
+  try {
+    const search = `%${keyword}%`;
+    const [rows] = await pool.query(sql, [gdg_kode, tanggal, search, search]);
+    return rows;
+  } catch (error) {
+    throw error;
+  }
 };
-
 
 // backend/src/services/koreksiStokMmt.service.js
 
 exports.saveKoreksiStokMMT = async (payload, user) => {
-    const connection = await pool.getConnection();
-    try {
-        await connection.beginTransaction();
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
 
-        const { header, details } = payload;
-        let nomor = header.Nomor;
+    const { header, details } = payload;
+    let nomor = header.Nomor;
 
-        // Deteksi tipe gudang
-        const kodeGdg = header.GudangKode?.toUpperCase() || "";
-        const namaGdg = header.GudangNama?.toLowerCase() || "";
-        const isObat = kodeGdg === "WH-20" || namaGdg.includes("tinta") || namaGdg.includes("obat");
+    if (nomor === "AUTO" || !nomor) {
+      nomor = await this.generateMaxKode(header.Tanggal);
+    }
 
-        if (nomor === 'AUTO' || !nomor) {
-            nomor = await this.generateMaxKode(header.Tanggal);
-        }
-
-        // 2. Simpan Header
-        const sqlHeader = `
+    // 2. Simpan Header
+    const sqlHeader = `
             INSERT INTO tkor_hdr_mmt (korh_nomor, korh_tanggal, korh_gdg_kode, korh_type, korh_notes, korh_total, date_create, user_create)
             VALUES (?, ?, ?, ?, ?, ?, NOW(), ?)
             ON DUPLICATE KEY UPDATE 
@@ -248,102 +231,121 @@ exports.saveKoreksiStokMMT = async (payload, user) => {
                 date_modified=NOW(), 
                 user_modified=?
         `;
-        const totalNilai = details.reduce((acc, curr) => acc + (Number(curr.Nilai) || 0), 0);
-        await connection.query(sqlHeader, [nomor, header.Tanggal, header.GudangKode, header.TypeKor, header.Keterangan || '', totalNilai, user, user]);
-
-        // 3. Hapus Detail & Stok Lama
-        await connection.query("DELETE FROM tkor_dtl_mmt WHERE kord_korh_nomor = ?", [nomor]);
-        
-        // Hapus stok di tmasterstok_mmt (untuk jalur WH-16/GPM)
-        await connection.query("DELETE FROM tmasterstok_mmt WHERE mst_noreferensi = ?", [nomor]);
-
-        if (isObat) {
-            // Hapus stok di tmasterstok_obat (untuk jalur WH-20)
-            await connection.query("DELETE FROM tmasterstok_obat WHERE mst_noreferensi = ?", [nomor]);
-        }
-
-        // 5. Simpan Detail baru
-        if (details.length > 0) {
-            const validDetails = details.filter(d => d.SKU);
-            const detailValues = validDetails.map((d, i) => [
-                nomor, d.SKU, d.Satuan || '', header.Tanggal,
-                Number(d.Qty) || 0, Number(d.Panjang) || 0, Number(d.Lebar) || 0,
-                Number(d.Harga) || 0, Number(d.Nilai) || 0, Number(d.Fisik) || 0,
-                Number(d.System) || 0, i + 1
-            ]);
-
-            const sqlDetail = `INSERT INTO tkor_dtl_mmt (kord_korh_nomor, kord_brg_kode, kord_satuan, kord_expired, kord_qty, kord_panjang, kord_lebar, kord_harga, kord_nilai, kord_fisik, kord_stok, kord_nourut) VALUES ?`;
-            await connection.query(sqlDetail, [detailValues]);
-
-            // ==========================================================
-            // JALUR BACKEND: HANYA UNTUK WH-20 (OBAT)
-            // ==========================================================
-          if (isObat) {
-    const stokObatValues = [];
-    const yyMm = format(new Date(header.Tanggal), 'yyMM');
-
-    // 1. CARI URUTAN GLOBAL TERLEBIH DAHULU (Di luar loop detail)
-    // Mencari MAX barcode bulan ini tanpa mempedulikan kode barang
-    const patternGlobal = `%-${yyMm}-%`; 
-    const [globalRows] = await connection.query(
-        `SELECT MAX(CAST(SUBSTRING_INDEX(mst_barcode, '-', -1) AS UNSIGNED)) AS max_urut 
-         FROM tmasterstok_obat 
-         WHERE mst_barcode LIKE ?`, 
-        [patternGlobal]
+    const totalNilai = details.reduce(
+      (acc, curr) => acc + (Number(curr.Nilai) || 0),
+      0,
     );
-    
-    let currentGlobalUrut = globalRows[0].max_urut || 0;
+    await connection.query(sqlHeader, [
+      nomor,
+      header.Tanggal,
+      header.GudangKode,
+      header.TypeKor,
+      header.Keterangan || "",
+      totalNilai,
+      user,
+      user,
+    ]);
 
-    for (const d of validDetails) {
+    // 3. Hapus Detail & Stok Lama
+    await connection.query(
+      "DELETE FROM tkor_dtl_mmt WHERE kord_korh_nomor = ?",
+      [nomor],
+    );
+    await connection.query(
+      "DELETE FROM tmasterstok_mmt WHERE mst_noreferensi = ?",
+      [nomor],
+    );
+
+    // 4. Simpan Detail baru
+    if (details.length > 0) {
+      const validDetails = details.filter((d) => d.SKU);
+      const detailValues = validDetails.map((d, i) => [
+        nomor,
+        d.SKU,
+        d.Satuan || "",
+        header.Tanggal,
+        Number(d.Qty) || 0,
+        Number(d.Panjang) || 0,
+        Number(d.Lebar) || 0,
+        Number(d.Harga) || 0,
+        Number(d.Nilai) || 0,
+        Number(d.Fisik) || 0,
+        Number(d.System) || 0,
+        i + 1,
+      ]);
+
+      const sqlDetail = `INSERT INTO tkor_dtl_mmt (kord_korh_nomor, kord_brg_kode, kord_satuan, kord_expired, kord_qty, kord_panjang, kord_lebar, kord_harga, kord_nilai, kord_fisik, kord_stok, kord_nourut) VALUES ?`;
+      await connection.query(sqlDetail, [detailValues]);
+
+      // Logika Stok MMT (Tanpa jalur Obat)
+      const stokMmtValues = [];
+      const yyMm = format(new Date(header.Tanggal), "yyMM");
+
+      const patternGlobal = `%-${yyMm}-%`;
+      const [globalRows] = await connection.query(
+        `SELECT MAX(CAST(SUBSTRING_INDEX(mst_barcode, '-', -1) AS UNSIGNED)) AS max_urut 
+                 FROM tmasterstok_mmt 
+                 WHERE mst_barcode LIKE ?`,
+        [patternGlobal],
+      );
+
+      let currentGlobalUrut = globalRows[0].max_urut || 0;
+
+      for (const d of validDetails) {
         const qty = Number(d.Qty) || 0;
-        
+
         if (qty > 0) {
-            // Pecah barcode sesuai Qty dengan urutan yang terus berlanjut (Global)
-            for (let i = 1; i <= qty; i++) {
-                currentGlobalUrut++; // Naikkan urutan global
-                
-                const v_barcode = `${d.SKU}-${yyMm}-${String(currentGlobalUrut).padStart(3, '0')}`;
-                
-                stokObatValues.push([
-                    d.SKU,              
-                    header.GudangKode,  
-                    header.Tanggal,     
-                    1,                  
-                    0,                  
-                    nomor,              
-                    v_barcode,          
-                    'KOREKSI',          
-                    Number(d.Panjang) || 0, 
-                    Number(d.Lebar) || 0    
-                ]);
-            }
-        } else if (qty < 0) {
-            stokObatValues.push([
-                d.SKU, header.GudangKode, header.Tanggal, 0, Math.abs(qty), 
-                nomor, '-', 'KOREKSI', Number(d.Panjang) || 0, Number(d.Lebar) || 0
+          for (let i = 1; i <= qty; i++) {
+            currentGlobalUrut++;
+            const v_barcode = `${d.SKU}-${yyMm}-${String(currentGlobalUrut).padStart(3, "0")}`;
+
+            stokMmtValues.push([
+              d.SKU,
+              header.GudangKode,
+              header.Tanggal,
+              1,
+              0,
+              nomor,
+              v_barcode,
+              "KOREKSI",
+              Number(d.Panjang) || 0,
+              Number(d.Lebar) || 0,
             ]);
+          }
+        } else if (qty < 0) {
+          stokMmtValues.push([
+            d.SKU,
+            header.GudangKode,
+            header.Tanggal,
+            0,
+            Math.abs(qty),
+            nomor,
+            "-",
+            "KOREKSI",
+            Number(d.Panjang) || 0,
+            Number(d.Lebar) || 0,
+          ]);
         }
+      }
+
+      if (stokMmtValues.length > 0) {
+        const sqlStokMmt = `
+                    INSERT INTO tmasterstok_mmt (
+                        mst_brg_kode, mst_gdg_kode, mst_tanggal, 
+                        mst_stok_in, mst_stok_out, mst_noreferensi, 
+                        mst_barcode, mst_type, mst_panjang, mst_lebar
+                    ) VALUES ?
+                `;
+        await connection.query(sqlStokMmt, [stokMmtValues]);
+      }
     }
 
-    if (stokObatValues.length > 0) {
-        const sqlStokObat = `
-            INSERT INTO tmasterstok_obat (
-                mst_brg_kode, mst_gdg_kode, mst_tanggal, 
-                mst_stok_in, mst_stok_out, mst_noreferensi, 
-                mst_barcode, mst_type, mst_panjang, mst_lebar
-            ) VALUES ?
-        `;
-        await connection.query(sqlStokObat, [stokObatValues]);
-    }
-}
-        }
-
-        await connection.commit();
-        return { success: true, nomor: nomor };
-    } catch (error) {
-        await connection.rollback();
-        throw error;
-    } finally {
-        connection.release();
-    }
+    await connection.commit();
+    return { success: true, nomor: nomor };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 };
