@@ -107,11 +107,12 @@ exports.getStokByBarcode = async (barcode) => {
     const stokGPM = results.find((r) => r.Kode_Gudang === "GPM");
     const dataRes = stokGPM || results[0];
 
-    const rawSisaPanjang =
-      dataRes.Sisa_Panjang_Lhk !== null &&
-      dataRes.Sisa_Panjang_Lhk !== undefined
-        ? parseFloat(dataRes.Sisa_Panjang_Lhk)
-        : parseFloat(dataRes.Sisa_Panjang_Stok || 0);
+    // Prioritaskan Sisa_Panjang_Stok (Master Stok / Mutasi),
+    // gunakan Sisa_Panjang_Lhk hanya jika Sisa_Panjang_Stok <= 0 atau bernilai null/undefined
+    const sisaStokMaster = parseFloat(dataRes.Sisa_Panjang_Stok || 0);
+    const sisaStokLhk = parseFloat(dataRes.Sisa_Panjang_Lhk || 0);
+
+    const rawSisaPanjang = sisaStokMaster > 0 ? sisaStokMaster : sisaStokLhk;
 
     if (rawSisaPanjang <= 0) {
       return { data: null, status: "NOT_FOUND" };
