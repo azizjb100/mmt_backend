@@ -18,10 +18,10 @@ exports.getMonitoringData = async (cbJenisIndex, startDate, endDate) => {
             0 AS sb01, 0 AS sb02, 0 AS sb03, 0 AS sb04, 0 AS sb05
         `;
 
-    // 1. KATEGORI MT (cbJenisIndex = '0')
+    // 1. KATEGORI MT & LM (cbJenisIndex = '0')
     if (cbJenisIndex === "0") {
       fieldJmlCetak = "ifnull(ee.jml_cetak_mmt, 0)";
-      conditionExtra = "AND spk_divisi IN (5) AND spk_jo_kode='MT'";
+      conditionExtra = "AND spk_divisi IN (5) AND spk_jo_kode IN ('MT', 'LM')";
       selectMesinFields = `
                 ROUND(IFNULL(ee.MT01, 0), 0) AS mt01, ROUND(IFNULL(ee.MT02, 0), 0) AS mt02,
                 ROUND(IFNULL(ee.MT03, 0), 0) AS mt03, ROUND(IFNULL(ee.MT04, 0), 0) AS mt04,
