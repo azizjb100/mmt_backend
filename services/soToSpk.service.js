@@ -77,7 +77,8 @@ const getBrowseList = async (filters = {}) => {
         s.spk_so_ref AS SO,
         s.spk_nomor AS Nomor,
         s.user_create AS MO, s.spk_cmo AS CMO,
-        s.spk_tanggal AS Tanggal, s.spk_dateline AS Dateline,
+        DATE_FORMAT(s.spk_tanggal, '%Y-%m-%d') AS Tanggal, 
+        DATE_FORMAT(s.spk_dateline, '%Y-%m-%d') AS Dateline,
         s.spk_statuskerja AS Kepentingan, v.divisi AS Divisi,
         s.spk_cus_kode AS KodeCustomer, ${custNameCol}
         s.spk_nama AS Nama, s.spk_ukuran AS Ukuran,
@@ -165,7 +166,8 @@ const getBrowseList = async (filters = {}) => {
         so.so_nomor AS SO,
         NULL AS Nomor,
         so.user_create AS MO, so.so_cmo AS CMO,
-        so.so_tanggal AS Tanggal, so.so_dateline AS Dateline,
+        DATE_FORMAT(so.so_tanggal, '%Y-%m-%d') AS Tanggal, 
+        DATE_FORMAT(so.so_dateline, '%Y-%m-%d') AS Dateline,
         so.so_statuskerja AS Kepentingan, v.divisi AS Divisi,
         so.so_cus_kode AS KodeCustomer, ${custNameCol}
         so.so_nama AS Nama, so.so_ukuran AS Ukuran,

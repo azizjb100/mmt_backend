@@ -67,17 +67,18 @@ exports.getMonitoringData = async (cbJenisIndex, startDate, endDate) => {
                     GROUP BY 1
                 ) ff ON ff.ltd_spk_nomor = spk_nomor`;
     }
-    // 3. KATEGORI SUBLIM (cbJenisIndex = '2')
+    // 3. KATEGORI PAPERPRINT (cbJenisIndex = '2') - Menggunakan tlhk_sublim_dtl
     else if (cbJenisIndex === "2") {
-      fieldJmlCetak = "ifnull(sb.jml_cetak_sublim, 0)";
+      fieldJmlCetak = "ifnull(sb.jml_cetak_paperprint, 0)";
       conditionExtra =
-        "AND spk_nomor IN (SELECT DISTINCT lsbd_spk_nomor FROM tlhk_sublim_dtl)";
+        "AND spk_sublim = 'Y' AND spk_nomor IN (SELECT DISTINCT lsbd_spk_nomor FROM tlhk_sublim_dtl)";
       selectMesinFields = `
                 0 AS mt01, 0 AS mt02, 0 AS mt03, 0 AS mt04, 0 AS mt05, 0 AS mi,
                 0 AS mx01, 0 AS mx02, 0 AS mx03, 0 AS mx04, 0 AS mx05,
                 ROUND(IFNULL(sb.SB01, 0), 0) AS sb01, ROUND(IFNULL(sb.SB02, 0), 0) AS sb02,
                 ROUND(IFNULL(sb.SB03, 0), 0) AS sb03, ROUND(IFNULL(sb.SB04, 0), 0) AS sb04,
-                ROUND(IFNULL(sb.SB05, 0), 0) AS sb05
+                ROUND(IFNULL(sb.SB05, 0), 0) AS sb05,
+                0 AS rtr
             `;
       joinLhkCetak = `
                 LEFT JOIN (
@@ -87,10 +88,30 @@ exports.getMonitoringData = async (cbJenisIndex, startDate, endDate) => {
                         SUM(IF(lsbd_lokasi='SB03',lsbd_jumlah,0)) SB03,
                         SUM(IF(lsbd_lokasi='SB04',lsbd_jumlah,0)) SB04,
                         SUM(IF(lsbd_lokasi='SB05',lsbd_jumlah,0)) SB05,
-                        SUM(IFNULL(lsbd_jumlah,0)) jml_cetak_sublim
+                        SUM(IFNULL(lsbd_jumlah,0)) jml_cetak_paperprint
                     FROM tlhk_sublim_dtl
                     GROUP BY 1
                 ) sb ON sb.lsbd_spk_nomor = spk_nomor`;
+    }
+    // 4. KATEGORI SUBLIM (cbJenisIndex = '3') - Menggunakan tlhk_rtr_dtl
+    else if (cbJenisIndex === "3") {
+      fieldJmlCetak = "ifnull(rtr.jml_cetak_sublim, 0)";
+      conditionExtra =
+        "AND spk_sublim = 'Y' AND spk_nomor IN (SELECT DISTINCT lrd_spk_nomor FROM tlhk_rtr_dtl)";
+      selectMesinFields = `
+                0 AS mt01, 0 AS mt02, 0 AS mt03, 0 AS mt04, 0 AS mt05, 0 AS mi,
+                0 AS mx01, 0 AS mx02, 0 AS mx03, 0 AS mx04, 0 AS mx05,
+                0 AS sb01, 0 AS sb02, 0 AS sb03, 0 AS sb04, 0 AS sb05,
+                ROUND(IFNULL(rtr.RTR, 0), 0) AS rtr
+            `;
+      joinLhkCetak = `
+                LEFT JOIN (
+                    SELECT lrd_spk_nomor, 
+                        SUM(IF(lrd_lokasi='RTR',lrd_jumlah,0)) RTR,
+                        SUM(IFNULL(lrd_jumlah,0)) jml_cetak_sublim
+                    FROM tlhk_rtr_dtl
+                    GROUP BY 1
+                ) rtr ON rtr.lrd_spk_nomor = spk_nomor`;
     }
 
     const sql = `
