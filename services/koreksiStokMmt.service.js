@@ -300,16 +300,15 @@ exports.saveKoreksiStokMMT = async (payload, user) => {
             const v_barcode = `${d.SKU}-${yyMm}-${String(currentGlobalUrut).padStart(3, "0")}`;
 
             stokMmtValues.push([
-              d.SKU,
-              header.GudangKode,
-              header.Tanggal,
-              1,
-              0,
-              nomor,
-              v_barcode,
-              "KOREKSI",
-              Number(d.Panjang) || 0,
-              Number(d.Lebar) || 0,
+              d.SKU, // 1. mst_brg_kode
+              header.GudangKode, // 2. mst_gdg_kode
+              header.Tanggal, // 3. mst_tanggal
+              0, // 4. mst_stok_in
+              Math.abs(qty), // 5. mst_stok_out
+              nomor, // 6. mst_noreferensi
+              "-", // 7. mst_barcode
+              Number(d.Panjang) || 0, // 8. mst_panjang
+              Number(d.Lebar) || 0, // 9. mst_lebar
             ]);
           }
         } else if (qty < 0) {
@@ -321,7 +320,6 @@ exports.saveKoreksiStokMMT = async (payload, user) => {
             Math.abs(qty),
             nomor,
             "-",
-            "KOREKSI",
             Number(d.Panjang) || 0,
             Number(d.Lebar) || 0,
           ]);
@@ -333,7 +331,7 @@ exports.saveKoreksiStokMMT = async (payload, user) => {
                     INSERT INTO tmasterstok_mmt (
                         mst_brg_kode, mst_gdg_kode, mst_tanggal, 
                         mst_stok_in, mst_stok_out, mst_noreferensi, 
-                        mst_barcode, mst_type, mst_panjang, mst_lebar
+                        mst_barcode,  mst_panjang, mst_lebar
                     ) VALUES ?
                 `;
         await connection.query(sqlStokMmt, [stokMmtValues]);
