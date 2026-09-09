@@ -15,19 +15,22 @@ exports.getMonitoringData = async (cbJenisIndex, startDate, endDate) => {
     let selectMesinFields = `
             0 AS mt01, 0 AS mt02, 0 AS mt03, 0 AS mt04, 0 AS mt05, 0 AS mi,
             0 AS mx01, 0 AS mx02, 0 AS mx03, 0 AS mx04, 0 AS mx05,
-            0 AS sb01, 0 AS sb02, 0 AS sb03, 0 AS sb04, 0 AS sb05
+            0 AS sb01, 0 AS sb02, 0 AS sb03, 0 AS sb04, 0 AS sb05,
+            0 AS rtr
         `;
 
     // 1. KATEGORI MT & LM (cbJenisIndex = '0')
     if (cbJenisIndex === "0") {
       fieldJmlCetak = "ifnull(ee.jml_cetak_mmt, 0)";
-      conditionExtra = "AND spk_divisi IN (5) AND spk_jo_kode IN ('MT', 'LM')";
+      conditionExtra =
+        "AND spk_cab = 'P05' AND spk_divisi IN (5) AND spk_jo_kode IN ('MT', 'LM')";
       selectMesinFields = `
                 ROUND(IFNULL(ee.MT01, 0), 0) AS mt01, ROUND(IFNULL(ee.MT02, 0), 0) AS mt02,
                 ROUND(IFNULL(ee.MT03, 0), 0) AS mt03, ROUND(IFNULL(ee.MT04, 0), 0) AS mt04,
                 ROUND(IFNULL(ee.MT05, 0), 0) AS mt05, ROUND(IFNULL(ee.MI, 0), 0) AS mi,
                 0 AS mx01, 0 AS mx02, 0 AS mx03, 0 AS mx04, 0 AS mx05,
-                0 AS sb01, 0 AS sb02, 0 AS sb03, 0 AS sb04, 0 AS sb05
+                0 AS sb01, 0 AS sb02, 0 AS sb03, 0 AS sb04, 0 AS sb05,
+                0 AS rtr
             `;
       joinLhkCetak = `
                 LEFT JOIN (
@@ -46,13 +49,15 @@ exports.getMonitoringData = async (cbJenisIndex, startDate, endDate) => {
     // 2. KATEGORI MX (cbJenisIndex = '1')
     else if (cbJenisIndex === "1") {
       fieldJmlCetak = "ifnull(ff.jml_cetak_tekstil, 0)";
-      conditionExtra = "AND spk_divisi IN (5) AND spk_jo_kode='MX'";
+      conditionExtra =
+        "AND spk_cab = 'P05' AND spk_divisi IN (5) AND spk_jo_kode='MX'";
       selectMesinFields = `
                 0 AS mt01, 0 AS mt02, 0 AS mt03, 0 AS mt04, 0 AS mt05, 0 AS mi,
                 ROUND(IFNULL(ff.MX01, 0), 0) AS mx01, ROUND(IFNULL(ff.MX02, 0), 0) AS mx02,
                 ROUND(IFNULL(ff.MX03, 0), 0) AS mx03, ROUND(IFNULL(ff.MX04, 0), 0) AS mx04,
                 ROUND(IFNULL(ff.MX05, 0), 0) AS mx05,
-                0 AS sb01, 0 AS sb02, 0 AS sb03, 0 AS sb04, 0 AS sb05
+                0 AS sb01, 0 AS sb02, 0 AS sb03, 0 AS sb04, 0 AS sb05,
+                0 AS rtr
             `;
       joinLhkCetak = `
                 LEFT JOIN (
@@ -70,8 +75,7 @@ exports.getMonitoringData = async (cbJenisIndex, startDate, endDate) => {
     // 3. KATEGORI PAPERPRINT (cbJenisIndex = '2') - Menggunakan tlhk_sublim_dtl
     else if (cbJenisIndex === "2") {
       fieldJmlCetak = "ifnull(sb.jml_cetak_paperprint, 0)";
-      conditionExtra =
-        "AND spk_sublim = 'Y' AND spk_nomor IN (SELECT DISTINCT lsbd_spk_nomor FROM tlhk_sublim_dtl)";
+      conditionExtra = "AND spk_sublim = 'Y'"; // Tanpa filter spk_cab = 'P05'
       selectMesinFields = `
                 0 AS mt01, 0 AS mt02, 0 AS mt03, 0 AS mt04, 0 AS mt05, 0 AS mi,
                 0 AS mx01, 0 AS mx02, 0 AS mx03, 0 AS mx04, 0 AS mx05,
@@ -93,11 +97,10 @@ exports.getMonitoringData = async (cbJenisIndex, startDate, endDate) => {
                     GROUP BY 1
                 ) sb ON sb.lsbd_spk_nomor = spk_nomor`;
     }
-    // 4. KATEGORI SUBLIM (cbJenisIndex = '3') - Menggunakan tlhk_rtr_dtl
+    // 4. KATEGORI SUBLIM / RTR (cbJenisIndex = '3') - Menggunakan tlhk_rtr_dtl
     else if (cbJenisIndex === "3") {
       fieldJmlCetak = "ifnull(rtr.jml_cetak_sublim, 0)";
-      conditionExtra =
-        "AND spk_sublim = 'Y' AND spk_nomor IN (SELECT DISTINCT lrd_spk_nomor FROM tlhk_rtr_dtl)";
+      conditionExtra = "AND spk_sublim = 'Y'"; // Tanpa filter spk_cab = 'P05'
       selectMesinFields = `
                 0 AS mt01, 0 AS mt02, 0 AS mt03, 0 AS mt04, 0 AS mt05, 0 AS mi,
                 0 AS mx01, 0 AS mx02, 0 AS mx03, 0 AS mx04, 0 AS mx05,
@@ -167,7 +170,6 @@ exports.getMonitoringData = async (cbJenisIndex, startDate, endDate) => {
             ) gg ON gg.lfd_spk_nomor = spk_nomor
 
             WHERE spk_aktif = 'Y' 
-              AND spk_cab = 'P05'
               ${conditionExtra}
               AND spk_tanggal >= CONCAT(?, ' 00:00:00') 
               AND spk_tanggal <= CONCAT(?, ' 23:59:59')
