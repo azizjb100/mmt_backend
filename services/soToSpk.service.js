@@ -164,7 +164,7 @@ const getBrowseList = async (filters = {}) => {
          ========================================== */
       SELECT 
         so.so_nomor AS SO,
-        NULL AS Nomor,
+        "" AS Nomor,
         so.user_create AS MO, so.so_cmo AS CMO,
         DATE_FORMAT(so.so_tanggal, '%Y-%m-%d') AS Tanggal, 
         DATE_FORMAT(so.so_dateline, '%Y-%m-%d') AS Dateline,

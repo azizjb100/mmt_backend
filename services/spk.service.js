@@ -736,8 +736,10 @@ exports.getSpkForSublimLookup = async (keyword) => {
                 combined.Bahan AS Nama_Bahan_Rencana,
                 combined.Tipe_SPK,
                 combined.Divisi,
-                combined.Panjang,
-                combined.Lebar,
+                
+                -- Ambil Panjang & Lebar dari LHK Pola Grading (jika ada)
+                COALESCE(g.ldg_panjang, combined.Panjang) AS Panjang,
+                COALESCE(g.ldg_lebar, combined.Lebar) AS Lebar,
 
                 -- Data Realisasi Gudang dari Header & Detail
                 IFNULL(h.promin_nomor, '-') AS Nomor_Realisasi,
@@ -760,6 +762,16 @@ exports.getSpkForSublimLookup = async (keyword) => {
                 
             FROM (${baseQuery}) AS combined
             
+            -- JOIN ke LHK Pola Grading berdasarkan SPK (Diperbaiki: Menambahkan SELECT di dalam kurung)
+            LEFT JOIN (
+                SELECT 
+                    ldg_spk_nomor, 
+                    MAX(ldg_panjang) AS ldg_panjang, 
+                    MAX(ldg_lebar) AS ldg_lebar
+                FROM tlhkpola_grading_dtl 
+                GROUP BY ldg_spk_nomor
+            ) g ON g.ldg_spk_nomor = combined.SPK
+
             -- JOIN Realisasi Gudang
             LEFT JOIN tproduksiminta_hdr h ON h.promin_spk_nomor = combined.SPK
             LEFT JOIN tproduksiminta_dtl d ON d.promind_promin_nomor = h.promin_nomor
