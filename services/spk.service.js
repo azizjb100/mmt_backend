@@ -453,6 +453,47 @@ exports.getSpkLookupData = async (keyword) => {
   }
 };
 
+// backend/src/services/spk.service.js
+
+exports.getAlokasiBySpk = async (nomorSpk) => {
+  try {
+    // Catatan: Cek apakah sistem Anda memakai tabel `talokasi` atau `tspk_alokasi`
+    // Pola tabel Delphi talokasi:
+    const sql = `
+      SELECT 
+        IFNULL(kota, '') AS kota,
+        IFNULL(alamat, '') AS alamat,
+        IFNULL(person, '') AS person,
+        IFNULL(hp, '') AS hp,
+        IFNULL(jumlah, 0) AS jumlah
+      FROM talokasi
+      WHERE spk_nomor = ?
+      ORDER BY urut ASC
+    `;
+    const [rows] = await pool.query(sql, [nomorSpk]);
+
+    // Jika kosong di talokasi, fallback cek tspk_alokasi (jika schema berbeda)
+    if (rows.length === 0) {
+      const sqlFallback = `
+        SELECT 
+          IFNULL(spka_kota, '') AS kota,
+          IFNULL(spka_alamat, '') AS alamat,
+          IFNULL(spka_person, '') AS person,
+          IFNULL(spka_hp, '') AS hp,
+          IFNULL(spka_jumlah, 0) AS jumlah
+        FROM tspk_alokasi
+        WHERE spka_spk_nomor = ?
+        ORDER BY spka_urut ASC
+      `;
+      const [rowsFallback] = await pool.query(sqlFallback, [nomorSpk]);
+      return rowsFallback;
+    }
+
+    return rows;
+  } catch (error) {
+    throwDbError(`Gagal mengambil alokasi untuk SPK ${nomorSpk}`, error);
+  }
+};
 // ===================================
 // 2. DETAIL SIZE (Expanded Row Logic)
 // ===================================
