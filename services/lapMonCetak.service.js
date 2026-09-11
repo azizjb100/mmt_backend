@@ -88,6 +88,7 @@ const lapMonCetak = async (startDate, endDate) => {
     WHERE spk.spk_aktif='Y'
       AND spk.spk_divisi=5
       AND spk.spk_cab='P05'
+      AND spk.spk_jo_kode IN ('MT', 'LM')
       AND spk.spk_tanggal BETWEEN ? AND ?
 
     ORDER BY spk.spk_tanggal ASC, spk.spk_nomor ASC;

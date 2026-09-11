@@ -112,11 +112,20 @@ const getSudahTerima = async (req, res) => {
 const save = async (req, res) => {
   try {
     const payload = req.body;
-    // Mengambil kode user penginput (fallback ke kode default jika middleware auth belum set req.user)
-    const currentUser = req.user?.kdUser || req.user?.username || "SYSTEM";
+
+    // Prioritas:
+    // 1. Dari middleware auth (req.user) jika route diproteksi JWT
+    // 2. Dari body payload frontend (payload.currentUser atau payload.kdUser)
+    // 3. Fallback ke "SYSTEM"
+    const currentUser =
+      req.user?.kdUser ||
+      req.user?.username ||
+      payload.currentUser ||
+      payload.kdUser ||
+      "SYSTEM";
 
     const result = await poService.savePoExternal(payload, currentUser);
-    res.json(result); // Mengembalikan { success: true, nomor: 'POE.2026xxxxx' }
+    res.json(result);
   } catch (error) {
     console.error("ERROR API SAVE PO EXT:", error.message);
     res.status(400).json({ success: false, message: error.message });
@@ -170,12 +179,10 @@ const printData = async (req, res) => {
     const data = await poService.getPoExternalById(nomor);
 
     if (!data) {
-      return res
-        .status(404)
-        .json({
-          success: false,
-          message: "Data PO untuk cetak tidak ditemukan",
-        });
+      return res.status(404).json({
+        success: false,
+        message: "Data PO untuk cetak tidak ditemukan",
+      });
     }
 
     // Menyesuaikan struktur output yang diminta oleh frontend cetak (header, items, alokasi)

@@ -242,16 +242,17 @@ const getSudahTerima = async (noPo) => {
  * Logika Simpan / Edit Data PO External MMT
  * Menyelaraskan 100% aturan validasi bisnis dan database dari Delphi (VK_F10 / simpandata)
  */
+
 const savePoExternal = async (payload, currentUser) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
 
     let nomorPo = payload.poe_nomor;
-    const isEditMode = payload.isEditMode;
+    const isEditMode = Boolean(payload.isEditMode);
 
     // ------------------------------------------------------------
-    // VALISASI 1: PROTEKSI PEMBAYARAN JIKA DALAM MODE EDIT (getbayar)
+    // VALIDASI 1: PROTEKSI PEMBAYARAN JIKA DALAM MODE EDIT (getbayar)
     // ------------------------------------------------------------
     if (isEditMode && nomorPo) {
       const [voucherCheck] = await connection.query(
@@ -272,20 +273,16 @@ const savePoExternal = async (payload, currentUser) => {
       const currentYear = new Date(payload.poe_tanggal).getFullYear(); // YYYY
       const prefix = `POE.${currentYear}`;
 
-      // Mengambil 5 digit angka paling kanan
+      // Ambil angka urut setelah 8 karakter prefix ('POE.YYYY') menggunakan FOR UPDATE
       const [maxRows] = await connection.query(
-        `SELECT IFNULL(MAX(RIGHT(poe_nomor, 5)), 0) AS max_urut 
-                 FROM tpoexternal_hdr 
-                 WHERE LEFT(poe_nomor, 8) = ?`,
+        `SELECT IFNULL(MAX(CAST(SUBSTRING(poe_nomor, 9) AS UNSIGNED)), 0) AS max_urut 
+         FROM tpoexternal_hdr 
+         WHERE LEFT(poe_nomor, 8) = ? FOR UPDATE`,
         [prefix],
       );
 
-      let nextUrut = 1;
-      if (maxRows.length > 0 && maxRows[0].max_urut !== 0) {
-        nextUrut = parseInt(maxRows[0].max_urut, 10) + 1;
-      }
-
-      // Format Hasil: POE.202600001
+      const nextUrut = (Number(maxRows[0]?.max_urut) || 0) + 1;
+      // Format Hasil: POE.202600001 (5 digit padding)
       nomorPo = `${prefix}${String(nextUrut).padStart(5, "0")}`;
     }
 
@@ -293,135 +290,152 @@ const savePoExternal = async (payload, currentUser) => {
     // LANGKAH 3: UPSERT HEADER UTAMA (tpoexternal_hdr)
     // ------------------------------------------------------------
     const sqlHeader = `
-            INSERT INTO tpoexternal_hdr (
-                poe_nomor, poe_tanggal, poe_dateline, poe_spk_nomor, poe_cab, 
-                poe_sup, poe_ket, poe_finishing, poe_jumlah, poe_tarif, 
-                poe_total, poe_bahansendiri, poe_status, user_create, date_create
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, NOW())
-            ON DUPLICATE KEY UPDATE
-                poe_tanggal = VALUES(poe_tanggal),
-                poe_dateline = VALUES(poe_dateline),
-                poe_spk_nomor = VALUES(poe_spk_nomor),
-                poe_cab = VALUES(poe_cab),
-                poe_sup = VALUES(poe_sup),
-                poe_ket = VALUES(poe_ket),
-                poe_finishing = VALUES(poe_finishing),
-                poe_jumlah = VALUES(poe_jumlah),
-                poe_tarif = VALUES(poe_tarif),
-                poe_total = VALUES(poe_total),
-                poe_bahansendiri = VALUES(poe_bahansendiri),
-                user_modified = ?,
-                date_modified = NOW()
-        `;
+      INSERT INTO tpoexternal_hdr (
+        poe_nomor, poe_tanggal, poe_dateline, poe_spk_nomor, poe_cab, 
+        poe_sup, poe_ket, poe_finishing, poe_jumlah, poe_tarif, 
+        poe_total, poe_bahansendiri, poe_status, user_create, date_create
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, NOW())
+      ON DUPLICATE KEY UPDATE
+        poe_tanggal = VALUES(poe_tanggal),
+        poe_dateline = VALUES(poe_dateline),
+        poe_spk_nomor = VALUES(poe_spk_nomor),
+        poe_cab = VALUES(poe_cab),
+        poe_sup = VALUES(poe_sup),
+        poe_ket = VALUES(poe_ket),
+        poe_finishing = VALUES(poe_finishing),
+        poe_jumlah = VALUES(poe_jumlah),
+        poe_tarif = VALUES(poe_tarif),
+        poe_total = VALUES(poe_total),
+        poe_bahansendiri = VALUES(poe_bahansendiri),
+        user_modified = ?,
+        date_modified = NOW()
+    `;
 
     await connection.query(sqlHeader, [
       nomorPo,
       payload.poe_tanggal,
       payload.poe_dateline,
       payload.poe_spk_nomor,
-      payload.poe_cab,
-      payload.poe_sup,
-      payload.poe_ket,
-      payload.poe_finishing,
-      payload.poe_jumlah,
-      payload.poe_tarif,
-      payload.poe_total,
-      payload.poe_bahansendiri,
+      payload.poe_cab || "P05",
+      payload.poe_sup || "",
+      payload.poe_ket || "",
+      payload.poe_finishing || "",
+      Number(payload.poe_jumlah) || 0,
+      Number(payload.poe_tarif) || 0,
+      Number(payload.poe_total) || 0,
+      payload.poe_bahansendiri || "N",
       currentUser,
       currentUser,
     ]);
 
-    // JIKA EDIT MODE: Bersihkan seluruh detail dtl tabel lama (Mencegah residu data)
-    if (isEditMode) {
-      await connection.query(
-        "DELETE FROM tpoexternal_dtl_alokasi WHERE poeda_nomor = ?",
-        [nomorPo],
-      );
-      await connection.query(
-        "DELETE FROM tpoexternal_dtl2 WHERE poed2_nomor = ?",
-        [nomorPo],
-      );
-      await connection.query(
-        "DELETE FROM tpoexternal_custom WHERE poed_nomor = ?",
-        [nomorPo],
-      );
-    }
+    // ------------------------------------------------------------
+    // PEMBERSIHAN DETAIL LAMA (Delete-Insert Pattern)
+    // Dijalankan agar detail lama bersih jika record PO sudah pernah ada
+    // ------------------------------------------------------------
+    await connection.query(
+      "DELETE FROM tpoexternal_dtl_alokasi WHERE poeda_nomor = ?",
+      [nomorPo],
+    );
+    await connection.query(
+      "DELETE FROM tpoexternal_dtl2 WHERE poed2_nomor = ?",
+      [nomorPo],
+    );
+    await connection.query(
+      "DELETE FROM tpoexternal_custom WHERE poed_nomor = ?",
+      [nomorPo],
+    );
 
     // ------------------------------------------------------------
     // LANGKAH 4: SIMPAN DETAIL ALOKASI KOTA (tpoexternal_dtl_alokasi)
     // ------------------------------------------------------------
-    if (payload.alokasi && payload.alokasi.length > 0) {
-      const sqlAlokasi = `
-                INSERT INTO tpoexternal_dtl_alokasi (poeda_nomor, poeda_kota, poeda_jumlah, poeda_nourut)
-                VALUES (?, ?, ?, ?)
-            `;
-      let loopUrut = 0;
-      for (const item of payload.alokasi) {
-        // Di Delphi: hanya menyimpan data jika status alokasi dicentang (true)
-        if (item.alokasi) {
-          loopUrut++;
-          await connection.query(sqlAlokasi, [
-            nomorPo,
-            item.kota,
-            item.jumlah,
-            loopUrut,
-          ]);
-        }
+    if (Array.isArray(payload.alokasi) && payload.alokasi.length > 0) {
+      // Filter hanya item yang dicentang alokasi dan kota tidak kosong
+      const validAlokasi = payload.alokasi.filter(
+        (item) =>
+          (item.alokasi === true || item.alokasi === "Y") &&
+          item.kota &&
+          item.kota.trim() !== "",
+      );
+
+      if (validAlokasi.length > 0) {
+        const valuesAlokasi = validAlokasi.map((item, index) => [
+          nomorPo,
+          item.kota.trim(),
+          Number(item.jumlah) || 0,
+          index + 1, // poeda_nourut
+        ]);
+
+        await connection.query(
+          `INSERT INTO tpoexternal_dtl_alokasi 
+           (poeda_nomor, poeda_kota, poeda_jumlah, poeda_nourut) 
+           VALUES ?`,
+          [valuesAlokasi],
+        );
       }
     }
 
     // ------------------------------------------------------------
     // LANGKAH 5: SIMPAN DETAIL DP (tpoexternal_dtl2)
     // ------------------------------------------------------------
-    if (payload.dp && payload.dp.length > 0) {
-      const sqlDp = `
-                INSERT INTO tpoexternal_dtl2 (poed2_nomor, poed2_tanggal, poed2_nominal, poed2_akun)
-                VALUES (?, ?, ?, ?)
-            `;
-      for (const item of payload.dp) {
-        // Di Delphi: Validasi asstring<>'' diwakili pengecekan nilai tanggal di js
-        if (item.tanggal) {
-          await connection.query(sqlDp, [
-            nomorPo,
-            item.tanggal,
-            item.nominal,
-            item.akun,
-          ]);
-        }
+    if (Array.isArray(payload.dp) && payload.dp.length > 0) {
+      const validDp = payload.dp.filter(
+        (item) => item.tanggal && Number(item.nominal) > 0,
+      );
+
+      if (validDp.length > 0) {
+        const valuesDp = validDp.map((item) => [
+          nomorPo,
+          item.tanggal,
+          Number(item.nominal) || 0,
+          item.akun || "",
+        ]);
+
+        await connection.query(
+          `INSERT INTO tpoexternal_dtl2 
+           (poed2_nomor, poed2_tanggal, poed2_nominal, poed2_akun) 
+           VALUES ?`,
+          [valuesDp],
+        );
       }
     }
 
     // ------------------------------------------------------------
     // LANGKAH 6: SIMPAN DETAIL CUSTOM ITEM (tpoexternal_custom)
     // ------------------------------------------------------------
-    if (payload.custom && payload.custom.length > 0) {
-      const sqlCustom = `
-                INSERT INTO tpoexternal_custom (poed_nomor, poed_nama, poed_panjang, poed_lebar, poed_jumlah, poed_harga, poed_total)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            `;
-      for (const item of payload.custom) {
-        // Di Delphi: if FieldByName('total').AsFloat <> 0
-        if (Number(item.total) !== 0) {
-          await connection.query(sqlCustom, [
-            nomorPo,
-            item.nama,
-            item.panjang,
-            item.lebar,
-            item.jumlah,
-            item.harga,
-            item.total,
-          ]);
-        }
+    if (Array.isArray(payload.custom) && payload.custom.length > 0) {
+      const validCustom = payload.custom.filter(
+        (item) =>
+          item.nama && item.nama.trim() !== "" && Number(item.total) !== 0,
+      );
+
+      if (validCustom.length > 0) {
+        const valuesCustom = validCustom.map((item) => [
+          nomorPo,
+          item.nama.trim(),
+          Number(item.panjang) || 0,
+          Number(item.lebar) || 0,
+          Number(item.jumlah) || 0,
+          Number(item.harga) || 0,
+          Number(item.total) || 0,
+        ]);
+
+        await connection.query(
+          `INSERT INTO tpoexternal_custom 
+           (poed_nomor, poed_nama, poed_panjang, poed_lebar, poed_jumlah, poed_harga, poed_total) 
+           VALUES ?`,
+          [valuesCustom],
+        );
       }
     }
 
     // ------------------------------------------------------------
     // LANGKAH 7: UPDATE STATUS LOCK PIN APPROVAL (tspk_pin5)
     // ------------------------------------------------------------
-    if (payload.xminta5 === "ACC" && payload.xurut5 > 0) {
+    if (payload.xminta5 === "ACC" && Number(payload.xurut5) > 0) {
       await connection.query(
-        `UPDATE tspk_pin5 SET pin_dipakai = "Y" 
-                 WHERE pin_trs = "PO EXT MMT" AND pin_nomor = ? AND pin_urut = ?`,
+        `UPDATE tspk_pin5 
+         SET pin_dipakai = "Y" 
+         WHERE pin_trs = "PO EXT MMT" AND pin_nomor = ? AND pin_urut = ?`,
         [nomorPo, payload.xurut5],
       );
     }
@@ -436,6 +450,7 @@ const savePoExternal = async (payload, currentUser) => {
     connection.release();
   }
 };
+
 const getPoExternalById = async (nomorPo) => {
   try {
     // 1. Ambil Data Header PO beserta Join Master SPK & Supplier
