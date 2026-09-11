@@ -54,8 +54,8 @@ const getBaseSpkQuery = (
                 t.spk_kain AS Bahan, 
                 t.spk_finishing AS Finishing,
                 t.spk_keterangan AS Pesan,            
-                0 AS PraSJ,                                           
-                0 AS Kirim,                                           
+                0 AS PraSJ,                                                         
+                0 AS Kirim,                                                         
                 t.user_create AS Created,
                 t.spk_nomor_po AS PO,
                 t.spk_ketpo AS Ket_PO,
@@ -79,21 +79,11 @@ const getBaseSpkQuery = (
                 IFNULL(t.spk_pjahit, 'N') AS Jahit,
                 IFNULL(t.spk_pfinishing, 'N') AS Lipat,
                 
-                /* Logika Jadi */
-                CASE 
-                    WHEN t.spk_divisi IN ('1', '5') THEN CAST(IFNULL(prod.total_pernah_cetak, 0) AS UNSIGNED)
-                    WHEN t.spk_divisi = '3' AND TRIM(IFNULL(t.spk_invdc, '')) <> '' THEN CAST(IFNULL(dc_stock.total_stok_dc, 0) AS UNSIGNED)
-                    ELSE 0 
-                END AS Jadi,
+                /* Logika Jadi diambil langsung dari spk_jumlah_jadi */
+                CAST(IFNULL(t.spk_jumlah_jadi, 0) AS UNSIGNED) AS Jadi,
 
                 /* Selisih Manufaktur */
-                CAST(GREATEST(0, t.spk_jumlah - (
-                    CASE 
-                        WHEN t.spk_divisi IN ('1', '5') THEN IFNULL(prod.total_pernah_cetak, 0)
-                        WHEN t.spk_divisi = '3' AND TRIM(IFNULL(t.spk_invdc, '')) <> '' THEN IFNULL(dc_stock.total_stok_dc, 0)
-                        ELSE 0 
-                    END
-                )) AS UNSIGNED) AS Kurang_Jadi,
+                CAST(GREATEST(0, t.spk_jumlah - IFNULL(t.spk_jumlah_jadi, 0)) AS UNSIGNED) AS Kurang_Jadi,
 
                 0 AS Kurang_Potong,
                 0 AS Kurang_Bordir,
@@ -103,11 +93,11 @@ const getBaseSpkQuery = (
                 0 AS Kurang_Lipat,
                 
                 t.spk_aktif AS Aktif,
-                t.spk_cmo AS Acc_MO, /* Di-alias kan ke Acc_MO untuk dibaca di sub-query luar x.* */
+                t.spk_cmo AS Acc_MO,
                 t.spk_newdesign AS design_baru,
                 t.spk_desain AS design_done,          
 
-                /* PERBAIKAN: Mapping Image & QR Code Sesuai Alur Penyimpanan File Delphi */
+                /* Mapping Image & QR Code Sesuai Alur Penyimpanan File Delphi */
                 CONCAT(t.spk_nomor, '.jpg') AS Design_Image,
                 t.spk_nomor AS QR_Data,
 
@@ -179,9 +169,11 @@ const getBaseSpkQuery = (
                 '' AS DC,
                 'N' AS Jahit,
                 'N' AS Lipat,
-                CAST(IFNULL(prod_m.total_pernah_cetak, 0) AS UNSIGNED) AS Jadi,
                 
-                CAST(GREATEST(0, m.mspk_jumlah - IFNULL(prod_m.total_pernah_cetak, 0)) AS UNSIGNED) AS Kurang_Jadi,
+                /* Logika Jadi Memo: menggunakan mspk_jumlah_jadi (fallback ke 0 jika tidak ada) */
+                CAST(IFNULL(m.mspk_jumlah_jadi, 0) AS UNSIGNED) AS Jadi,
+                
+                CAST(GREATEST(0, m.mspk_jumlah - IFNULL(m.mspk_jumlah_jadi, 0)) AS UNSIGNED) AS Kurang_Jadi,
                 0 AS Kurang_Potong,
                 0 AS Kurang_Bordir,
                 CAST(GREATEST(0, m.mspk_jumlah - IFNULL(prod_m.total_pernah_cetak, 0)) AS UNSIGNED) AS Kurang_Cetak_Prod, 
@@ -193,7 +185,6 @@ const getBaseSpkQuery = (
                 'N' AS design_baru,
                 'Y' AS design_done,
 
-                /* PERBAIKAN: Samakan struktur kolom untuk UNION file Memo */
                 CONCAT(m.mspk_nomor, '.jpg') AS Design_Image,
                 m.mspk_nomor AS QR_Data,
 
