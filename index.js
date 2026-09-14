@@ -84,6 +84,7 @@ const salesOrderRoutes = require("./routes/salesOrder.routes");
 const lapLhkRoutes = require("./routes/lapLhk.routes");
 const lapKirimanRoutes = require("./routes/lapKiriman.routes");
 const manageUserRoutes = require("./routes/manageUser.routes");
+const suratJalanMapRoutes = require("./routes/suratJalanMap.routes"); // <- Ditambahkan di sini
 
 // Konfigurasi
 
@@ -260,6 +261,7 @@ app.use("/api/mmt/sales-order", clientCertAuth, salesOrderRoutes);
 app.use("/api/mmt/laporan-lhk", clientCertAuth, lapLhkRoutes);
 app.use("/api/mmt/laporan-kirim", clientCertAuth, lapKirimanRoutes);
 app.use("/api/mmt/manage-user", clientCertAuth, manageUserRoutes);
+app.use("/api/mmt/surat-jalan-map", clientCertAuth, suratJalanMapRoutes); // <- Ditambahkan di sini
 
 const port = process.env.PORT || 8003;
 

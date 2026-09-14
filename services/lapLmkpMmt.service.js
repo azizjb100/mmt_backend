@@ -132,7 +132,7 @@ exports.getMonitoringData = async (cbJenisIndex, startDate, endDate) => {
                 spk_jumlah - IFNULL(gg.jcoly, 0) AS krg_coly,
                 
                 -- Logika Kurang Cetak PCS
-                spk_jumlah - IF(spk_jumlah < ${fieldJmlCetak}, spk_jumlah, ${fieldJmlCetak}) - IFNULL(h.cetak_luarx, 0) AS krg_Cetak,
+                spk_jumlah - ${fieldJmlCetak} - IFNULL(h.cetak_luarx, 0) AS krg_Cetak,
 
                 -- Logika Pengurangan METER
                 (spk_jumlah - spk_jumlah_kirim) * spk_panjang * IF(spk_divisi=5, IFNULL(spk_lebar, 0), 1) AS krg_kirim_meter,
