@@ -82,7 +82,8 @@ const soToSpkRoutes = require("./routes/soToSpk.routes");
 const mapRoutes = require("./routes/map.routes"); // <- Ditambahkan di sini
 const salesOrderRoutes = require("./routes/salesOrder.routes");
 const lapLhkRoutes = require("./routes/lapLhk.routes");
-const lapKirimanRoutes = require("./routes/lapKiriman.routes"); // <- Ditambahkan di sini
+const lapKirimanRoutes = require("./routes/lapKiriman.routes");
+const manageUserRoutes = require("./routes/manageUser.routes");
 
 // Konfigurasi
 
@@ -258,6 +259,7 @@ app.use("/api/mmt/so-spk", clientCertAuth, soToSpkRoutes);
 app.use("/api/mmt/sales-order", clientCertAuth, salesOrderRoutes);
 app.use("/api/mmt/laporan-lhk", clientCertAuth, lapLhkRoutes);
 app.use("/api/mmt/laporan-kirim", clientCertAuth, lapKirimanRoutes);
+app.use("/api/mmt/manage-user", clientCertAuth, manageUserRoutes);
 
 const port = process.env.PORT || 8003;
 

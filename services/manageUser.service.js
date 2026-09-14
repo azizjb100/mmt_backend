@@ -26,7 +26,7 @@ const getUserAksesByCode = async (userKode) => {
   if (userRows.length === 0) return null;
 
   const [aksesRows] = await pool.query(
-    "SELECT * FROM tuser_akses WHERE user_kode = ?",
+    "SELECT * FROM thakuser WHERE hak_user_kode = ?",
     [userKode],
   );
 
@@ -46,25 +46,24 @@ const saveUserAkses = async (userKode, permissions) => {
 
     for (const item of permissions) {
       const sql = `
-        INSERT INTO tuser_akses 
-        (user_kode, menu_id, menu_nama, akses_view, akses_insert, akses_update, akses_delete, akses_save)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO thakuser 
+        (hak_user_kode, hak_men_id, hak_men_view, hak_men_insert, hak_men_edit, hak_men_delete, hak_men_save)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE 
-        akses_view = VALUES(akses_view),
-        akses_insert = VALUES(akses_insert),
-        akses_update = VALUES(akses_update),
-        akses_delete = VALUES(akses_delete),
-        akses_save = VALUES(akses_save)
+        hak_men_view = VALUES(hak_men_view),
+        hak_men_insert = VALUES(hak_men_insert),
+        hak_men_edit = VALUES(hak_men_edit),
+        hak_men_delete = VALUES(hak_men_delete),
+        hak_men_save = VALUES(hak_men_save)
       `;
       await connection.query(sql, [
         userKode,
         item.id,
-        item.name,
-        item.view ? 1 : 0,
-        item.insert ? 1 : 0,
-        item.update ? 1 : 0,
-        item.delete ? 1 : 0,
-        item.save ? 1 : 0,
+        item.view ? "1" : "0",
+        item.insert ? "1" : "0",
+        item.update ? "1" : "0",
+        item.delete ? "1" : "0",
+        item.save ? "1" : "0",
       ]);
     }
 

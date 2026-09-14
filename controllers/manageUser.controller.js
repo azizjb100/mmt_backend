@@ -1,4 +1,4 @@
-const userService = require("../services/user.service");
+const userService = require("../services/ManageUser.service");
 
 const browse = async (req, res) => {
   try {

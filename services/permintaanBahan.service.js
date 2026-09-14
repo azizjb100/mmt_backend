@@ -259,17 +259,24 @@ exports.approveBySPV = async (nomor, userKD) => {
 
 exports.getPermintaanBahanByNomor = async (nomor) => {
   try {
-    // 1. Ambil Header
+    // 1. Ambil Header Permintaan Bahan
     const sqlHeader = `
-            SELECT
-                mb_nomor AS Nomor, mb_tanggal AS Tanggal, mb_gdg_kode AS Gudang_Asal_Kode,
-                tgudang.gdg_nama AS Gudang_Asal_Nama, mb_keterangan AS Keterangan,
-                mb_acc_req AS Req_ACC, mb_acc_req_user AS Req_ACC_User, mb_to_user AS Kepada, mb_to_cab AS Cabang,
-                mb_acc AS ACC, mb_acc_user AS Acc_User
-            FROM tmintabahan_mmt_hdr
-            LEFT JOIN tgudang ON tgudang.gdg_kode = mb_gdg_kode
-            WHERE mb_nomor = ?;
-        `;
+      SELECT
+        mb_nomor AS Nomor, 
+        mb_tanggal AS Tanggal, 
+        mb_gdg_kode AS Gudang_Asal_Kode,
+        tgudang.gdg_nama AS Gudang_Asal_Nama, 
+        mb_keterangan AS Keterangan,
+        mb_acc_req AS Req_ACC, 
+        mb_acc_req_user AS Req_ACC_User, 
+        mb_to_user AS Kepada, 
+        mb_to_cab AS Cabang,
+        mb_acc AS ACC, 
+        mb_acc_user AS Acc_User
+      FROM tmintabahan_mmt_hdr
+      LEFT JOIN tgudang ON tgudang.gdg_kode = mb_gdg_kode
+      WHERE mb_nomor = ?;
+    `;
     const [headerResults] = await pool.query(sqlHeader, [nomor]);
 
     if (headerResults.length === 0) {
@@ -280,22 +287,56 @@ exports.getPermintaanBahanByNomor = async (nomor) => {
 
     const headerData = headerResults[0];
 
-    // 2. Ambil Detail
+    // 2. Ambil Detail Permintaan Bahan + Data PO & Jumlah Datang
     const sqlDetail = `
-            SELECT
-                mbd_nourut AS NoUrut, mbd_spk_nomor AS Nomor_SPK,
-                (SELECT TRIM(spk_nama) FROM tspk WHERE spk_nomor = mbd_spk_nomor 
-                 UNION ALL SELECT TRIM(mspk_nama) FROM tmemospk WHERE mspk_nomor = mbd_spk_nomor) AS spk_nama,
-                mbd_brg_kode AS Kode, TRIM(tbarang_mmt.brg_nama) AS Nama_Bahan,
-                mbd_qty AS Jumlah, mbd_brg_satuan AS Satuan,
-                tbarang_mmt.brg_panjang AS Panjang, tbarang_mmt.brg_lebar AS Lebar,
-                tbarang_mmt.brg_satuan_harga,
-                mbd_keterangan AS KeteranganItem,mbd_acc AS Is_Acc -- TAMBAHKAN INI
-            FROM tmintabahan_mmt_dtl
-            LEFT JOIN tbarang_mmt ON mbd_brg_kode = tbarang_mmt.brg_kode
-            WHERE mbd_mb_nomor = ?
-            ORDER BY mbd_nourut;
-        `;
+      SELECT
+        mbd.mbd_nourut AS NoUrut, 
+        mbd.mbd_spk_nomor AS Nomor_SPK,
+        (
+          SELECT TRIM(spk_nama) FROM tspk WHERE spk_nomor = mbd.mbd_spk_nomor 
+          UNION ALL 
+          SELECT TRIM(mspk_nama) FROM tmemospk WHERE mspk_nomor = mbd.mbd_spk_nomor 
+          LIMIT 1
+        ) AS spk_nama,
+        mbd.mbd_brg_kode AS Kode, 
+        TRIM(b.brg_nama) AS Nama_Bahan,
+        mbd.mbd_qty AS Jumlah,
+        
+        -- Total Qty yang sudah dibuatkan PO
+        COALESCE((
+          SELECT SUM(pod.pod_qty) 
+          FROM tpo_mmt_dtl pod 
+          WHERE pod.pod_mb_nomor = mbd.mbd_mb_nomor 
+            AND pod.pod_brg_kode = mbd.mbd_brg_kode
+        ), 0) AS Jumlah_PO,
+
+        -- Total Qty Barang Datang / Diterima dari PO terkait
+        COALESCE((
+          SELECT SUM(pod.pod_qty_terima) 
+          FROM tpo_mmt_dtl pod 
+          WHERE pod.pod_mb_nomor = mbd.mbd_mb_nomor 
+            AND pod.pod_brg_kode = mbd.mbd_brg_kode
+        ), 0) AS Jumlah_Datang,
+
+        -- Daftar Nomor PO yang memuat item ini (jika ada lebih dari 1 PO)
+        (
+          SELECT GROUP_CONCAT(DISTINCT pod.pod_po_nomor SEPARATOR ', ')
+          FROM tpo_mmt_dtl pod
+          WHERE pod.pod_mb_nomor = mbd.mbd_mb_nomor 
+            AND pod.pod_brg_kode = mbd.mbd_brg_kode
+        ) AS Nomor_PO,
+
+        mbd.mbd_brg_satuan AS Satuan,
+        b.brg_panjang AS Panjang, 
+        b.brg_lebar AS Lebar,
+        b.brg_satuan_harga,
+        mbd.mbd_keterangan AS KeteranganItem,
+        mbd.mbd_acc AS Is_Acc
+      FROM tmintabahan_mmt_dtl mbd
+      LEFT JOIN tbarang_mmt b ON mbd.mbd_brg_kode = b.brg_kode
+      WHERE mbd.mbd_mb_nomor = ?
+      ORDER BY mbd.mbd_nourut;
+    `;
     const [detailResults] = await pool.query(sqlDetail, [nomor]);
 
     // 3. Gabungkan dan Kembalikan
