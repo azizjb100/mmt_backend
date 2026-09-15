@@ -79,12 +79,13 @@ const penerimaanBahanPenolongRoutes = require("./routes/spanduk/penerimaanBahanP
 const lapKartuStokMmtRoutes = require("./routes/lapKartuStokMmt.routes");
 const lapMonJadwalKirimRoutes = require("./routes/lapMonJadwalKirim.routes");
 const soToSpkRoutes = require("./routes/soToSpk.routes");
-const mapRoutes = require("./routes/map.routes"); // <- Ditambahkan di sini
+const mapRoutes = require("./routes/map.routes");
 const salesOrderRoutes = require("./routes/salesOrder.routes");
 const lapLhkRoutes = require("./routes/lapLhk.routes");
 const lapKirimanRoutes = require("./routes/lapKiriman.routes");
 const manageUserRoutes = require("./routes/manageUser.routes");
-const suratJalanMapRoutes = require("./routes/suratJalanMap.routes"); // <- Ditambahkan di sini
+const suratJalanMapRoutes = require("./routes/suratJalanMap.routes");
+const bastMapRoutes = require("./routes/bastMap.routes");
 
 // Konfigurasi
 
@@ -261,7 +262,8 @@ app.use("/api/mmt/sales-order", clientCertAuth, salesOrderRoutes);
 app.use("/api/mmt/laporan-lhk", clientCertAuth, lapLhkRoutes);
 app.use("/api/mmt/laporan-kirim", clientCertAuth, lapKirimanRoutes);
 app.use("/api/mmt/manage-user", clientCertAuth, manageUserRoutes);
-app.use("/api/mmt/surat-jalan-map", clientCertAuth, suratJalanMapRoutes); // <- Ditambahkan di sini
+app.use("/api/mmt/surat-jalan-map", clientCertAuth, suratJalanMapRoutes);
+app.use("/api/mmt/bast-map", clientCertAuth, bastMapRoutes);
 
 const port = process.env.PORT || 8003;
 

@@ -737,18 +737,13 @@ exports.getMemoSpkLookupData = async (keyword) => {
 exports.getSpkForSublimLookup = async (keyword) => {
   try {
     const params = [];
-
-    // 1. FILTER LANGSUNG DI TINGKAT TABEL UTAMA (tspk & tmemospk)
-    // Supaya MySQL TIDAK melakukan full scan ke seluruh histori SPK lama
     let whereReguler = "t.spk_aktif = 'Y' AND t.spk_sublim = 'Y'";
     let whereMemo = "m.mspk_aktif = 'Y' AND m.mspk_sublim = 'Y'";
 
-    // 2. SUNTIKKAN KEYWORD LANGSUNG KE SUBQUERY
     if (keyword) {
       whereReguler += " AND (t.spk_nomor LIKE ? OR t.spk_nama LIKE ?)";
       whereMemo += " AND (m.mspk_nomor LIKE ? OR m.mspk_nama LIKE ?)";
       const searchKeyword = `%${keyword}%`;
-      // Urutan parameter untuk UNION ALL (2 untuk reguler, 2 untuk memo)
       params.push(searchKeyword, searchKeyword, searchKeyword, searchKeyword);
     }
 
@@ -769,6 +764,10 @@ exports.getSpkForSublimLookup = async (keyword) => {
                 combined.Tipe_SPK,
                 combined.Divisi,
                 
+                -- Ambil Size dari tspk_size
+                IFNULL(z.spks_size, '') AS Size,
+                IFNULL(z.spks_size, '') AS poid_size,
+
                 -- Ambil Panjang & Lebar dari LHK Pola Grading (jika ada)
                 COALESCE(g.ldg_panjang, combined.Panjang) AS Panjang,
                 COALESCE(g.ldg_lebar, combined.Lebar) AS Lebar,
@@ -794,7 +793,10 @@ exports.getSpkForSublimLookup = async (keyword) => {
                 
             FROM (${baseQuery}) AS combined
             
-            -- JOIN ke LHK Pola Grading berdasarkan SPK (Diperbaiki: Menambahkan SELECT di dalam kurung)
+            -- JOIN ke tspk_size untuk mengambil rincian Size
+            LEFT JOIN tspk_size z ON z.spks_nomor = combined.SPK
+
+            -- JOIN ke LHK Pola Grading berdasarkan SPK
             LEFT JOIN (
                 SELECT 
                     ldg_spk_nomor, 
@@ -808,12 +810,12 @@ exports.getSpkForSublimLookup = async (keyword) => {
             LEFT JOIN tproduksiminta_hdr h ON h.promin_spk_nomor = combined.SPK
             LEFT JOIN tproduksiminta_dtl d ON d.promind_promin_nomor = h.promin_nomor
 
-            -- JOIN Komponen Potong & Master Bahan (Menggunakan Indexing Asli)
+            -- JOIN Komponen Potong & Master Bahan
             LEFT JOIN tspk_komponen_potong k ON k.sk_nomor = combined.SPK
             LEFT JOIN tbahan b ON b.Bhn_kode = k.sk_kode
             
             ORDER BY combined.Tanggal DESC, k.sk_nourut ASC
-            LIMIT 100
+            LIMIT 200
         `;
 
     const [rows] = await pool.query(sql, params);
