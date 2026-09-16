@@ -1,24 +1,24 @@
 const pool = require("../config/db.config");
 const throwDbError = (message, error) => {
-    throw new Error(message + ": " + error.message);
+  throw new Error(message + ": " + error.message);
 };
 
 const toNumber = (value, fallback = 0) => {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : fallback;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
 };
 
 const normalizeStatus = (status) => {
-    const allowed = ["F", "S", "P", "B", "N", "-"];
-    const s = String(status || "")
-        .trim()
-        .toUpperCase();
-    return allowed.includes(s) ? s : "S";
+  const allowed = ["F", "S", "P", "B", "N", "-"];
+  const s = String(status || "")
+    .trim()
+    .toUpperCase();
+  return allowed.includes(s) ? s : "S";
 };
 
 exports.getBahanData = async ({ zdivisi = null, keyword = "" } = {}) => {
-    try {
-        let sql = `
+  try {
+    let sql = `
             SELECT
                 b.brg_kode AS Kode,
                 b.brg_nama AS Nama,
@@ -34,38 +34,38 @@ exports.getBahanData = async ({ zdivisi = null, keyword = "" } = {}) => {
             WHERE b.brg_gdg_default = 'WH-16'
         `;
 
-        const params = [];
+    const params = [];
 
-        // Logic Filter Divisi
-        if (zdivisi !== null) {
-            const z = Number(zdivisi);
-            if (z === 1) {
-                sql += ` AND b.brg_divisi IN (1, 5)`;
-            } else if (z === 4) {
-                sql += ` AND b.brg_divisi IN (3, 4)`;
-            }
-        }
-
-        // Logic Filter Keyword
-        if (keyword) {
-            sql += ` AND (b.brg_kode LIKE ? OR b.brg_nama LIKE ?)`;
-            const q = `%${keyword}%`;
-            params.push(q, q);
-        }
-
-        // Tambahkan GROUP BY karena kita menggunakan fungsi agregat SUM
-        sql += ` GROUP BY b.brg_kode, b.brg_satuan_harga ORDER BY b.brg_nama`;
-
-        const [rows] = await pool.query(sql, params);
-        return rows;
-    } catch (error) {
-        throwDbError("Gagal mengambil data Master Barang", error);
+    // Logic Filter Divisi
+    if (zdivisi !== null) {
+      const z = Number(zdivisi);
+      if (z === 1) {
+        sql += ` AND b.brg_divisi IN (1, 5)`;
+      } else if (z === 4) {
+        sql += ` AND b.brg_divisi IN (3, 4)`;
+      }
     }
+
+    // Logic Filter Keyword
+    if (keyword) {
+      sql += ` AND (b.brg_kode LIKE ? OR b.brg_nama LIKE ?)`;
+      const q = `%${keyword}%`;
+      params.push(q, q);
+    }
+
+    // Tambahkan GROUP BY karena kita menggunakan fungsi agregat SUM
+    sql += ` GROUP BY b.brg_kode, b.brg_satuan_harga ORDER BY b.brg_nama`;
+
+    const [rows] = await pool.query(sql, params);
+    return rows;
+  } catch (error) {
+    throwDbError("Gagal mengambil data Master Barang", error);
+  }
 };
 
 exports.getBahanByKode = async (kode) => {
-    try {
-        const sql = `
+  try {
+    const sql = `
             SELECT
                 b.brg_kode AS Kode,
                 b.brg_nama AS Nama,
@@ -101,73 +101,73 @@ exports.getBahanByKode = async (kode) => {
             LIMIT 1
         `;
 
-        const [rows] = await pool.query(sql, [kode]);
-        if (!rows.length) throw new Error("Kode Barang tidak ditemukan.");
-        return rows[0];
-    } catch (error) {
-        throwDbError(`Gagal memuat detail Barang dengan kode ${kode}`, error);
-    }
+    const [rows] = await pool.query(sql, [kode]);
+    if (!rows.length) throw new Error("Kode Barang tidak ditemukan.");
+    return rows[0];
+  } catch (error) {
+    throwDbError(`Gagal memuat detail Barang dengan kode ${kode}`, error);
+  }
 };
 
 exports.saveBahan = async (payload = {}, userLogin = "SYSTEM") => {
+  try {
+    const {
+      Kode,
+      Nama,
+      Satuan,
+      Gramasi,
+      Panjang,
+      Lebar,
+      KtgKode,
+      GdgDefault,
+      SupKode,
+      HrgJual,
+      HrgBeli,
+      isAktif,
+      isStok,
+      isExpired,
+      Status,
+      Jenis,
+      Divisi,
+      isEditMode,
+    } = payload;
+
+    const kode = String(Kode || "").trim();
+    const nama = String(Nama || "").trim();
+
+    if (kode.length < 3) {
+      throw new Error("Kode Barang minimal 3 karakter.");
+    }
+    if (!nama) {
+      throw new Error("Nama Barang wajib diisi.");
+    }
+
+    const conn = await pool.getConnection();
     try {
-        const {
-            Kode,
-            Nama,
-            Satuan,
-            Gramasi,
-            Panjang,
-            Lebar,
-            KtgKode,
-            GdgDefault,
-            SupKode,
-            HrgJual,
-            HrgBeli,
-            isAktif,
-            isStok,
-            isExpired,
-            Status,
-            Jenis,
-            Divisi,
-            isEditMode,
-        } = payload;
+      await conn.beginTransaction();
 
-        const kode = String(Kode || "").trim();
-        const nama = String(Nama || "").trim();
+      const commonValues = [
+        nama,
+        String(Jenis || "").trim(),
+        String(Satuan || "").trim(),
+        String(Gramasi || "").trim(),
+        toNumber(Panjang, 0),
+        toNumber(Lebar, 0),
+        0,
+        String(KtgKode || "").trim(),
+        String(GdgDefault || "WH-16").trim(),
+        String(SupKode || "").trim(),
+        toNumber(HrgJual, 0),
+        toNumber(HrgBeli, 0),
+        Number(isAktif) ? 1 : 0,
+        Number(isStok) ? 1 : 0,
+        Number(Divisi || 0),
+        Number(isExpired) ? 1 : 0,
+        normalizeStatus(Status),
+      ];
 
-        if (kode.length < 3) {
-            throw new Error("Kode Barang minimal 3 karakter.");
-        }
-        if (!nama) {
-            throw new Error("Nama Barang wajib diisi.");
-        }
-
-        const conn = await pool.getConnection();
-        try {
-            await conn.beginTransaction();
-
-            const commonValues = [
-                nama,
-                String(Jenis || "").trim(),
-                String(Satuan || "").trim(),
-                String(Gramasi || "").trim(),
-                toNumber(Panjang, 0),
-                toNumber(Lebar, 0),
-                0,
-                String(KtgKode || "").trim(),
-                String(GdgDefault || "WH-16").trim(),
-                String(SupKode || "").trim(),
-                toNumber(HrgJual, 0),
-                toNumber(HrgBeli, 0),
-                Number(isAktif) ? 1 : 0,
-                Number(isStok) ? 1 : 0,
-                Number(Divisi || 0),
-                Number(isExpired) ? 1 : 0,
-                normalizeStatus(Status),
-            ];
-
-            if (isEditMode) {
-                const sqlUpdate = `
+      if (isEditMode) {
+        const sqlUpdate = `
                     UPDATE tbarang_mmt SET
                         brg_nama = ?,
                         brg_jenis = ?,
@@ -191,17 +191,17 @@ exports.saveBahan = async (payload = {}, userLogin = "SYSTEM") => {
                     WHERE brg_kode = ?
                 `;
 
-                const [result] = await conn.query(sqlUpdate, [
-                    ...commonValues,
-                    userLogin,
-                    kode,
-                ]);
+        const [result] = await conn.query(sqlUpdate, [
+          ...commonValues,
+          userLogin,
+          kode,
+        ]);
 
-                if (!result.affectedRows) {
-                    throw new Error("Data barang yang diubah tidak ditemukan.");
-                }
-            } else {
-                const sqlInsert = `
+        if (!result.affectedRows) {
+          throw new Error("Data barang yang diubah tidak ditemukan.");
+        }
+      } else {
+        const sqlInsert = `
                     INSERT INTO tbarang_mmt (
                         brg_kode, brg_nama, brg_satuan, brg_gramasi, brg_panjang,
                         brg_lebar, brg_stok, brg_ktg_kode, brg_gdg_default, brg_sup_kode,
@@ -211,126 +211,126 @@ exports.saveBahan = async (payload = {}, userLogin = "SYSTEM") => {
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?)
                 `;
 
-                await conn.query(sqlInsert, [
-                    kode,
-                    nama,
-                    String(Satuan || "").trim(),
-                    String(Gramasi || "").trim(),
-                    toNumber(Panjang, 0),
-                    toNumber(Lebar, 0),
-                    0,
-                    String(KtgKode || "").trim(),
-                    String(GdgDefault || "WH-16").trim(),
-                    String(SupKode || "").trim(),
-                    toNumber(HrgJual, 0),
-                    toNumber(HrgBeli, 0),
-                    Number(isAktif) ? 1 : 0,
-                    Number(isStok) ? 1 : 0,
-                    Number(isExpired) ? 1 : 0,
-                    userLogin,
-                    normalizeStatus(Status),
-                    String(Jenis || "").trim(),
-                    Number(Divisi || 0),
-                ]);
-            }
+        await conn.query(sqlInsert, [
+          kode,
+          nama,
+          String(Satuan || "").trim(),
+          String(Gramasi || "").trim(),
+          toNumber(Panjang, 0),
+          toNumber(Lebar, 0),
+          0,
+          String(KtgKode || "").trim(),
+          String(GdgDefault || "WH-16").trim(),
+          String(SupKode || "").trim(),
+          toNumber(HrgJual, 0),
+          toNumber(HrgBeli, 0),
+          Number(isAktif) ? 1 : 0,
+          Number(isStok) ? 1 : 0,
+          Number(isExpired) ? 1 : 0,
+          userLogin,
+          normalizeStatus(Status),
+          String(Jenis || "").trim(),
+          Number(Divisi || 0),
+        ]);
+      }
 
-            await conn.commit();
-            return { kode };
-        } catch (error) {
-            await conn.rollback();
-            throw error;
-        } finally {
-            conn.release();
-        }
+      await conn.commit();
+      return { kode };
     } catch (error) {
-        throwDbError("Gagal simpan Master Barang", error);
+      await conn.rollback();
+      throw error;
+    } finally {
+      conn.release();
     }
+  } catch (error) {
+    throwDbError("Gagal simpan Master Barang", error);
+  }
 };
 
 exports.getLookupKategori = async (keyword = "") => {
-    try {
-        const sql = `
+  try {
+    const sql = `
             SELECT ktg_kode AS Kode, ktg_nama AS Nama
             FROM tkategori
             WHERE LENGTH(ktg_kode) > 1
                 AND (? = '' OR ktg_kode LIKE ? OR ktg_nama LIKE ?)
             ORDER BY ktg_nama
         `;
-        const q = `%${keyword}%`;
-        const [rows] = await pool.query(sql, [keyword, q, q]);
-        return rows;
-    } catch (error) {
-        throwDbError("Gagal mengambil lookup kategori", error);
-    }
+    const q = `%${keyword}%`;
+    const [rows] = await pool.query(sql, [keyword, q, q]);
+    return rows;
+  } catch (error) {
+    throwDbError("Gagal mengambil lookup kategori", error);
+  }
 };
 
 exports.getLookupGudang = async (keyword = "") => {
-    try {
-        const sql = `
+  try {
+    const sql = `
             SELECT gdg_kode AS Kode, gdg_nama AS Nama
             FROM tgudang
             WHERE gdg_kode LIKE 'WH-%'
                 AND (? = '' OR gdg_kode LIKE ? OR gdg_nama LIKE ?)
             ORDER BY gdg_kode
         `;
-        const q = `%${keyword}%`;
-        const [rows] = await pool.query(sql, [keyword, q, q]);
-        return rows;
-    } catch (error) {
-        throwDbError("Gagal mengambil lookup gudang", error);
-    }
+    const q = `%${keyword}%`;
+    const [rows] = await pool.query(sql, [keyword, q, q]);
+    return rows;
+  } catch (error) {
+    throwDbError("Gagal mengambil lookup gudang", error);
+  }
 };
 
 exports.getLookupSupplier = async (keyword = "") => {
-    try {
-        const sql = `
+  try {
+    const sql = `
             SELECT sup_kode AS Kode, sup_nama AS Nama
             FROM tsupplier
             WHERE (? = '' OR sup_kode LIKE ? OR sup_nama LIKE ?)
             ORDER BY sup_nama
         `;
-        const q = `%${keyword}%`;
-        const [rows] = await pool.query(sql, [keyword, q, q]);
-        return rows;
-    } catch (error) {
-        throwDbError("Gagal mengambil lookup supplier", error);
-    }
+    const q = `%${keyword}%`;
+    const [rows] = await pool.query(sql, [keyword, q, q]);
+    return rows;
+  } catch (error) {
+    throwDbError("Gagal mengambil lookup supplier", error);
+  }
 };
 
 exports.getLookupJenis = async (keyword = "") => {
-    try {
-        const sql = `
+  try {
+    const sql = `
             SELECT jb_kode AS Kode, jb_nama AS Nama
             FROM tjenisbarang
             WHERE (? = '' OR jb_kode LIKE ? OR jb_nama LIKE ?)
             ORDER BY jb_nama
         `;
-        const q = `%${keyword}%`;
-        const [rows] = await pool.query(sql, [keyword, q, q]);
-        return rows;
-    } catch (error) {
-        throwDbError("Gagal mengambil lookup jenis", error);
-    }
+    const q = `%${keyword}%`;
+    const [rows] = await pool.query(sql, [keyword, q, q]);
+    return rows;
+  } catch (error) {
+    throwDbError("Gagal mengambil lookup jenis", error);
+  }
 };
 
 exports.getLookupDivisi = async (keyword = "") => {
-    try {
-        const sql = `
+  try {
+    const sql = `
             SELECT kode AS Kode, divisi AS Nama
             FROM tdivisi
             ORDER BY kode
         `;
-        const q = `%${keyword}%`;
-        const [rows] = await pool.query(sql, [keyword, q, q]);
-        return rows;
-    } catch (error) {
-        throwDbError("Gagal mengambil lookup divisi", error);
-    }
+    const q = `%${keyword}%`;
+    const [rows] = await pool.query(sql, [keyword, q, q]);
+    return rows;
+  } catch (error) {
+    throwDbError("Gagal mengambil lookup divisi", error);
+  }
 };
 
 exports.getBahanDetailByKodeMmt = async (kode) => {
-    try {
-        const sql = `
+  try {
+    const sql = `
             SELECT 
                 brg_kode AS Kode, 
                 brg_nama AS Nama, 
@@ -346,18 +346,18 @@ exports.getBahanDetailByKodeMmt = async (kode) => {
             WHERE brg_kode = ? ;
         `;
 
-        const [rows] = await pool.query(sql, [kode]);
-        if (rows.length === 0) throw new Error("Kode Bahan tidak ditemukan.");
+    const [rows] = await pool.query(sql, [kode]);
+    if (rows.length === 0) throw new Error("Kode Bahan tidak ditemukan.");
 
-        return rows[0];
-    } catch (error) {
-        throwDbError(`Gagal memuat detail Bahan dengan kode ${kode}`, error);
-    }
+    return rows[0];
+  } catch (error) {
+    throwDbError(`Gagal memuat detail Bahan dengan kode ${kode}`, error);
+  }
 };
 
 exports.getLookupGdgProduksiMMT = async (keyword) => {
-    try {
-        let sql = `
+  try {
+    let sql = `
             SELECT 
                 b.brg_kode AS Kode,
                 b.brg_nama AS Nama,
@@ -365,6 +365,7 @@ exports.getLookupGdgProduksiMMT = async (keyword) => {
                 b.brg_satuan AS Satuan,
                 b.brg_lebar AS Lebar,
                 COALESCE(s.mst_panjang, b.brg_panjang) AS Panjang,
+                COALESCE(s.mst_barcode, '') AS Barcode, -- Menampilkan barcode dari master stok atau tabel terkait
                 COALESCE(SUM(s.mst_stok_in) - SUM(s.mst_stok_out), 0) AS Stok
             FROM tbarang_mmt b
             LEFT JOIN tmasterstok_mmt s 
@@ -373,34 +374,32 @@ exports.getLookupGdgProduksiMMT = async (keyword) => {
             WHERE 1=1
         `;
 
-        const params = [];
+    const params = [];
 
-        if (keyword) {
-            sql += ` AND (b.brg_kode LIKE ? OR b.brg_nama LIKE ?)`;
-            const key = `%${keyword}%`;
-            params.push(key, key);
-        }
+    if (keyword) {
+      // Ditambahkan pencarian berdasarkan barcode (mst_barcode atau brg_kode)
+      sql += ` AND (b.brg_kode LIKE ? OR b.brg_nama LIKE ? OR s.mst_barcode LIKE ?)`;
+      const key = `%${keyword}%`;
+      params.push(key, key, key);
+    }
 
-        sql += `
+    sql += `
             GROUP BY 
                 b.brg_kode,
                 b.brg_nama,
                 b.brg_jenis,
                 b.brg_satuan,
                 b.brg_lebar,
-                COALESCE(s.mst_panjang, b.brg_panjang)
-            HAVING Stok > 0
+                COALESCE(s.mst_panjang, b.brg_panjang),
+                COALESCE(s.mst_barcode, '')
             ORDER BY Nama ASC, Panjang DESC
         `;
 
-        const [rows] = await pool.query(sql, params);
-        return rows;
-    } catch (error) {
-        throwDbError(
-            "Gagal mengambil data lookup master & sisa produksi",
-            error,
-        );
-    }
+    const [rows] = await pool.query(sql, params);
+    return rows;
+  } catch (error) {
+    throwDbError("Gagal mengambil data lookup master & sisa produksi", error);
+  }
 };
 
 // exports.getBahanData = async () => {

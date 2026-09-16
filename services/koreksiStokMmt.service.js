@@ -218,19 +218,19 @@ exports.saveKoreksiStokMMT = async (payload, user) => {
       nomor = await this.generateMaxKode(header.Tanggal);
     }
 
-    // 2. Simpan Header
+    // 1. Simpan Header
     const sqlHeader = `
-            INSERT INTO tkor_hdr_mmt (korh_nomor, korh_tanggal, korh_gdg_kode, korh_type, korh_notes, korh_total, date_create, user_create)
-            VALUES (?, ?, ?, ?, ?, ?, NOW(), ?)
-            ON DUPLICATE KEY UPDATE 
-                korh_tanggal=VALUES(korh_tanggal), 
-                korh_gdg_kode=VALUES(korh_gdg_kode), 
-                korh_type=VALUES(korh_type), 
-                korh_notes=VALUES(korh_notes), 
-                korh_total=VALUES(korh_total), 
-                date_modified=NOW(), 
-                user_modified=?
-        `;
+        INSERT INTO tkor_hdr_mmt (korh_nomor, korh_tanggal, korh_gdg_kode, korh_type, korh_notes, korh_total, date_create, user_create)
+        VALUES (?, ?, ?, ?, ?, ?, NOW(), ?)
+        ON DUPLICATE KEY UPDATE 
+            korh_tanggal=VALUES(korh_tanggal), 
+            korh_gdg_kode=VALUES(korh_gdg_kode), 
+            korh_type=VALUES(korh_type), 
+            korh_notes=VALUES(korh_notes), 
+            korh_total=VALUES(korh_total), 
+            date_modified=NOW(), 
+            user_modified=?
+    `;
     const totalNilai = details.reduce(
       (acc, curr) => acc + (Number(curr.Nilai) || 0),
       0,
@@ -246,22 +246,24 @@ exports.saveKoreksiStokMMT = async (payload, user) => {
       user,
     ]);
 
-    // 3. Hapus Detail & Stok Lama
+    // 2. Hapus Detail & Master Stok Lama yang berelasi dengan nomor referensi ini
     await connection.query(
       "DELETE FROM tkor_dtl_mmt WHERE kord_korh_nomor = ?",
       [nomor],
     );
+    // Hapus stok lama berdasarkan nomor referensi (Trigger akan otomatis insert ulang jika diperlukan,
+    // atau jika Anda ingin aman, biarkan trigger menangani insert baru)
     await connection.query(
       "DELETE FROM tmasterstok_mmt WHERE mst_noreferensi = ?",
       [nomor],
     );
 
-    // 4. Simpan Detail baru
-    if (details.length > 0) {
-      const validDetails = details.filter((d) => d.SKU);
+    // 3. Simpan Detail Baru (Trigger MySQL akan otomatis mengeksekusi insert ke tmasterstok_mmt)
+    const validDetails = details.filter((d) => d.SKU);
+    if (validDetails.length > 0) {
       const detailValues = validDetails.map((d, i) => [
         nomor,
-        d.SKU,
+        d.KodeBarang || d.SKU, // Pastikan kord_brg_kode menyimpan kode barang asli (cth: '280ADM3280A')
         d.Satuan || "",
         header.Tanggal,
         Number(d.Qty) || 0,
@@ -274,68 +276,14 @@ exports.saveKoreksiStokMMT = async (payload, user) => {
         i + 1,
       ]);
 
-      const sqlDetail = `INSERT INTO tkor_dtl_mmt (kord_korh_nomor, kord_brg_kode, kord_satuan, kord_expired, kord_qty, kord_panjang, kord_lebar, kord_harga, kord_nilai, kord_fisik, kord_stok, kord_nourut) VALUES ?`;
+      const sqlDetail = `
+        INSERT INTO tkor_dtl_mmt (
+          kord_korh_nomor, kord_brg_kode, kord_satuan, kord_expired, 
+          kord_qty, kord_panjang, kord_lebar, kord_harga, kord_nilai, 
+          kord_fisik, kord_stok, kord_nourut
+        ) VALUES ?
+      `;
       await connection.query(sqlDetail, [detailValues]);
-
-      // Logika Stok MMT (Tanpa jalur Obat)
-      const stokMmtValues = [];
-      const yyMm = format(new Date(header.Tanggal), "yyMM");
-
-      const patternGlobal = `%-${yyMm}-%`;
-      const [globalRows] = await connection.query(
-        `SELECT MAX(CAST(SUBSTRING_INDEX(mst_barcode, '-', -1) AS UNSIGNED)) AS max_urut 
-                 FROM tmasterstok_mmt 
-                 WHERE mst_barcode LIKE ?`,
-        [patternGlobal],
-      );
-
-      let currentGlobalUrut = globalRows[0].max_urut || 0;
-
-      for (const d of validDetails) {
-        const qty = Number(d.Qty) || 0;
-
-        if (qty > 0) {
-          for (let i = 1; i <= qty; i++) {
-            currentGlobalUrut++;
-            const v_barcode = `${d.SKU}-${yyMm}-${String(currentGlobalUrut).padStart(3, "0")}`;
-
-            stokMmtValues.push([
-              d.SKU, // 1. mst_brg_kode
-              header.GudangKode, // 2. mst_gdg_kode
-              header.Tanggal, // 3. mst_tanggal
-              0, // 4. mst_stok_in
-              Math.abs(qty), // 5. mst_stok_out
-              nomor, // 6. mst_noreferensi
-              "-", // 7. mst_barcode
-              Number(d.Panjang) || 0, // 8. mst_panjang
-              Number(d.Lebar) || 0, // 9. mst_lebar
-            ]);
-          }
-        } else if (qty < 0) {
-          stokMmtValues.push([
-            d.SKU,
-            header.GudangKode,
-            header.Tanggal,
-            0,
-            Math.abs(qty),
-            nomor,
-            "-",
-            Number(d.Panjang) || 0,
-            Number(d.Lebar) || 0,
-          ]);
-        }
-      }
-
-      if (stokMmtValues.length > 0) {
-        const sqlStokMmt = `
-                    INSERT INTO tmasterstok_mmt (
-                        mst_brg_kode, mst_gdg_kode, mst_tanggal, 
-                        mst_stok_in, mst_stok_out, mst_noreferensi, 
-                        mst_barcode,  mst_panjang, mst_lebar
-                    ) VALUES ?
-                `;
-        await connection.query(sqlStokMmt, [stokMmtValues]);
-      }
     }
 
     await connection.commit();

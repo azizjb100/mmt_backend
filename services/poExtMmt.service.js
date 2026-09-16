@@ -453,11 +453,11 @@ const savePoExternal = async (payload, currentUser) => {
 
 const getPoExternalById = async (nomorPo) => {
   try {
-    // 1. Ambil Data Header PO beserta Join Master SPK & Supplier
+    // 1. Ambil Data Header PO beserta Join Master SPK (termasuk spk_memo) & Supplier
     const sqlHeader = `
             SELECT h.*, 
                    s.spk_nama, s.spk_kain, s.spk_ukuran, s.spk_jumlah, s.spk_jo_kode, 
-                   s.spk_divisi, s.spk_panjang, s.spk_lebar,
+                   s.spk_divisi, s.spk_panjang, s.spk_lebar, s.spk_memo,
                    v.divisi, 
                    j.jo_nama,
                    u.Sup_nama, u.Sup_alamat, u.Sup_kota
