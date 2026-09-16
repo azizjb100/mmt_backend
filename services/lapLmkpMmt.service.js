@@ -186,22 +186,27 @@ exports.getMonitoringData = async (cbJenisIndex, startDate, endDate) => {
 
     const [rows] = await pool.query(sql, [startDate, endDate]);
 
-    // Query untuk mengambil data Size per SPK secara aman berdasarkan kondisi kategori
-    const sizeSql = `
-        SELECT 
-            spks_nomor,
-            spks_size AS size_name,
-            spks_qty AS size_qty,
-            (spks_qty - IFNULL(sz_lhk.qty_cetak_size, 0)) AS size_krg_cetak
-        FROM tspk_size
-        ${joinSizeLhk ? joinSizeLhk : ""}
-    `;
-    const [sizes] = await pool.query(sizeSql);
+    // Ambil data size HANYA jika kategori adalah Paperprint ('2') atau Sublim ('3')
+    let sizes = [];
+    if (["2", "3"].includes(cbJenisIndex) && joinSizeLhk) {
+      const sizeSql = `
+          SELECT 
+              spks_nomor,
+              spks_size AS size_name,
+              spks_qty AS size_qty,
+              (spks_qty - IFNULL(sz_lhk.qty_cetak_size, 0)) AS size_krg_cetak
+          FROM tspk_size
+          ${joinSizeLhk}
+      `;
+      const [sizeRows] = await pool.query(sizeSql);
+      sizes = sizeRows;
+    }
 
     // Mapping data size berdasarkan nomor SPK (spks_nomor)
     const sizeMap = {};
     sizes.forEach((s) => {
       if (!sizeMap[s.spks_nomor]) {
+        sizeMap.index = []; // safety
         sizeMap[s.spks_nomor] = [];
       }
       sizeMap[s.spks_nomor].push({
