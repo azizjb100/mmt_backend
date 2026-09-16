@@ -32,7 +32,7 @@ const getPoExternalBrowse = async (startDate, endDate, userCab) => {
             LEFT JOIN tspk s ON s.spk_nomor = h.poe_spk_nomor
             LEFT JOIN tsupplier u ON u.Sup_kode = h.poe_sup
             WHERE h.poe_tanggal BETWEEN ? AND ?
-            AND h.poe_cab IN ('P02', 'P05')
+            AND h.poe_cab IN ('P02', 'P05', 'MT1')
             ${userCab ? "AND h.poe_cab = ?" : ""}
         ) x
         ORDER BY x.Nomor DESC
