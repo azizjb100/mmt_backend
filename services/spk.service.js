@@ -680,80 +680,55 @@ exports.getSpkForMesin = async (keyword) => {
   }
 };
 
-const handleSpkSelect = async (spk: any) => {
-  isSpkLookupVisible.value = false;
-  if (!spk) return;
+exports.getMemoSpkLookupData = async (keyword) => {
+  try {
+    let sql = `
+            SELECT 
+                m.mspk_nomor AS SPK, 
+                m.mspk_tanggal AS Tanggal,
+                m.mspk_dateline AS Deadline,
+                m.mspk_divisi AS Divisi,             
+                m.mspk_nama AS Nama, 
+                m.mspk_nama2 AS Nama2,           -- [DITAMBAHKAN]
+                m.mspk_cab AS Cabang,                
+                m.mspk_workshop AS Workshop,         
+                'MEMO' AS Tipe_SPK,
+                IFNULL(m.mspk_panjang, 0) AS Panjang, 
+                IFNULL(m.mspk_lebar, 0) AS Lebar,
+                m.mspk_ukuran AS Ukuran,
+                m.mspk_gramasi AS Gramasi,
+                m.mspk_kain AS Bahan,                
+                m.mspk_finishing AS Finishing,       
+                m.mspk_keterangan AS Pesan,          
+                'Open' AS STATUS,
+                m.mspk_aktif AS Aktif,
+                m.mspk_jumlah AS Jumlah,
+                CAST(IFNULL(prod_m.total_pernah_cetak, 0) AS UNSIGNED) AS Sudah_Cetak,
+                CAST(GREATEST(0, m.mspk_jumlah - IFNULL(prod_m.total_pernah_cetak, 0)) AS UNSIGNED) AS Kurang_Cetak
+            FROM tmemospk m
+            LEFT JOIN (
+                SELECT ld_spk_nomor, SUM(ld_total_qtycetak) as total_pernah_cetak
+                FROM tlhk_mesin_dtl
+                GROUP BY ld_spk_nomor
+            ) prod_m ON prod_m.ld_spk_nomor = m.mspk_nomor
+            WHERE 1=1
+        `;
 
-  if (!formData.value.header) {
-    formData.value.header = {} as any;
+    const params = [];
+
+    if (keyword) {
+      sql += ` AND (m.mspk_nomor LIKE ? OR m.mspk_nama LIKE ?)`;
+      const searchKeyword = `%${keyword}%`;
+      params.push(searchKeyword, searchKeyword);
+    }
+
+    sql += ` ORDER BY m.mspk_tanggal DESC LIMIT 50`;
+
+    const [rows] = await pool.query(sql, params);
+    return rows;
+  } catch (error) {
+    throwDbError("Gagal mengambil data lookup Memo SPK", error);
   }
-
-  // Pemetaan yang disesuaikan dengan data backend dan modal Anda
-  formData.value.header.mmpt_nomor = spk.SPK || spk.Nomor || "";
-  formData.value.header.mmpt_tanggal = formatDateLocal(
-    spk.Tanggal || new Date(),
-  );
-  formData.value.header.mmpt_nama = spk.Nama || "";
-  formData.value.header.mmpt_nama2 = spk.Nama2 || "";
-  formData.value.header.mmpt_ukuran = spk.Ukuran || "";
-  formData.value.header.mmpt_kain = spk.Bahan || "";
-  formData.value.header.mmpt_finishing = spk.Finishing || ""; // Sekarang Finishing sukses masuk
-  formData.value.header.mmpt_jumlah_jadi = Number(spk.Jumlah || 0);
-  formData.value.header.mmpt_tipe = spk.Tipe_SPK || spk.Tipe || "Standard";
-  formData.value.header.mmpt_gramasi = spk.Gramasi || "";
-  formData.value.header.mmpt_rencana_size = spk.Ukuran || "";
-  formData.value.header.mmpt_keterangan = spk.Pesan || "";
-
-  // Inisialisasi checklist kesesuaian
-  if (!formData.value.checklist || formData.value.checklist.length === 0) {
-    formData.value.checklist = [
-      {
-        no: 1,
-        kesesuaian: "Jenis & Ukuran Bahan",
-        status: "Y",
-        keterangan: "-",
-      },
-      {
-        no: 2,
-        kesesuaian: "Gramasi/Tebal Bahan",
-        status: "Y",
-        keterangan: spk.Gramasi || "-",
-      },
-      {
-        no: 3,
-        kesesuaian: "Finishing",
-        status: "Y",
-        keterangan: spk.Finishing || "-",
-      },
-      {
-        no: 4,
-        kesesuaian: "Jumlah Cetak",
-        status: "Y",
-        keterangan: String(spk.Jumlah || 0),
-      },
-      {
-        no: 5,
-        kesesuaian: "Kualitas Warna/Cetak",
-        status: "Y",
-        keterangan: "-",
-      },
-      {
-        no: 6,
-        kesesuaian: "Ketepatan Cutting/Potong",
-        status: "Y",
-        keterangan: "-",
-      },
-      { no: 7, kesesuaian: "Packing & Label", status: "Y", keterangan: "-" },
-      { no: 8, kesesuaian: "Babaran", status: "Y", keterangan: "-" },
-    ];
-  }
-
-  cachedSizesNomor = "";
-  cachedSizes = null;
-
-  toast.success(
-    `Memo SPK ${formData.value.header.mmpt_nomor} berhasil dimuat.`,
-  );
 };
 
 // ===================================
