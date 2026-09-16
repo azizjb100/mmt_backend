@@ -13,7 +13,6 @@ const getAllHeaders = async (startDate, endDate) => {
             (SELECT SUM(lrd_panjang * lrd_lebar * lrd_jumlah) 
              FROM tlhk_rtr_dtl 
              WHERE lrd_lr_nomor = lr_nomor) AS total_meter,
-            -- Status LHK berdasarkan perbandingan qty dimutasi vs jumlah total
             CASE 
                 WHEN SUM(COALESCE(lrd_qty_mutasi, 0)) = 0 THEN 'open'
                 WHEN SUM(COALESCE(lrd_qty_mutasi, 0)) < SUM(lrd_jumlah) THEN 'progress'
