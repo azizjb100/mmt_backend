@@ -76,32 +76,38 @@ exports.getMonitoringData = async (cbJenisIndex, startDate, endDate) => {
       fieldJmlCetak = "ifnull(sb.jml_cetak_paperprint, 0)";
       conditionExtra = "AND spk_sublim = 'Y'";
       selectMesinFields = `
-            0 AS mt01, 0 AS mt02, 0 AS mt03, 0 AS mt04, 0 AS mt05, 0 AS mi,
-            0 AS mx01, 0 AS mx02, 0 AS mx03, 0 AS mx04, 0 AS mx05,
-            ROUND(IFNULL(sb.SB01, 0), 0) AS sb01, ROUND(IFNULL(sb.SB02, 0), 0) AS sb02,
-            ROUND(IFNULL(sb.SB03, 0), 0) AS sb03, ROUND(IFNULL(sb.SB04, 0), 0) AS sb04,
-            ROUND(IFNULL(sb.SB05, 0), 0) AS sb05,
-            0 AS rtr
-          `;
+        0 AS mt01, 0 AS mt02, 0 AS mt03, 0 AS mt04, 0 AS mt05, 0 AS mi,
+        0 AS mx01, 0 AS mx02, 0 AS mx03, 0 AS mx04, 0 AS mx05,
+        ROUND(IFNULL(sb.SB01, 0), 0) AS sb01, ROUND(IFNULL(sb.SB02, 0), 0) AS sb02,
+        ROUND(IFNULL(sb.SB03, 0), 0) AS sb03, ROUND(IFNULL(sb.SB04, 0), 0) AS sb04,
+        ROUND(IFNULL(sb.SB05, 0), 0) AS sb05,
+        0 AS rtr
+      `;
       joinLhkCetak = `
-            LEFT JOIN (
-                SELECT lsbd_spk_nomor, 
-                    SUM(IF(lsbd_lokasi='SB01',lsbd_jumlah,0)) SB01,
-                    SUM(IF(lsbd_lokasi='SB02',lsbd_jumlah,0)) SB02,
-                    SUM(IF(lsbd_lokasi='SB03',lsbd_jumlah,0)) SB03,
-                    SUM(IF(lsbd_lokasi='SB04',lsbd_jumlah,0)) SB04,
-                    SUM(IF(lsbd_lokasi='SB05',lsbd_jumlah,0)) SB05,
-                    SUM(IFNULL(lsbd_jumlah,0)) jml_cetak_paperprint
-                FROM tlhk_sublim_dtl
-                GROUP BY 1
-            ) sb ON sb.lsbd_spk_nomor = spk_nomor`;
+        LEFT JOIN (
+            SELECT lsbd_spk_nomor, 
+                SUM(IF(lsbd_lokasi='SB01',lsbd_jumlah,0)) SB01,
+                SUM(IF(lsbd_lokasi='SB02',lsbd_jumlah,0)) SB02,
+                SUM(IF(lsbd_lokasi='SB03',lsbd_jumlah,0)) SB03,
+                SUM(IF(lsbd_lokasi='SB04',lsbd_jumlah,0)) SB04,
+                SUM(IF(lsbd_lokasi='SB05',lsbd_jumlah,0)) SB05,
+                SUM(IFNULL(lsbd_jumlah,0)) jml_cetak_paperprint
+            FROM tlhk_sublim_dtl
+            GROUP BY 1
+        ) sb ON sb.lsbd_spk_nomor = spk_nomor`;
 
+      // Perbaikan: Ambil juga detail komponen per size untuk akurasi perhitungan
       joinSizeLhk = `
-            LEFT JOIN (
-                SELECT lsbd_spk_nomor, lsbd_poid_size, SUM(IFNULL(lsbd_jumlah, 0)) AS qty_cetak_size
-                FROM tlhk_sublim_dtl
-                GROUP BY lsbd_spk_nomor, lsbd_poid_size
-            ) sz_lhk ON sz_lhk.lsbd_spk_nomor = spks_nomor AND sz_lhk.lsbd_poid_size = spks_size
+        LEFT JOIN (
+            SELECT 
+                lsbd_spk_nomor, 
+                lsbd_poid_size, 
+                lsbd_komponen,
+                SUM(IFNULL(lsbd_jumlah, 0)) AS qty_cetak_komponen
+            FROM tlhk_sublim_dtl
+            WHERE lsbd_poid_size != '-' AND lsbd_poid_size != ''
+            GROUP BY lsbd_spk_nomor, lsbd_poid_size, lsbd_komponen
+        ) sz_lhk ON sz_lhk.lsbd_spk_nomor = spks_nomor AND sz_lhk.lsbd_poid_size = spks_size
       `;
     }
     // 4. KATEGORI SUBLIM / RTR (cbJenisIndex = '3')
@@ -109,29 +115,33 @@ exports.getMonitoringData = async (cbJenisIndex, startDate, endDate) => {
       fieldJmlCetak = "ifnull(rtr.jml_cetak_sublim, 0)";
       conditionExtra = "AND spk_sublim = 'Y'";
       selectMesinFields = `
-            0 AS mt01, 0 AS mt02, 0 AS mt03, 0 AS mt04, 0 AS mt05, 0 AS mi,
-            0 AS mx01, 0 AS mx02, 0 AS mx03, 0 AS mx04, 0 AS mx05,
-            0 AS sb01, 0 AS sb02, 0 AS sb03, 0 AS sb04, 0 AS sb05,
-            ROUND(IFNULL(rtr.RTR, 0), 0) AS rtr
-          `;
+        0 AS mt01, 0 AS mt02, 0 AS mt03, 0 AS mt04, 0 AS mt05, 0 AS mi,
+        0 AS mx01, 0 AS mx02, 0 AS mx03, 0 AS mx04, 0 AS mx05,
+        0 AS sb01, 0 AS sb02, 0 AS sb03, 0 AS sb04, 0 AS sb05,
+        ROUND(IFNULL(rtr.RTR, 0), 0) AS rtr
+      `;
       joinLhkCetak = `
-            LEFT JOIN (
-                SELECT lrd_spk_nomor, 
-                    SUM(IF(lrd_lokasi='RTR',lrd_jumlah,0)) RTR,
-                    SUM(IFNULL(lrd_jumlah,0)) jml_cetak_sublim
-                FROM tlhk_rtr_dtl
-                GROUP BY 1
-            ) rtr ON rtr.lrd_spk_nomor = spk_nomor`;
+        LEFT JOIN (
+            SELECT lrd_spk_nomor, 
+                SUM(IF(lrd_lokasi='RTR',lrd_jumlah,0)) RTR,
+                SUM(IFNULL(lrd_jumlah,0)) jml_cetak_sublim
+            FROM tlhk_rtr_dtl
+            GROUP BY 1
+        ) rtr ON rtr.lrd_spk_nomor = spk_nomor`;
 
       joinSizeLhk = `
-            LEFT JOIN (
-                SELECT lrd_spk_nomor, lrd_poid_size, SUM(IFNULL(lrd_jumlah, 0)) AS qty_cetak_size
-                FROM tlhk_rtr_dtl
-                GROUP BY lrd_spk_nomor, lrd_poid_size
-            ) sz_lhk ON sz_lhk.lrd_spk_nomor = spks_nomor AND sz_lhk.lrd_poid_size = spks_size
+        LEFT JOIN (
+            SELECT 
+                lrd_spk_nomor, 
+                lrd_poid_size, 
+                lrd_komponen,
+                SUM(IFNULL(lrd_jumlah, 0)) AS qty_cetak_komponen
+            FROM tlhk_rtr_dtl
+            WHERE lrd_poid_size != '-' AND lrd_poid_size != ''
+            GROUP BY lrd_spk_nomor, lrd_poid_size, lrd_komponen
+        ) sz_lhk ON sz_lhk.lrd_spk_nomor = spks_nomor AND sz_lhk.lrd_poid_size = spks_size
       `;
     }
-
     // Query Utama Monitoring LMKP
     const sql = `
         SELECT 
@@ -187,40 +197,163 @@ exports.getMonitoringData = async (cbJenisIndex, startDate, endDate) => {
     const [rows] = await pool.query(sql, [startDate, endDate]);
 
     // Ambil data size HANYA jika kategori adalah Paperprint ('2') atau Sublim ('3')
+    // Ambil data size & komponen HANYA jika kategori Paperprint ('2') atau Sublim ('3')
     let sizes = [];
-    if (["2", "3"].includes(cbJenisIndex) && joinSizeLhk) {
-      const sizeSql = `
-          SELECT 
-              spks_nomor,
-              spks_size AS size_name,
-              spks_qty AS size_qty,
-              (spks_qty - IFNULL(sz_lhk.qty_cetak_size, 0)) AS size_krg_cetak
-          FROM tspk_size
-          ${joinSizeLhk}
+    let spkKomponenMap = {};
+    let lhkSizeMap = {};
+    let lhkAllSetMap = {};
+
+    if (["2", "3"].includes(cbJenisIndex)) {
+      const tableDtl =
+        cbJenisIndex === "2" ? "tlhk_sublim_dtl" : "tlhk_rtr_dtl";
+      const prefix = cbJenisIndex === "2" ? "lsbd" : "lrd";
+
+      // Pastikan rows ada isinya sebelum mengambil nomor SPK
+      if (rows && rows.length > 0) {
+        const spkNomors = rows.map((r) => `'${r.NOMOR}'`).join(",");
+
+        // 1. Ambil daftar komponen wajib dari tspk_komponen_potong dan tspk_komponen HANYA untuk SPK yang tampil
+        const kompSql = `
+        SELECT p.sk_nomor AS spk_nomor, k.bhn_name AS komponen_nama 
+        FROM tspk_komponen_potong p
+        INNER JOIN tbahan k ON k.bhn_kode = p.sk_kode
+        WHERE p.sk_nomor IN (${spkNomors})
+        UNION
+        SELECT DISTINCT ${prefix}_spk_nomor AS spk_nomor, ${prefix}_komponen AS komponen_nama
+        FROM ${tableDtl}
+        WHERE ${prefix}_spk_nomor IN (${spkNomors}) 
+          AND ${prefix}_komponen != 'ALL SET' 
+          AND ${prefix}_komponen IS NOT NULL
       `;
-      const [sizeRows] = await pool.query(sizeSql);
-      sizes = sizeRows;
+        const [kompRows] = await pool.query(kompSql);
+
+        kompRows.forEach((k) => {
+          if (!spkKomponenMap[k.spk_nomor]) {
+            spkKomponenMap[k.spk_nomor] = [];
+          }
+          if (!spkKomponenMap[k.spk_nomor].includes(k.komponen_nama)) {
+            spkKomponenMap[k.spk_nomor].push(k.komponen_nama);
+          }
+        });
+
+        // 2. Ambil seluruh data LHK untuk SPK yang tampil
+        const lhkDetailSql = `
+        SELECT 
+          ${prefix}_spk_nomor AS spk_nomor,
+          ${prefix}_poid_size AS poid_size,
+          ${prefix}_komponen AS komponen_nama,
+          SUM(IFNULL(${prefix}_jumlah, 0)) AS qty_cetak
+        FROM ${tableDtl}
+        WHERE ${prefix}_spk_nomor IN (${spkNomors})
+        GROUP BY ${prefix}_spk_nomor, ${prefix}_poid_size, ${prefix}_komponen
+      `;
+        const [lhkRows] = await pool.query(lhkDetailSql);
+
+        lhkRows.forEach((l) => {
+          if (!lhkSizeMap[l.spk_nomor]) lhkSizeMap[l.spk_nomor] = {};
+          if (l.poid_size === "-" || !l.poid_size) {
+            if (l.komponen_nama === "ALL SET") {
+              if (!lhkAllSetMap[l.spk_nomor])
+                lhkAllSetMap[l.spk_nomor] = { ALL_SET_GLOBAL: 0 };
+              lhkAllSetMap[l.spk_nomor]["ALL_SET_GLOBAL"] += Number(
+                l.qty_cetak,
+              );
+            } else {
+              if (!lhkAllSetMap[l.spk_nomor]) lhkAllSetMap[l.spk_nomor] = {};
+              lhkAllSetMap[l.spk_nomor][l.komponen_nama] =
+                (lhkAllSetMap[l.spk_nomor][l.komponen_nama] || 0) +
+                Number(l.qty_cetak);
+            }
+          } else {
+            if (!lhkSizeMap[l.spk_nomor][l.poid_size])
+              lhkSizeMap[l.spk_nomor][l.poid_size] = {};
+            lhkSizeMap[l.spk_nomor][l.poid_size][l.komponen_nama] =
+              (lhkSizeMap[l.spk_nomor][l.poid_size][l.komponen_nama] || 0) +
+              Number(l.qty_cetak);
+          }
+        });
+
+        // 3. Ambil data size dari tspk_size
+        const sizeSql = `
+        SELECT spks_nomor, spks_size, spks_qty 
+        FROM tspk_size 
+        WHERE spks_nomor IN (${spkNomors})
+      `;
+        const [sizeRows] = await pool.query(sizeSql);
+        sizes = sizeRows;
+      }
     }
 
-    // Mapping data size berdasarkan nomor SPK (spks_nomor)
+    // Mapping data size dan komponen secara manual di Javascript
     const sizeMap = {};
+
     sizes.forEach((s) => {
-      if (!sizeMap[s.spks_nomor]) {
-        sizeMap.index = []; // safety
-        sizeMap[s.spks_nomor] = [];
+      const spkNo = s.spks_nomor;
+      const sizeName = s.spks_size;
+      const sizeQty = Number(s.spks_qty || 0);
+
+      if (!sizeMap[spkNo]) {
+        sizeMap[spkNo] = [];
       }
-      sizeMap[s.spks_nomor].push({
-        size_name: s.size_name,
-        size_qty: Number(s.size_qty || 0),
-        size_krg_cetak: Number(s.size_krg_cetak || 0),
+
+      const standardKomponen = spkKomponenMap[spkNo] || [
+        "BADAN DEPAN",
+        "BADAN BELAKANG",
+        "TANGAN/LENGAN",
+      ];
+
+      const lhkForThisSize =
+        (lhkSizeMap[spkNo] && lhkSizeMap[spkNo][sizeName]) || {};
+      const lhkGlobalAllSet =
+        (lhkAllSetMap[spkNo] && lhkAllSetMap[spkNo]["ALL_SET_GLOBAL"]) || 0;
+
+      const components = [];
+
+      standardKomponen.forEach((komp) => {
+        let qtyCetakKomponen = Number(lhkForThisSize[komp] || 0);
+
+        if (lhkForThisSize["ALL SET"]) {
+          qtyCetakKomponen += Number(lhkForThisSize["ALL SET"]);
+        }
+        qtyCetakKomponen += lhkGlobalAllSet;
+
+        components.push({
+          komponen_nama: komp,
+          qty_cetak: qtyCetakKomponen,
+          kurang_cetak: Math.max(0, sizeQty - qtyCetakKomponen),
+        });
+      });
+
+      const minComponentCetak =
+        components.length > 0
+          ? Math.min(...components.map((c) => c.qty_cetak))
+          : 0;
+      const sizeKrgCetak = Math.max(0, sizeQty - minComponentCetak);
+
+      sizeMap[spkNo].push({
+        size_name: sizeName,
+        size_qty: sizeQty,
+        size_krg_cetak: sizeKrgCetak,
+        components: components,
       });
     });
 
-    // Gabungkan list size ke dalam masing-masing baris row utama
-    const finalRows = rows.map((row) => ({
-      ...row,
-      sizes: sizeMap[row.NOMOR] || [],
-    }));
+    // Gabungkan list size & komponen ke dalam masing-masing baris row utama
+    const finalRows = rows.map((row) => {
+      const sizesForThisSpk = sizeMap[row.NOMOR] || [];
+
+      // Hitung total kurang cetak SPK berdasarkan sum(size_krg_cetak) dari tiap-tiap size
+      const totalKrgCetakSize = sizesForThisSpk.reduce(
+        (sum, s) => sum + Number(s.size_krg_cetak || 0),
+        0,
+      );
+
+      return {
+        ...row,
+        krg_Cetak: totalKrgCetakSize, // Menyesuaikan nilai krg_Cetak utama dengan akumulasi kurang cetak per size
+        sizes: sizesForThisSpk,
+      };
+    });
 
     return finalRows;
   } catch (error) {
