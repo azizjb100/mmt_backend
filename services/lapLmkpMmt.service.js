@@ -338,19 +338,22 @@ exports.getMonitoringData = async (cbJenisIndex, startDate, endDate) => {
       });
     });
 
-    // Gabungkan list size & komponen ke dalam masing-masing baris row utama
     const finalRows = rows.map((row) => {
       const sizesForThisSpk = sizeMap[row.NOMOR] || [];
 
-      // Hitung total kurang cetak SPK berdasarkan sum(size_krg_cetak) dari tiap-tiap size
-      const totalKrgCetakSize = sizesForThisSpk.reduce(
-        (sum, s) => sum + Number(s.size_krg_cetak || 0),
-        0,
-      );
+      let finalKrgCetak = row.krg_Cetak; // Ambil bawaan dari SQL
+
+      // Jika kategori Paperprint ('2') atau Sublim ('3'), baru timpa dengan hitungan size
+      if (["2", "3"].includes(cbJenisIndex)) {
+        finalKrgCetak = sizesForThisSpk.reduce(
+          (sum, s) => sum + Number(s.size_krg_cetak || 0),
+          0,
+        );
+      }
 
       return {
         ...row,
-        krg_Cetak: totalKrgCetakSize, // Menyesuaikan nilai krg_Cetak utama dengan akumulasi kurang cetak per size
+        krg_Cetak: finalKrgCetak,
         sizes: sizesForThisSpk,
       };
     });
