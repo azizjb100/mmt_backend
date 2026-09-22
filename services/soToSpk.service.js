@@ -77,8 +77,8 @@ const getBrowseList = async (filters = {}) => {
         s.spk_so_ref AS SO,
         s.spk_nomor AS Nomor,
         s.user_create AS MO, s.spk_cmo AS CMO,
-        DATE_FORMAT(s.spk_tanggal, '%Y-%m-%d') AS Tanggal, 
-        DATE_FORMAT(s.spk_dateline, '%Y-%m-%d') AS Dateline,
+        s.spk_tanggal AS Tanggal,
+        s.spk_dateline AS Dateline,
         s.spk_statuskerja AS Kepentingan, v.divisi AS Divisi,
         s.spk_cus_kode AS KodeCustomer, ${custNameCol}
         s.spk_nama AS Nama, s.spk_ukuran AS Ukuran,
