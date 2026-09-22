@@ -23,7 +23,6 @@ const lapMonCetak = async (startDate, endDate) => {
         ) AS KURANG_VARIANT,
 
         IFNULL(zz.cetak_luarx, 0) AS CETAK_LUAR,
-        IFNULL(zz.jmt_cetak_luarx, 0) AS METER_CETAK_LUAR, -- << TAMBAHAN KOLOM METER CETAK LUAR
 
         -- PCS
         IFNULL(zz.mt01, 0) AS PCS_MT01,
@@ -33,7 +32,7 @@ const lapMonCetak = async (startDate, endDate) => {
         IFNULL(zz.mt05, 0) AS PCS_MT05,
         IFNULL(zz.Jml_Cetak, 0) AS JUMLAH_PCS,
 
-        -- METER
+        -- METER (Diambil dari akumulasi ld_luas_m2)
         IFNULL(zz.jmt01, 0) AS METER_MT01,
         IFNULL(zz.jmt02, 0) AS METER_MT02,
         IFNULL(zz.jmt03, 0) AS METER_MT03,
@@ -63,8 +62,7 @@ const lapMonCetak = async (startDate, endDate) => {
             SUM(IF(res.lmesin='MT04', res.ld_luas_m2, 0)) AS jmt04,
             SUM(IF(res.lmesin='MT05', res.ld_luas_m2, 0)) AS jmt05,
             
-            IFNULL(h.cetak_luarx, 0) AS cetak_luarx,
-            IFNULL(h.jmt_cetak_luarx, 0) AS jmt_cetak_luarx
+            IFNULL(h.cetak_luarx, 0) AS cetak_luarx
 
         FROM (
             SELECT 
@@ -75,12 +73,11 @@ const lapMonCetak = async (startDate, endDate) => {
                 d.ld_luas_m2
             FROM tlhk_mesin_dtl d
             INNER JOIN tlhk_mesin_hdr h ON h.lnomor = d.ld_lnomor
-            WHERE h.lstatus = 'POSTED'
+            WHERE h.lstatus = 'POSTED' -- Hanya yang sudah ACC
         ) res
         LEFT JOIN (
             SELECT poe_spk_nomor, 
-                   SUM(IFNULL(poe_jumlah,0)) AS cetak_luarx,
-                   SUM(IFNULL(poe_meter,0)) AS jmt_cetak_luarx -- Ganti poe_meter dengan nama kolom meter di tabel eksternal Anda jika berbeda
+                   SUM(IFNULL(poe_jumlah,0)) AS cetak_luarx
             FROM tpoexternal_hdr
             WHERE poe_cab='P05'
             GROUP BY poe_spk_nomor
