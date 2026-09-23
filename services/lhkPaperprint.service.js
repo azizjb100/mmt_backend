@@ -37,69 +37,69 @@ const getAllHeaders = async (startDate, endDate, search = "") => {
   const params = [tglMulai, tglSelesai];
 
   let sql = `
-       SELECT 
-    t1.lsb_nomor AS Nomor, 
-    t1.lsb_shift AS Shift, 
-    DATE_FORMAT(t1.lsb_tanggal, '%Y-%m-%d') AS Tanggal, 
-    IFNULL(x.mesin_lokasi, 'SB01') AS Mesin,
-    
-    -- Status Utama & ACC
-    IFNULL(t1.lsb_status, 'DRAFT') AS Status,
-    IFNULL(t1.lsb_acc, '') AS Status_Acc,
-    
-    t1.lsb_panjang_bs AS lsb_panjang_bs,
-    t1.lsb_lebar_bs AS lsb_lebar_bs,
-    t1.lsb_gdg_kode AS Gudang,
-    g.gdg_nama AS Nama_Gudang,
-    
-    t1.lsb_barcode AS Barcode_Roll,
-    t1.lsb_brg_kode AS Kode_Bahan,
-    t3.brg_nama AS Nama_Bahan,
-    -- Cek Kelengkapan Bahan (Y / N)
-    IF(LENGTH(IFNULL(t1.lsb_brg_kode, '')) > 0, 'Y', 'N') AS Lengkap,
-
-    IFNULL(x.combined_spk, '-') AS NomorSPK,
-    IFNULL(x.combined_spk_nama, '-') AS NamaOrder,
-    IFNULL(x.qtytotalcetak, 0) AS TotalCetak,
-    IFNULL(x.panjang_bahan_awal, 0) AS PanjangBahanAwal,
-    IFNULL(x.sisa_akhir, 0) AS SisaMeterAkhir,
-    IFNULL(x.total_luas_m2, 0) AS total_meter,
-    
-    CASE 
-        WHEN x.sisa_akhir < 0 THEN ABS(x.sisa_akhir)
-        ELSE 0 
-    END AS NilaiSurplus,
-    
-    CASE 
-        WHEN x.sisa_akhir > 0 THEN x.sisa_akhir
-        ELSE 0 
-    END AS NilaiMinus,
-
-    t1.lsb_user_create AS Operator
-FROM tlhk_sublim_hdr t1
-LEFT JOIN tGUDANG g ON g.gdg_kode = t1.lsb_gdg_kode
-LEFT JOIN tbarang_mmt t3 ON t3.brg_kode = t1.lsb_brg_kode
-LEFT JOIN (
     SELECT 
-        lsbd_lsb_nomor,
-        MAX(lsbd_lokasi) AS mesin_lokasi,
-        GROUP_CONCAT(DISTINCT lsbd_spk_nomor SEPARATOR ', ') AS combined_spk,
-        GROUP_CONCAT(DISTINCT lsbd_spk_nama SEPARATOR ', ') AS combined_spk_nama,
-        SUM(lsbd_jumlah) AS qtytotalcetak,
-        SUM(lsbd_j_meter) AS total_luas_m2,
-        MAX(lsbd_ambilbahan) AS panjang_bahan_awal,
-        (
-            SELECT (d2.lsbd_ambilbahan - d2.lsbd_panjang_pakai - h2.lsb_panjang_bs)
-            FROM tlhk_sublim_dtl d2
-            INNER JOIN tlhk_sublim_hdr h2 ON h2.lsb_nomor = d2.lsbd_lsb_nomor
-            WHERE d2.lsbd_lsb_nomor = tlhk_sublim_dtl.lsbd_lsb_nomor 
-            ORDER BY d2.lsbd_no_urut DESC LIMIT 1
-        ) AS sisa_akhir
-    FROM tlhk_sublim_dtl 
-    GROUP BY lsbd_lsb_nomor
-) x ON x.lsbd_lsb_nomor = t1.lsb_nomor
-WHERE t1.lsb_tanggal BETWEEN ? AND ?
-    `;
+        t1.lsb_nomor AS Nomor, 
+        t1.lsb_shift AS Shift, 
+        DATE_FORMAT(t1.lsb_tanggal, '%Y-%m-%d') AS Tanggal, 
+        IFNULL(x.mesin_lokasi, 'SB01') AS Mesin,
+        
+        -- Status Utama & ACC
+        IFNULL(t1.lsb_status, 'DRAFT') AS Status,
+        IFNULL(t1.lsb_acc, '') AS Status_Acc,
+        
+        t1.lsb_panjang_bs AS lsb_panjang_bs,
+        t1.lsb_lebar_bs AS lsb_lebar_bs,
+        t1.lsb_gdg_kode AS Gudang,
+        g.gdg_nama AS Nama_Gudang,
+        
+        t1.lsb_barcode AS Barcode_Roll,
+        t1.lsb_brg_kode AS Kode_Bahan,
+        t3.brg_nama AS Nama_Bahan,
+        -- Cek Kelengkapan Bahan (Y / N)
+        IF(LENGTH(IFNULL(t1.lsb_brg_kode, '')) > 0, 'Y', 'N') AS Lengkap,
+
+        IFNULL(x.combined_spk, '-') AS NomorSPK,
+        IFNULL(x.combined_spk_nama, '-') AS NamaOrder,
+        IFNULL(x.qtytotalcetak, 0) AS TotalCetak,
+        IFNULL(x.panjang_bahan_awal, 0) AS PanjangBahanAwal,
+        IFNULL(x.sisa_akhir, 0) AS SisaMeterAkhir,
+        IFNULL(x.total_luas_m2, 0) AS total_meter,
+        
+        CASE 
+            WHEN x.sisa_akhir < 0 THEN ABS(x.sisa_akhir)
+            ELSE 0 
+        END AS NilaiSurplus,
+        
+        CASE 
+            WHEN x.sisa_akhir > 0 THEN x.sisa_akhir
+            ELSE 0 
+        END AS NilaiMinus,
+
+        t1.lsb_user_create AS Operator
+    FROM tlhk_sublim_hdr t1
+    LEFT JOIN tGUDANG g ON g.gdg_kode = t1.lsb_gdg_kode
+    LEFT JOIN tbarang_mmt t3 ON t3.brg_kode = t1.lsb_brg_kode
+    LEFT JOIN (
+        SELECT 
+            lsbd_lsb_nomor,
+            MAX(lsbd_lokasi) AS mesin_lokasi,
+            GROUP_CONCAT(DISTINCT lsbd_spk_nomor SEPARATOR ', ') AS combined_spk,
+            GROUP_CONCAT(DISTINCT lsbd_spk_nama SEPARATOR ', ') AS combined_spk_nama,
+            SUM(lsbd_jumlah) AS qtytotalcetak,
+            SUM(lsbd_j_meter) AS total_luas_m2,
+            MAX(lsbd_ambilbahan) AS panjang_bahan_awal,
+            (
+                SELECT (d2.lsbd_ambilbahan - d2.lsbd_panjang_pakai - h2.lsb_panjang_bs)
+                FROM tlhk_sublim_dtl d2
+                INNER JOIN tlhk_sublim_hdr h2 ON h2.lsb_nomor = d2.lsbd_lsb_nomor
+                WHERE d2.lsbd_lsb_nomor = tlhk_sublim_dtl.lsbd_lsb_nomor 
+                ORDER BY d2.lsbd_no_urut DESC LIMIT 1
+            ) AS sisa_akhir
+        FROM tlhk_sublim_dtl 
+        GROUP BY lsbd_lsb_nomor
+    ) x ON x.lsbd_lsb_nomor = t1.lsb_nomor
+    WHERE t1.lsb_tanggal BETWEEN ? AND ?
+  `;
 
   if (search) {
     sql += ` AND (
@@ -459,26 +459,77 @@ const saveLhkMesin = async (data) => {
     conn.release();
   }
 };
+
 /**
  * =============================================================================
- * 2. BAGIAN APPROVAL (Rekap ke tlhk_sublim)
+ * 2. BAGIAN PENGAMBILAN LOOKUP LHK PAPERPRINT
+ * =============================================================================
+ */
+const getLookupLhkPaperprint = async (startDate, endDate, search = "") => {
+  const tglMulai = format(new Date(startDate), "yyyy-MM-dd");
+  const tglSelesai = format(new Date(endDate), "yyyy-MM-dd");
+  const params = [tglMulai, tglSelesai];
+
+  let sql = `
+    SELECT 
+        h.lsb_nomor AS Nomor_Paperprint, 
+        DATE_FORMAT(h.lsb_tanggal, '%Y-%m-%d') AS Tanggal, 
+        h.lsb_shift AS Shift, 
+        d.lsbd_spk_nomor AS Nomor_SPK, 
+        d.lsbd_spk_nama AS Nama_SPK, 
+        d.lsbd_panjang AS Panjang, 
+        d.lsbd_lebar AS Lebar, 
+        d.lsbd_jumlah AS Jumlah,
+        (d.lsbd_panjang * d.lsbd_lebar * d.lsbd_jumlah) AS Total_Meter,
+        d.lsbd_bahan AS Nama_Bahan, 
+        IFNULL(d.lsbd_komponen, 'ALL SET') AS Komponen,
+        d.lsbd_poi_nomor AS Poi_Nomor,
+        d.lsbd_poid_size AS Poi_Size
+    FROM tlhk_sublim_hdr h
+    INNER JOIN tlhk_sublim_dtl d ON h.lsb_nomor = d.lsbd_lsb_nomor
+    WHERE h.lsb_tanggal BETWEEN ? AND ?
+      AND h.lsb_status = 'POSTED' 
+      -- 🔥 Hapus filter h.lsb_jenis = 'P' di sini agar data 'S' (Sublim) bisa muncul
+  `;
+
+  if (search) {
+    sql += ` AND (
+        h.lsb_nomor LIKE ? 
+        OR d.lsbd_spk_nomor LIKE ? 
+        OR d.lsbd_spk_nama LIKE ?
+    ) `;
+    const searchPattern = `%${search}%`;
+    params.push(searchPattern, searchPattern, searchPattern);
+  }
+
+  sql += ` ORDER BY h.lsb_tanggal DESC, h.lsb_nomor DESC `;
+
+  const [rows] = await pool.query(sql, params);
+  return rows;
+};
+
+/**
+ * =============================================================================
+ * 3. BAGIAN APPROVAL (Rekap ke tlhk_sublim)
  * =============================================================================
  */
 
 const getLookupForApproval = async (tanggal, shift) => {
   let params = [tanggal];
+
+  // 🐛 FIX: Mengganti lms_nomor, lms_tanggal, lms_status menjadi lsb_ karena mengarah ke tabel tlhk_sublim_hdr
   let sql = `
         SELECT 
-            h.lms_nomor AS Nomor, 
-            DATE_FORMAT(h.lms_tanggal, '%d-%m-%Y') AS Tanggal, 
-            h.lms_shift AS Shift,
-            (SELECT lmsd_lokasi FROM tlhk_sublim_dtl WHERE lmsd_lms_nomor = h.lms_nomor LIMIT 1) AS Mesin,
-            (SELECT SUM(lmsd_panjang * lmsd_lebar * lmsd_jumlah) FROM tlhk_sublim_dtl WHERE lmsd_lms_nomor = h.lms_nomor) AS Total_Meter
+            h.lsb_nomor AS Nomor, 
+            DATE_FORMAT(h.lsb_tanggal, '%d-%m-%Y') AS Tanggal, 
+            h.lsb_shift AS Shift,
+            (SELECT lsbd_lokasi FROM tlhk_sublim_dtl WHERE lsbd_lsb_nomor = h.lsb_nomor LIMIT 1) AS Mesin,
+            (SELECT SUM(lsbd_panjang * lsbd_lebar * lsbd_jumlah) FROM tlhk_sublim_dtl WHERE lsbd_lsb_nomor = h.lsb_nomor) AS Total_Meter
         FROM tlhk_sublim_hdr h
-        WHERE h.lms_status = 'POSTED' AND h.lms_tanggal = ?
+        WHERE h.lsb_status = 'POSTED' AND h.lsb_tanggal = ?
     `;
   if (shift && shift !== "Semua") {
-    sql += ` AND h.lms_shift = ?`;
+    sql += ` AND h.lsb_shift = ?`;
     params.push(shift);
   }
   const [rows] = await pool.query(sql, params);
@@ -524,9 +575,10 @@ const saveApproval = async (data) => {
       );
 
       // 3. Update status di tabel asal (mesinsublim)
+      // 🐛 FIX: lms_status -> lsb_status dan lms_nomor -> lsb_nomor
       const idsAsal = details.map((d) => d.lhk_nomor);
       await conn.query(
-        `UPDATE tlhk_sublim_hdr SET lms_status = 'APPROVED' WHERE lms_nomor IN (?)`,
+        `UPDATE tlhk_sublim_hdr SET lsb_status = 'APPROVED' WHERE lsb_nomor IN (?)`,
         [idsAsal],
       );
     }
@@ -604,4 +656,5 @@ module.exports = {
   getAllApprovalHeaders,
   getApprovalDetailsByNomor,
   accLhkPaperprint,
+  getLookupLhkPaperprint, // 🌟 Pastikan fungsi ini diekspor
 };

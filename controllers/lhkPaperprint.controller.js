@@ -40,7 +40,6 @@ const getLhkFullData = async (req, res) => {
 
 const handleSaveLhk = async (req, res) => {
   try {
-    // 🔥 PERUBAHAN DI SINI: Ganti .saveLhk menjadi .saveLhkMesin
     const result = await sublimService.saveLhkMesin(req.body);
 
     if (!result.success) {
@@ -124,6 +123,21 @@ const getApprovalDetails = async (req, res) => {
   }
 };
 
+// 🌟 FUNGSI BARU UNTUK LOOKUP PAPERPRINT
+const getLookupPaperprint = async (req, res) => {
+  try {
+    const { startDate, endDate, search } = req.query;
+    const data = await sublimService.getLookupLhkPaperprint(
+      startDate,
+      endDate,
+      search,
+    );
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   getLhkList,
   getLhkDetails,
@@ -134,4 +148,5 @@ module.exports = {
   getApprovalList,
   getApprovalDetails,
   accLhk,
+  getLookupPaperprint, // 🌟 Ekspor fungsi baru
 };
