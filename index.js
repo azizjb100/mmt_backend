@@ -268,8 +268,6 @@ app.use("/api/mmt/surat-jalan-map", clientCertAuth, suratJalanMapRoutes);
 app.use("/api/mmt/bast-map", clientCertAuth, bastMapRoutes);
 app.use("/api/mmt/pengajuan-koreksi-stok", clientCertAuth, pengajuanKoreksiStokRoutes);
 app.use("/api/mmt/komitmen-kirim", clientCertAuth, komitmenKirimRoutes);
-app.use("/api/mmt/penjadwalan-ppic", clientCertAuth, komitmenKirimRoutes);
-app.use("/api/ppic/penjadwalan", clientCertAuth, komitmenKirimRoutes);
 
 const port = process.env.PORT || 8003;
 

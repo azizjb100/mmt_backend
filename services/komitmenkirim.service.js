@@ -767,8 +767,7 @@ const getFormDetail = async (nomor) => {
 
   await resolveSourceForPeriod(nomor);
 
-  const penjadwalanPpicService = require("./penjadwalanPpicService");
-  const detail = await penjadwalanPpicService.getDetail(nomor);
+  const detail = await getDetail(nomor);
   return { header: hdrRows[0], detail };
 };
 
