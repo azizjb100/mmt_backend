@@ -86,6 +86,8 @@ const lapKirimanRoutes = require("./routes/lapKiriman.routes");
 const manageUserRoutes = require("./routes/manageUser.routes");
 const suratJalanMapRoutes = require("./routes/suratJalanMap.routes");
 const bastMapRoutes = require("./routes/bastMap.routes");
+const pengajuanKoreksiStokRoutes = require("./routes/pengajuanKoreksiStok.routes");
+const komitmenKirimRoutes = require("./routes/komitmenKirim.routes");
 
 // Konfigurasi
 
@@ -264,6 +266,10 @@ app.use("/api/mmt/laporan-kirim", clientCertAuth, lapKirimanRoutes);
 app.use("/api/mmt/manage-user", clientCertAuth, manageUserRoutes);
 app.use("/api/mmt/surat-jalan-map", clientCertAuth, suratJalanMapRoutes);
 app.use("/api/mmt/bast-map", clientCertAuth, bastMapRoutes);
+app.use("/api/mmt/pengajuan-koreksi-stok", clientCertAuth, pengajuanKoreksiStokRoutes);
+app.use("/api/mmt/komitmen-kirim", clientCertAuth, komitmenKirimRoutes);
+app.use("/api/mmt/penjadwalan-ppic", clientCertAuth, komitmenKirimRoutes);
+app.use("/api/ppic/penjadwalan", clientCertAuth, komitmenKirimRoutes);
 
 const port = process.env.PORT || 8003;
 
