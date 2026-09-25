@@ -34,7 +34,11 @@ const getBrowseList = async (filters = {}) => {
     const kw = `%${keyword.trim()}%`;
     params.push(kw, kw, kw);
   }
-  if (
+  if (userCabang === "P05") {
+    // Khusus P05: tampilkan spk_cab = P05 ATAU spk_sublim = Y ATAU spk_workshop = MMT
+    whereClause += ` AND (x.Cab = ? OR x.Cab = "" OR x.Cab IS NULL OR x.Sublim = 'Y' OR UPPER(TRIM(x.Workshop)) = 'MMT')`;
+    params.push(userCabang);
+  } else if (
     userCabang &&
     userCabang !== "HO-" &&
     userCabang !== "ADMIN" &&
@@ -82,7 +86,7 @@ const getBrowseList = async (filters = {}) => {
         s.spk_statuskerja AS Kepentingan, v.divisi AS Divisi,
         s.spk_cus_kode AS KodeCustomer, ${custNameCol}
         s.spk_nama AS Nama, s.spk_ukuran AS Ukuran,
-        s.spk_cab AS Cab, TRIM(s.spk_workshop) AS Workshop,
+        s.spk_cab AS Cab, TRIM(s.spk_workshop) AS Workshop, s.spk_sublim AS Sublim,
         s.spk_pending AS Pending, s.spk_ketpending AS KetPending,
         s.spk_tipe AS Tipe, s.spk_panjang AS Panjang,
         s.spk_lebar AS Lebar, s.spk_gramasi AS Gramasi,
@@ -171,7 +175,7 @@ const getBrowseList = async (filters = {}) => {
         so.so_statuskerja AS Kepentingan, v.divisi AS Divisi,
         so.so_cus_kode AS KodeCustomer, ${custNameCol}
         so.so_nama AS Nama, so.so_ukuran AS Ukuran,
-        so.so_cab AS Cab, TRIM(so.so_workshop) AS Workshop,
+        so.so_cab AS Cab, TRIM(so.so_workshop) AS Workshop, NULL AS Sublim,
         so.so_pending AS Pending, so.so_ketpending AS KetPending,
         so.so_tipe AS Tipe, so.so_panjang AS Panjang,
         so.so_lebar AS Lebar, so.so_gramasi AS Gramasi,

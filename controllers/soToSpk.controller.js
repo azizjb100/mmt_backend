@@ -18,7 +18,7 @@ const getBrowse = async (req, res) => {
       workshop: req.query.workshop || "",
       customer: req.query.customer || "",
       keyword: req.query.keyword || "",
-      userCabang: user.cabang || "",
+      userCabang: user.cab || user.cabang || user.Cab || "",
       canLihatCus,
       canLihatHarga,
     };
