@@ -10,6 +10,7 @@
 //   MAX()/aggregate supaya tetap aman walau ada duplikat.
 
 const pool = require("../config/db.config");
+const { DATA_MODE, runWithDataMode } = require("../config/db.config");
 
 // Peta aksi -> kolom (whitelist, jadi aman dari SQL injection via kolom)
 const ACTION_COLUMN = {
@@ -49,11 +50,15 @@ const checkPermission = (menuId, action) => {
     }
 
     try {
-      const [rows] = await pool.query(
-        `SELECT MAX(${column}) AS allowed
-         FROM thakuser
-         WHERE hak_user_kode = ? AND hak_men_id = ?`,
-        [userKode, menuId],
+      // Hak akses adalah konfigurasi global: selalu dibaca dari DB real,
+      // supaya user tetap bisa membuka menu saat memakai MODE TRIAL.
+      const [rows] = await runWithDataMode(DATA_MODE.REAL, () =>
+        pool.query(
+          `SELECT MAX(${column}) AS allowed
+           FROM thakuser
+           WHERE hak_user_kode = ? AND hak_men_id = ?`,
+          [userKode, menuId],
+        ),
       );
 
       const allowed = rows.length > 0 && isGranted(rows[0].allowed);

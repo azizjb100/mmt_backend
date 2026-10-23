@@ -1,5 +1,6 @@
 // backend/src/services/poExternal.service.js
 const pool = require("../config/db.config");
+const { getDataMode } = require("../config/db.config");
 
 /**
  * Mendapatkan daftar PO dengan logika warna/status seperti di Delphi
@@ -286,15 +287,19 @@ const savePoExternal = async (payload, currentUser) => {
     }
 
     // 2. Generate Nomor Otomatis
+    //    REAL  : POE.<tahun><urut 5 digit>      -> POE.202600001
+    //    TRIAL : TRL.POE.<tahun><urut 5 digit> -> TRL.POE.202600001
+    //    Prefix TRL membuat data latihan langsung terlihat bedanya.
     if (!isEditMode || !nomorPo) {
       const currentYear = new Date(payload.poe_tanggal).getFullYear();
-      const prefix = `POE.${currentYear}`;
+      const isTrial = getDataMode() === "trial";
+      const prefix = isTrial ? `TRL.POE.${currentYear}` : `POE.${currentYear}`;
 
       const [maxRows] = await connection.query(
-        `SELECT IFNULL(MAX(CAST(SUBSTRING(poe_nomor, 9) AS UNSIGNED)), 0) AS max_urut 
+        `SELECT IFNULL(MAX(CAST(SUBSTRING(poe_nomor, ?) AS UNSIGNED)), 0) AS max_urut 
          FROM tpoexternal_hdr 
-         WHERE LEFT(poe_nomor, 8) = ? FOR UPDATE`,
-        [prefix],
+         WHERE LEFT(poe_nomor, ?) = ? FOR UPDATE`,
+        [prefix.length + 1, prefix.length, prefix],
       );
 
       const nextUrut = (Number(maxRows[0]?.max_urut) || 0) + 1;

@@ -5,6 +5,7 @@ const cookieParser = require("cookie-parser");
 const fs = require("fs");
 const path = require("path");
 const clientCertAuth = require("./middleware/clientCertAuth");
+const dataModeMiddleware = require("./middleware/dataMode.middleware");
 const { initSocket } = require("./socket");
 const imageFolderPath = "/mnt/image";
 
@@ -52,6 +53,7 @@ const returProduksiRoutes = require("./routes/returProduksi.routes");
 const penerimaanPoExtMmtRoutes = require("./routes/penerimaanPoExtMmt.routes");
 const returBeliRoutes = require("./routes/returBeli.routes");
 const poExtMmtRoutes = require("./routes/poExtMmt.routes");
+const dataModeRoutes = require("./routes/dataMode.routes");
 const stbjRoutes = require("./routes/stbj.routes");
 const lapPemakaianBahanRoutes = require("./routes/lapPemakaianBahan.routes");
 const mutasiGudangRoutes = require("./routes/mutasiGudang.routes");
@@ -108,6 +110,8 @@ const bastMapRoutes = require("./routes/bastMap.routes");
 const pengajuanKoreksiStokRoutes = require("./routes/pengajuanKoreksiStok.routes");
 const komitmenKirimRoutes = require("./routes/komitmenKirim.routes");
 const relationshipMapMmtRoutes = require("./routes/relationshipMapMmt.routes");
+// <- Ditambahkan: browse & lookup maklon barang (sumber data: manksi_db)
+const maklonBarangRoutes = require("./routes/maklonBarang.routes");
 
 // Konfigurasi
 
@@ -122,10 +126,16 @@ const allowedOrigins = [
 
 // Folder dan direktori yang dibutuhkan
 app.use("/images", express.static(imageFolderPath));
+const manksiUploads = path.join(__dirname, "..", "MANKSI WEB", "manksi_backend", "public", "uploads");
+if (fs.existsSync(manksiUploads)) {
+  app.use("/uploads", express.static(manksiUploads));
+}
+app.use("/uploads", express.static(path.join(process.cwd(), "public", "uploads")));
 const requiredDirs = [
   path.join(process.cwd(), "temp"),
   path.join(process.cwd(), "public"),
   path.join(process.cwd(), "public", "images"),
+  path.join(process.cwd(), "public", "uploads"),
 ];
 // Middleware
 app.use(
@@ -140,7 +150,8 @@ app.use(
       }
     },
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    // X-Data-Mode: "real" | "trial" -> menentukan database yang dipakai.
+    allowedHeaders: ["Content-Type", "Authorization", "X-Data-Mode"],
     exposedHeaders: ["Content-Disposition"],
     credentials: true,
   }),
@@ -151,6 +162,10 @@ app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
 app.disable("etag");
 
+// Pilih database REAL / TRIAL berdasarkan header X-Data-Mode.
+// Ditaruh sebelum semua route agar berlaku untuk seluruh modul.
+app.use(dataModeMiddleware);
+
 requiredDirs.forEach((dir) => {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
@@ -159,7 +174,9 @@ requiredDirs.forEach((dir) => {
 });
 
 app.use("/api/auth", clientCertAuth, authRoutes);
+app.use("/api/system/data-mode", clientCertAuth, dataModeRoutes);
 app.use("/api/mmt/lhk-cetak", clientCertAuth, lhkMesinCetakRoutes);
+app.use("/api/mmt/maklon-barang", clientCertAuth, maklonBarangRoutes);
 app.use("/api/mmt/lhk-finishing", clientCertAuth, lhkFinishingRoutes);
 app.use("/api/mmt/laporan-stbj", clientCertAuth, stbjMmtRoutes);
 app.use(
@@ -274,8 +291,16 @@ app.use("/api/spanduk/lhk-lipat", clientCertAuth, lhkLipatSpandukRoutes);
 app.use("/api/spanduk/lhk-quiring", clientCertAuth, lhkQuiringSpandukRoutes);
 app.use("/api/spanduk/lhk-proof", clientCertAuth, lhkProofSpandukRoutes);
 app.use("/api/spanduk/lhk-afdruk", clientCertAuth, lhkAfdrukSpandukRoutes);
-app.use("/api/spanduk/lhk-hapus-plangkan", clientCertAuth, lhkHapusPlangkanSpandukRoutes);
-app.use("/api/spanduk/lhk-design-proof", clientCertAuth, lhkDesignProofSpandukRoutes);
+app.use(
+  "/api/spanduk/lhk-hapus-plangkan",
+  clientCertAuth,
+  lhkHapusPlangkanSpandukRoutes,
+);
+app.use(
+  "/api/spanduk/lhk-design-proof",
+  clientCertAuth,
+  lhkDesignProofSpandukRoutes,
+);
 app.use("/api/spanduk/rekap-lhk", clientCertAuth, rekapLhkSpandukRoutes);
 app.use("/api/spanduk/lhk-plotter", clientCertAuth, lhkPlotterSpandukRoutes);
 app.use("/api/spanduk/mon-cetak", clientCertAuth, monCetakSpandukRoutes);
@@ -307,7 +332,11 @@ app.use("/api/mmt/laporan-kirim", clientCertAuth, lapKirimanRoutes);
 app.use("/api/mmt/manage-user", clientCertAuth, manageUserRoutes);
 app.use("/api/mmt/surat-jalan-map", clientCertAuth, suratJalanMapRoutes);
 app.use("/api/mmt/bast-map", clientCertAuth, bastMapRoutes);
-app.use("/api/mmt/pengajuan-koreksi-stok", clientCertAuth, pengajuanKoreksiStokRoutes);
+app.use(
+  "/api/mmt/pengajuan-koreksi-stok",
+  clientCertAuth,
+  pengajuanKoreksiStokRoutes,
+);
 app.use("/api/mmt/komitmen-kirim", clientCertAuth, komitmenKirimRoutes);
 app.use("/api/mmt/relationship-map", clientCertAuth, relationshipMapMmtRoutes);
 

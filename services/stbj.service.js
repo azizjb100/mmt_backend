@@ -1,4 +1,5 @@
 const pool = require('../config/db.config');
+const { scopeSchema } = require('../config/db.config');
 const { format } = require('date-fns');
 
 /**
@@ -176,7 +177,7 @@ exports.saveSTBJ = async (payload, isUpdate = false, userLogin) => {
                     // Update link packing jika ada
                     if (Gudang === 'WH003' && item.packing) {
                         await connection.query(
-                            `UPDATE retail.tpacking SET pack_nostbj = ? WHERE pack_nomor = ?`,
+                            `UPDATE ${scopeSchema('retail')}.tpacking SET pack_nostbj = ? WHERE pack_nomor = ?`,
                             [Nomor, item.packing]
                         );
                     }
@@ -203,11 +204,11 @@ exports.deleteSTBJ = async (nomor, gdgKode) => {
         await connection.beginTransaction();
         if (gdgKode === 'WH003') {
             await connection.query(
-                `UPDATE retail.tpacking SET pack_nostbj = NULL WHERE pack_nostbj = ?`,
+                `UPDATE ${scopeSchema('retail')}.tpacking SET pack_nostbj = NULL WHERE pack_nostbj = ?`,
                 [nomor]
             );
         }
-        await connection.query(`DELETE FROM retail.tdc_stbj WHERE tsd_nomor = ?`, [nomor]);
+        await connection.query(`DELETE FROM ${scopeSchema('retail')}.tdc_stbj WHERE tsd_nomor = ?`, [nomor]);
         await connection.query(`DELETE FROM tstbj_dtl WHERE stbjd_stbj_nomor = ?`, [nomor]);
         const [result] = await connection.query(`DELETE FROM tstbj_hdr WHERE stbj_nomor = ?`, [nomor]);
 
