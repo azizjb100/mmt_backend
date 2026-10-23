@@ -118,6 +118,8 @@ const maklonBarangRoutes = require("./routes/maklonBarang.routes");
 const app = express();
 const allowedOrigins = [
   "http://localhost:5173",
+  "http://103.150.117.18",
+  "https://103.150.117.18",
   "http://103.94.238.252",
   "http://103.94.238.252:88",
   "http://192.168.1.191:5173",
@@ -126,11 +128,21 @@ const allowedOrigins = [
 
 // Folder dan direktori yang dibutuhkan
 app.use("/images", express.static(imageFolderPath));
-const manksiUploads = path.join(__dirname, "..", "MANKSI WEB", "manksi_backend", "public", "uploads");
+const manksiUploads = path.join(
+  __dirname,
+  "..",
+  "MANKSI WEB",
+  "manksi_backend",
+  "public",
+  "uploads",
+);
 if (fs.existsSync(manksiUploads)) {
   app.use("/uploads", express.static(manksiUploads));
 }
-app.use("/uploads", express.static(path.join(process.cwd(), "public", "uploads")));
+app.use(
+  "/uploads",
+  express.static(path.join(process.cwd(), "public", "uploads")),
+);
 const requiredDirs = [
   path.join(process.cwd(), "temp"),
   path.join(process.cwd(), "public"),
