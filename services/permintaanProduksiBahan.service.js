@@ -255,7 +255,7 @@ exports.getPermintaanProduksiDataByNomor = async (nomor) => {
                 DATE_FORMAT(h.${f.h[1]}, '%Y-%m-%d') AS Tanggal, h.${f.h[3]} AS Keterangan, h.${f.h[4]} AS Lokasi
             FROM ${conf.hdr} h 
             LEFT JOIN tgudang g ON h.${f.h[2]} = g.gdg_kode 
-            WHERE h.${f.h[0]} = ?;
+            WHERE TRIM(h.${f.h[0]}) = TRIM(?);
         `;
         
         const [header] = await pool.query(sqlHeader, [nomor]);
@@ -265,29 +265,38 @@ exports.getPermintaanProduksiDataByNomor = async (nomor) => {
         let sqlDetail = "";
         if (tipe === 'MMT') {
             sqlDetail = `
-                SELECT d.${f.d[0]} AS Nomor, d.${f.d[1]} AS Kode, TRIM(b.brg_nama) AS Nama_Bahan, 
+                SELECT d.${f.d[0]} AS Nomor, d.${f.d[1]} AS Kode,
+                       COALESCE(NULLIF(TRIM(b.brg_nama), ''), d.${f.d[1]}) AS Nama_Bahan, 
                        d.${f.d[3]} AS Satuan, d.${f.d[2]} AS Jumlah, 0 AS Panjang, 0 AS Lebar,
                        d.${f.d[5]} AS Nomor_SPK, d.${f.d[4]} AS Keterangan
-                FROM ${conf.dtl} d LEFT JOIN tbarang_mmt b ON d.${f.d[1]} = b.brg_kode WHERE d.${f.d[0]} = ? ORDER BY d.${f.d[6]};
+                FROM ${conf.dtl} d
+                LEFT JOIN tbarang_mmt b ON d.${f.d[1]} = b.brg_kode
+                WHERE TRIM(d.${f.d[0]}) = TRIM(?)
+                ORDER BY d.${f.d[6]};
             `;
         } else if (tipe === 'OBAT') {
             sqlDetail = `
-                SELECT d.${f.d[0]} AS Nomor, d.${f.d[1]} AS Kode, TRIM(o.o_nama) AS Nama_Bahan,
+                SELECT d.${f.d[0]} AS Nomor, d.${f.d[1]} AS Kode,
+                       COALESCE(NULLIF(TRIM(o.o_nama), ''), d.${f.d[1]}) AS Nama_Bahan,
                        d.${f.d[5]} AS Satuan, d.${f.d[2]} AS Jumlah, 0 AS Panjang, 0 AS Lebar,
                        d.${f.d[6]} AS Nomor_SPK, d.${f.d[3]} AS Keterangan
-                FROM ${conf.dtl} d LEFT JOIN tobat o ON d.${f.d[1]} = o.o_kode WHERE d.${f.d[0]} = ? ORDER BY d.${f.d[4]};
+                FROM ${conf.dtl} d
+                LEFT JOIN tobat o ON d.${f.d[1]} = o.o_kode
+                WHERE TRIM(d.${f.d[0]}) = TRIM(?)
+                ORDER BY d.${f.d[4]};
             `;
         } else {
             // JALUR SUBLIM: Mapping field agar bersahabat dengan format data di Frontend Vue
             sqlDetail = `
-                SELECT d.mind_nomor AS Nomor, d.mind_bhn_kode AS Kode, TRIM(b.Bhn_Name) AS Nama_Bahan,
+                SELECT d.mind_nomor AS Nomor, d.mind_bhn_kode AS Kode,
+                       COALESCE(NULLIF(TRIM(b.Bhn_Name), ''), d.mind_bhn_kode) AS Nama_Bahan,
                        b.Bhn_satuan AS Satuan, d.mind_jumlah AS Jumlah, 0 AS Panjang, 0 AS Lebar,
                        h.min_spk_nomor AS Nomor_SPK, d.mind_ket AS Keterangan,
                        d.mind_babaran AS babaran, d.mind_pcs AS pcs, d.mind_komponen AS komponen
                 FROM tmintabahan_dtl d 
                 INNER JOIN tmintabahan_hdr h ON d.mind_nomor = h.min_nomor
                 LEFT JOIN tbahan b ON d.mind_bhn_kode = b.Bhn_kode 
-                WHERE d.mind_nomor = ?;
+                WHERE TRIM(d.mind_nomor) = TRIM(?);
             `;
         }
         
