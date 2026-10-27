@@ -42,8 +42,104 @@ const parseUkuranText = (text) => {
   return result;
 };
 
+// KATEGORI MAKLON (cbJenisIndex = '4')
+// ------------------------------------
+// Sumber: dokumen Maklon (tmaklon_hdr) yang gudang tujuannya P05 (MMT).
+// "Order" = total estimasi barang jadi (tmaklon_dtl_jadi.mkldj_estimasi_qty),
+// sama dengan angka "Rencana" yang dipakai form LHK Cetak saat menambah
+// Maklon. "Kurang Cetak" = Order - total qty cetak di LHK Cetak MMT
+// (tlhk_cetakmmt_dtl.lcd_qty_cetak dengan lcd_spk_nomor = nomor Maklon).
+// Tabel sengaja tidak memakai prefix database agar otomatis mengikuti
+// mode REAL/TRIAL dari pool (AsyncLocalStorage).
+const getMaklonMonitoring = async (startDate, endDate) => {
+  const sql = `
+    SELECT
+      h.mkl_nomor AS NOMOR,
+      h.mkl_keterangan AS spk_memo,
+      h.mkl_tanggal AS spk_tanggal,
+      h.mkl_deadline AS deadline,
+      COALESCE(NULLIF(TRIM(h.mkl_keterangan), ''), h.mkl_nomor) AS spk_nama,
+      h.mkl_status AS spk_statuskerja,
+      NULL AS spk_workshop,
+      NULL AS DIVISI,
+      'MAKLON' AS jo_nama,
+      IF(
+        IFNULL(o.qty_order, 0) > 0
+          AND IFNULL(c.qty_cetak, 0) >= IFNULL(o.qty_order, 0),
+        'Closed',
+        'Open'
+      ) AS status,
+      NULL AS PANJANG,
+      NULL AS LEBAR,
+      b.bahan AS KAIN,
+      NULL AS spk_gramasi,
+      NULL AS FINISHING,
+      IFNULL(o.qty_order, 0) AS spk_jumlah,
+      0 AS spk_jumlah_kirim,
+      0 AS krg_kirim,
+      0 AS krg_Seaming,
+      0 AS krg_mataayam,
+      0 AS krg_coly,
+      GREATEST(
+        0,
+        IFNULL(o.qty_order, 0) - IFNULL(c.qty_cetak, 0)
+      ) AS krg_Cetak,
+      0 AS krg_mutasi_p04,
+      0 AS krg_kirim_meter,
+      0 AS krg_Cetak_meter,
+      0 AS krg_coly_meter,
+      0 AS mt01, 0 AS mt02, 0 AS mt03, 0 AS mt04, 0 AS mt05, 0 AS mi,
+      0 AS mx01, 0 AS mx02, 0 AS mx03, 0 AS mx04, 0 AS mx05,
+      0 AS sb01, 0 AS sb02, 0 AS sb03, 0 AS sb04, 0 AS sb05,
+      0 AS rtr,
+      0 AS cetak_luarx
+    FROM tmaklon_hdr h
+    LEFT JOIN (
+      SELECT d.mkld_mkl_nomor,
+             SUM(IFNULL(j.mkldj_estimasi_qty, 0)) AS qty_order
+      FROM tmaklon_dtl d
+      LEFT JOIN tmaklon_dtl_jadi j ON j.mkldj_mkld_id = d.mkld_id
+      GROUP BY d.mkld_mkl_nomor
+    ) o ON o.mkld_mkl_nomor = h.mkl_nomor
+    LEFT JOIN (
+      SELECT TRIM(lcd_spk_nomor) AS mkl_nomor,
+             SUM(IFNULL(lcd_qty_cetak, 0)) AS qty_cetak
+      FROM tlhk_cetakmmt_dtl
+      WHERE UPPER(TRIM(lcd_spk_nomor)) LIKE 'MKL%'
+      GROUP BY TRIM(lcd_spk_nomor)
+    ) c ON c.mkl_nomor = h.mkl_nomor
+    LEFT JOIN (
+      SELECT d.mkld_mkl_nomor,
+             GROUP_CONCAT(
+               DISTINCT COALESCE(
+                 NULLIF(TRIM(IF(d.mkld_is_freetext = 1,
+                                d.mkld_nama_polos_manual,
+                                b.brg_nama)), ''),
+                 NULLIF(TRIM(d.mkld_kode_polos), '')
+               )
+               SEPARATOR ', '
+             ) AS bahan
+      FROM tmaklon_dtl d
+      LEFT JOIN tgarmen_brg b ON b.brg_kode = d.mkld_kode_polos
+      GROUP BY d.mkld_mkl_nomor
+    ) b ON b.mkld_mkl_nomor = h.mkl_nomor
+    WHERE UPPER(TRIM(h.mkl_cab_tujuan)) = 'P05'
+      AND h.mkl_tanggal >= CONCAT(?, ' 00:00:00')
+      AND h.mkl_tanggal <= CONCAT(?, ' 23:59:59')
+    ORDER BY spk_nama
+  `;
+
+  const [rows] = await pool.query(sql, [startDate, endDate]);
+  return rows;
+};
+
 exports.getMonitoringData = async (cbJenisIndex, startDate, endDate) => {
   try {
+    // Maklon memakai query tersendiri (bukan tspk), jadi ditangani lebih awal.
+    if (String(cbJenisIndex) === "4") {
+      return await getMaklonMonitoring(startDate, endDate);
+    }
+
     let conditionExtra = "";
     let joinLhkCetak = "";
     let fieldJmlCetak = "";
@@ -689,7 +785,9 @@ exports.getMonitoringData = async (cbJenisIndex, startDate, endDate) => {
 exports.getKapasitasMesin = async (cbJenisIndex) => {
   try {
     let sql = "";
-    if (cbJenisIndex === "0") {
+    if (cbJenisIndex === "0" || cbJenisIndex === "4") {
+      // Maklon P05 juga dikerjakan di mesin cetak (MT), jadi kapasitasnya
+      // memakai kelompok mesin 'C' seperti kategori MT.
       sql =
         "SELECT SUM(msn_kapasitas) output FROM tmesin_mmt WHERE msn_JENIS='C'";
     } else {

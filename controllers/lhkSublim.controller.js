@@ -14,7 +14,6 @@ const browseSublim = async (req, res) => {
 
 const getDetailSublim = async (req, res) => {
     try {
-        // PERBAIKAN: Mendukung pembacaan dari parameter rute biasa maupun query string lookup (?nomor=)
         const nomor = req.params.nomor || req.query.nomor;
         
         if (!nomor) {
@@ -22,9 +21,9 @@ const getDetailSublim = async (req, res) => {
         }
 
         const data = await sublimService.getDetailsByNomor(nomor);
+        const header = await sublimService.getHeaderByNomor(nomor);
         
-        // Ditambahkan key 'details' sebagai jaminan mapping frontend lancar tanpa merusak endpoint entri data lama
-        res.status(200).json({ data, details: data });
+        res.status(200).json({ header, data, details: data });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

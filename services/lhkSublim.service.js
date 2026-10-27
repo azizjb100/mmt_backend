@@ -52,9 +52,11 @@ const getAllHeaders = async (startDate, endDate, keyword = "") => {
             (SELECT SUM(lrd_panjang * lrd_lebar * lrd_jumlah) 
              FROM tlhk_rtr_dtl 
              WHERE lrd_lr_nomor = lr_nomor) AS total_meter,
-            CASE 
-                WHEN COALESCE(lr_mutasi, 0) = 1
-                  OR SUM(COALESCE(lrd_qty_mutasi, 0)) > 0 THEN 'close'
+            CASE
+                -- Tidak ada lagi stok tersisa di seluruh detail => sudah termutasi penuh.
+                WHEN COALESCE(SUM(GREATEST(COALESCE(lrd_jumlah, 0), 0)), 0) = 0 THEN 'close'
+                -- Stok masih ada, tetapi pernah/sebagian sudah dimutasi.
+                WHEN COALESCE(lr_mutasi, 0) = 1 THEN 'progress'
                 ELSE 'open'
             END AS lsb_status
         FROM tlhk_rtr_hdr 
@@ -72,26 +74,50 @@ const getDetailsByNomor = async (nomor) => {
   const sqlDetail = `
         SELECT 
             lrd_lr_nomor AS Nomor, 
+            DATE_FORMAT(h.lr_tanggal, '%Y-%m-%d') AS Tanggal,
+            h.lr_gdg_kode AS Kode_Gudang,
+            COALESCE(g.gdg_nama, 'GUDANG PRODUKSI SUBLIM') AS Nama_Gudang,
             lrd_spk_nomor AS Nomor_SPK, 
             lrd_spk_nama AS Nama_SPK, 
             lrd_panjang AS Panjang, 
             lrd_lebar AS Lebar, 
             lrd_order AS J_Order,
+            COALESCE(lrd_sudah_cetak, 0) AS Sudah_Cetak,
             lrd_jumlah AS Jumlah, 
             COALESCE(lrd_qty_mutasi, 0) AS Qty_Mutasi,
-            (lrd_jumlah - COALESCE(lrd_qty_mutasi, 0)) AS Sisa_Belum_Mutasi,
+            GREATEST(lrd_jumlah - COALESCE(lrd_qty_mutasi, 0), 0) AS Sisa_Belum_Mutasi,
             (lrd_panjang * lrd_lebar * lrd_jumlah) AS Jumlah_meter, 
             lrd_no_urut AS No_Urut, 
             lrd_poi_nomor AS No_PO_Internal, 
             lrd_poid_size AS Size,
             lrd_lokasi AS Lokasi,
-            lrd_bahan AS Jenis_Bahan
-        FROM tlhk_rtr_dtl 
+            lrd_bahan AS Jenis_Bahan,
+            lrd_komponen AS Nama_Komponen,
+            COALESCE(lrd_lhk_paperprint, '') AS Lhk_Paperprint
+        FROM tlhk_rtr_dtl d
+        LEFT JOIN tlhk_rtr_hdr h ON h.lr_nomor = d.lrd_lr_nomor
+        LEFT JOIN tGUDANG g ON g.gdg_kode = h.lr_gdg_kode
         WHERE lrd_lr_nomor = ?
         ORDER BY lrd_no_urut
     `;
   const [rows] = await pool.query(sqlDetail, [nomor]);
   return rows;
+};
+
+const getHeaderByNomor = async (nomor) => {
+  const sql = `
+    SELECT 
+      lr_nomor AS nomor, 
+      DATE_FORMAT(lr_tanggal, '%Y-%m-%d') AS Tanggal, 
+      lr_gdg_kode AS Kode_Gudang, 
+      COALESCE(gdg_nama, 'GUDANG PRODUKSI SUBLIM') AS Nama_Gudang
+    FROM tlhk_rtr_hdr 
+    LEFT JOIN tGUDANG ON gdg_kode = lr_gdg_kode
+    WHERE lr_nomor = ?
+    LIMIT 1
+  `;
+  const [[row]] = await pool.query(sql, [nomor]);
+  return row || null;
 };
 
 const generateNewNomor = async (date, connection = null) => {
@@ -157,8 +183,9 @@ const saveLhk = async (data) => {
       const sqlDetail = `
                 INSERT INTO tlhk_rtr_dtl (
                     lrd_lr_nomor, lrd_no_urut, lrd_spk_nomor, lrd_spk_nama, 
-                    lrd_panjang, lrd_lebar, lrd_order, lrd_jumlah, 
-                    lrd_lokasi, lrd_bahan, lrd_poi_nomor, lrd_poid_size
+                    lrd_panjang, lrd_lebar, lrd_order, lrd_sudah_cetak, lrd_jumlah, 
+                    lrd_lokasi, lrd_bahan, lrd_poi_nomor, lrd_poid_size,
+                    lrd_komponen, lrd_lhk_paperprint
                 ) VALUES ?
             `;
       const values = details.map((d, i) => [
@@ -169,11 +196,14 @@ const saveLhk = async (data) => {
         d.panjang,
         d.lebar,
         d.j_order,
+        d.sudah_cetak || 0,
         d.jumlah_rtr,
         d.lokasi,
         d.jenis_bahan,
         d.poi_nomor,
         d.poi_size,
+        d.nama_komponen || "",
+        d.lhk_paperprint || d.nomor_paperprint || "",
       ]);
 
       // PERBAIKAN: Array dibungkus ganda [values] agar dideteksi sebagai Bulk Rows oleh driver mysql2
@@ -211,6 +241,7 @@ const deleteLhk = async (nomor) => {
 module.exports = {
   getAllHeaders,
   getDetailsByNomor,
+  getHeaderByNomor,
   saveLhk,
   deleteLhk,
   generateNewNomor,

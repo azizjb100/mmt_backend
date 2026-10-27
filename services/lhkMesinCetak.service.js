@@ -220,11 +220,11 @@ const getLookupByNomor = async (nomor) => {
             SELECT 
                 d.ld_lnomor AS lhkmesin,
                 d.ld_spk_nomor AS spk_nomor,
-                IFNULL(s.spk_nama, '') AS nama_spk,
+                COALESCE(s.spk_nama, m.mkl_keterangan, d.ld_spk_nomor) AS nama_spk,
                 t1.lshift AS shift,
                 t1.loperator AS operator,
                 t1.lmesin AS mesin,
-                IFNULL(s.spk_jumlah, 0) AS jumlah,
+                COALESCE(s.spk_jumlah, r.rencana, 0) AS jumlah,
                 
                 -- Mengambil ld_ambilbahan & ld_sisabahan
                 IFNULL(d.ld_ambilbahan, 0) AS AmbilBahanPanjang,
@@ -234,13 +234,14 @@ const getLookupByNomor = async (nomor) => {
 
                 IFNULL(akumulasi.total_cetak_sebelumnya, 0) AS sudahcetak,
                 -- Sisa order SEBELUM LHK ini diinput (order - total cetak LHK sebelumnya)
-                CAST(GREATEST(0, IFNULL(s.spk_jumlah, 0) - IFNULL(akumulasi.total_cetak_sebelumnya, 0)) AS UNSIGNED) AS kurangcetak_asli,
+                CAST(GREATEST(0, COALESCE(s.spk_jumlah, r.rencana, 0) - IFNULL(akumulasi.total_cetak_sebelumnya, 0)) AS UNSIGNED) AS kurangcetak_asli,
                 IFNULL(d.ld_total_qtycetak, 0) AS totalcetak,
                 ROUND(IFNULL(s.spk_panjang, 0) * IFNULL(s.spk_lebar, 0) * IFNULL(d.ld_total_qtycetak, 0), 2) AS m2_cetak,
                 IFNULL(s.spk_panjang, 0) AS spk_panjang,
                 IFNULL(s.spk_lebar, 0) AS spk_lebar,
+                d.ld_keterangan,
                 IFNULL(d.ld_padding_atas, 3) AS padding_atas,
-IFNULL(d.ld_padding_samping, 1) AS padding_samping,
+                IFNULL(d.ld_padding_samping, 1) AS padding_samping,
                 IFNULL(d.ld_tile, 1) AS Tile,
                 
                 -- Field Cetak 1 - 7
@@ -260,6 +261,13 @@ IFNULL(d.ld_padding_samping, 1) AS padding_samping,
                 SELECT mspk_nomor AS spk_nomor, mspk_nama AS spk_nama, mspk_jumlah AS spk_jumlah, mspk_panjang AS spk_panjang, mspk_lebar AS spk_lebar 
                 FROM tmemospk
             ) s ON s.spk_nomor = d.ld_spk_nomor
+            LEFT JOIN tmaklon_hdr m ON m.mkl_nomor = d.ld_spk_nomor
+            LEFT JOIN (
+                SELECT kd.mkld_mkl_nomor, SUM(kj.mkldj_estimasi_qty) AS rencana
+                FROM tmaklon_dtl kd
+                JOIN tmaklon_dtl_jadi kj ON kj.mkldj_mkld_id = kd.mkld_id
+                GROUP BY kd.mkld_mkl_nomor
+            ) r ON r.mkld_mkl_nomor = d.ld_spk_nomor
             LEFT JOIN (
                 SELECT ld_spk_nomor, SUM(ld_total_qtycetak) AS total_cetak_sebelumnya 
                 FROM tlhk_mesin_dtl 
@@ -270,6 +278,14 @@ IFNULL(d.ld_padding_samping, 1) AS padding_samping,
             ORDER BY d.ld_urut ASC
         `;
     const [detailRows] = await pool.query(sqlDetail, [nomor, nomor]);
+
+    for (const row of detailRows) {
+      if ((!row.spk_panjang || Number(row.spk_panjang) === 0) && row.ld_keterangan && row.ld_keterangan.startsWith('DIM:')) {
+        const dim = row.ld_keterangan.replace('DIM:', '').split('x');
+        row.spk_panjang = parseFloat(dim[0]) || 0;
+        row.spk_lebar = parseFloat(dim[1]) || 0;
+      }
+    }
 
     return {
       header: headerRows[0],
@@ -709,6 +725,10 @@ const saveLhk = async (
       const lAmbil = Number(d.ambilBahanLebar || d.ld_ambilbahan_lebar || 0);
       const pAtas = Number(d.padding_atas || 3);
       const pSamping = Number(d.padding_samping || 1);
+      const isMaklon = d.is_maklon || String(d.nomor_spk || '').toUpperCase().startsWith('MKL');
+      const ldKeterangan = isMaklon && Number(d.panjang_spk || 0) > 0 && Number(d.lebar_spk || 0) > 0
+        ? `DIM:${d.panjang_spk}x${d.lebar_spk}`
+        : (d.keterangan || "''");
 
       await conn.query(
         `
@@ -716,8 +736,8 @@ const saveLhk = async (
         ld_lnomor, ld_urut, ld_spk_nomor, ld_ambilbahan, ld_ambilbahan_lebar,
         ld_qtyCetak1, ld_qtyCetak2, ld_qtyCetak3, ld_qtyCetak4, ld_qtyCetak5, ld_qtyCetak6, ld_qtyCetak7,
         ld_total_qtycetak, ld_total_metercetak, ld_sisameter, ld_sisalebar,
-        ld_bahan, ld_barcode, ld_tile, ld_luas_m2, ld_padding_atas, ld_padding_samping
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ld_keterangan, ld_bahan, ld_barcode, ld_tile, ld_luas_m2, ld_padding_atas, ld_padding_samping
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
         [
           finalNomor,
@@ -736,6 +756,7 @@ const saveLhk = async (
           totalCetak,
           d.sisabahan || 0,
           d.sisabahanlebar || 0,
+          ldKeterangan,
           usedKodeBahan,
           usedBarcode,
           d.tile || 1,
@@ -1156,8 +1177,11 @@ const getDetailsByNomor = async (nomor) => {
             SELECT 
                 d.ld_urut AS urut,
                 d.ld_spk_nomor AS nomor_spk,
-                s.spk_nama AS nama_spk,
-                IFNULL(s.spk_jumlah, 0) AS qty_order,
+                COALESCE(s.spk_nama, m.mkl_keterangan, d.ld_spk_nomor) AS nama_spk,
+                IFNULL(s.spk_jumlah, IFNULL(r.rencana, 0)) AS qty_order,
+                COALESCE(s.spk_panjang, 0) AS spk_panjang,
+                COALESCE(s.spk_lebar, 0) AS spk_lebar,
+                d.ld_keterangan,
                 
                 -- Field Cetak yang disesuaikan dengan saveLhk
                 IFNULL(d.ld_qtyCetak1, 0) AS cetak1,
@@ -1175,7 +1199,7 @@ const getDetailsByNomor = async (nomor) => {
                 IFNULL(d.ld_sisalebar, 0) AS sisabahanlebar,
                 IFNULL(d.ld_luas_m2, 0) AS luasm2,
                 IFNULL(d.ld_padding_atas, 3) AS padding_atas,
-IFNULL(d.ld_padding_samping, 1) AS padding_samping,
+                IFNULL(d.ld_padding_samping, 1) AS padding_samping,
 
                 -- Akumulasi sebelum LHK ini
                 IFNULL((SELECT SUM(dx.ld_total_qtycetak) 
@@ -1186,7 +1210,7 @@ IFNULL(d.ld_padding_samping, 1) AS padding_samping,
                 d.ld_total_qtycetak AS totalcetak,
                 
                 -- RUMUS KURANG CETAK (SISA)
-                CAST(GREATEST(0, IFNULL(s.spk_jumlah, 0) - (
+                CAST(GREATEST(0, IFNULL(s.spk_jumlah, IFNULL(r.rencana, 0)) - (
                     IFNULL((SELECT SUM(dx.ld_total_qtycetak) 
                             FROM tlhk_mesin_dtl dx 
                             WHERE dx.ld_spk_nomor = d.ld_spk_nomor 
@@ -1197,10 +1221,25 @@ IFNULL(d.ld_padding_samping, 1) AS padding_samping,
                 d.ld_tile AS tile
             FROM tlhk_mesin_dtl d
             LEFT JOIN tspk s ON s.spk_nomor = d.ld_spk_nomor
+            LEFT JOIN tmaklon_hdr m ON m.mkl_nomor = d.ld_spk_nomor
+            LEFT JOIN (
+              SELECT kd.mkld_mkl_nomor, SUM(kj.mkldj_estimasi_qty) AS rencana
+              FROM tmaklon_dtl kd
+              JOIN tmaklon_dtl_jadi kj ON kj.mkldj_mkld_id = kd.mkld_id
+              GROUP BY kd.mkld_mkl_nomor
+            ) r ON r.mkld_mkl_nomor = d.ld_spk_nomor
             WHERE d.ld_lnomor = ?
             ORDER BY d.ld_urut ASC
         `;
     const [detailRows] = await pool.query(sqlDetail, [nomor]);
+
+    for (const row of detailRows) {
+      if ((!row.spk_panjang || Number(row.spk_panjang) === 0) && row.ld_keterangan && row.ld_keterangan.startsWith('DIM:')) {
+        const dim = row.ld_keterangan.replace('DIM:', '').split('x');
+        row.spk_panjang = parseFloat(dim[0]) || 0;
+        row.spk_lebar = parseFloat(dim[1]) || 0;
+      }
+    }
 
     return {
       header: headerRows[0],

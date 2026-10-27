@@ -197,7 +197,7 @@ const lookupMaklon = async ({ keyword, cab, limit = 100 }) => {
       h.mkl_cab_tujuan AS CabTujuan,
       h.mkl_status AS Status,
       IFNULL(r.rencana, 0) AS Rencana,
-      IFNULL(p.hasil, 0) AS SudahHasil,
+      (IFNULL(p_dtf.hasil, 0) + IFNULL(p_mesin.hasil, 0)) AS SudahHasil,
       'MAKLON' AS Tipe
     FROM ${MKL_DB}.tmaklon_hdr h
     LEFT JOIN (
@@ -211,10 +211,15 @@ const lookupMaklon = async ({ keyword, cab, limit = 100 }) => {
         FROM ${MKL_DB}.tdtf_maklon dm
         INNER JOIN ${MKL_DB}.tdtf_maklon_hasil dh ON dh.dmh_dtf_maklon_id = dm.id
        GROUP BY dm.mkl_nomor
-    ) p ON p.nomor = h.mkl_nomor
+    ) p_dtf ON p_dtf.nomor = h.mkl_nomor
+    LEFT JOIN (
+      SELECT TRIM(md.ld_spk_nomor) AS nomor, SUM(md.ld_total_qtycetak) AS hasil
+        FROM ${MKL_DB}.tlhk_mesin_dtl md
+       GROUP BY TRIM(md.ld_spk_nomor)
+    ) p_mesin ON p_mesin.nomor = h.mkl_nomor
     WHERE h.mkl_status IN ('DIKIRIM','SEBAGIAN DIKIRIM','OTW GUDANG','DITERIMA SEBAGIAN','SELESAI')
       AND (h.mkl_nomor LIKE ? OR h.mkl_keterangan LIKE ?)
-      AND NOT (IFNULL(r.rencana, 0) > 0 AND IFNULL(p.hasil, 0) >= r.rencana)
+      AND NOT (IFNULL(r.rencana, 0) > 0 AND (IFNULL(p_dtf.hasil, 0) + IFNULL(p_mesin.hasil, 0)) >= r.rencana)
   `;
   const like = `%${(keyword || "").trim()}%`;
   const params = [like, like];

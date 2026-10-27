@@ -586,6 +586,8 @@ const getLookupLhkPaperprint = async (startDate, endDate, search = "") => {
         d.lsbd_panjang AS Panjang, 
         d.lsbd_lebar AS Lebar, 
         d.lsbd_jumlah AS Jumlah,
+        COALESCE(d.lsbd_jumlah_order, (SELECT s.spk_jmlorder FROM tspk s WHERE s.spk_nomor = d.lsbd_spk_nomor LIMIT 1), d.lsbd_jumlah) AS Jumlah_Order,
+        COALESCE((SELECT SUM(r.lrd_jumlah) FROM tlhk_rtr_dtl r WHERE r.lrd_spk_nomor = d.lsbd_spk_nomor), 0) AS Sudah_Cetak,
         (d.lsbd_panjang * d.lsbd_lebar * d.lsbd_jumlah) AS Total_Meter,
         d.lsbd_bahan AS Nama_Bahan, 
         IFNULL(d.lsbd_komponen, 'ALL SET') AS Komponen,

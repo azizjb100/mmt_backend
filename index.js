@@ -112,6 +112,7 @@ const komitmenKirimRoutes = require("./routes/komitmenKirim.routes");
 const relationshipMapMmtRoutes = require("./routes/relationshipMapMmt.routes");
 // <- Ditambahkan: browse & lookup maklon barang (sumber data: manksi_db)
 const maklonBarangRoutes = require("./routes/maklonBarang.routes");
+const sjHasilMaklonRoutes = require("./routes/sjHasilMaklon.routes");
 
 // Konfigurasi
 
@@ -189,6 +190,7 @@ app.use("/api/auth", clientCertAuth, authRoutes);
 app.use("/api/system/data-mode", clientCertAuth, dataModeRoutes);
 app.use("/api/mmt/lhk-cetak", clientCertAuth, lhkMesinCetakRoutes);
 app.use("/api/mmt/maklon-barang", clientCertAuth, maklonBarangRoutes);
+app.use("/api/mmt/sj-hasil-maklon", clientCertAuth, sjHasilMaklonRoutes);
 app.use("/api/mmt/lhk-finishing", clientCertAuth, lhkFinishingRoutes);
 app.use("/api/mmt/laporan-stbj", clientCertAuth, stbjMmtRoutes);
 app.use(
