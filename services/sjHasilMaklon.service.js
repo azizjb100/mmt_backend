@@ -588,6 +588,42 @@ const createSjHasilMaklon = async (payload, user) => {
           mkldId = mkld?.mkld_id || null;
         }
 
+        // Pastikan sjmd_dtf_maklon_id merujuk ke id yang valid di tdtf_maklon
+        // agar constraint fk_sjmd_dtf_maklon FOREIGN KEY (sjmd_dtf_maklon_id) REFERENCES tdtf_maklon (id) tidak gagal
+        let dtfMaklonId = Number(it.dtf_maklon_id) || 0;
+        if (!dtfMaklonId || dtfMaklonId <= 0) {
+          const lhkNo = it.lhk_nomor || it.LhkNomor || "";
+          const [[existingDtf]] = await conn.query(
+            `SELECT id FROM ${MKL_DB}.tdtf_maklon WHERE mkl_nomor = ? AND lhk_nomor = ? LIMIT 1`,
+            [mklNomor, lhkNo],
+          );
+          if (existingDtf) {
+            dtfMaklonId = existingDtf.id;
+          } else {
+            const [[mklDtlFirst]] = await conn.query(
+              `SELECT mkld_kode_polos, mkld_satuan_kirim FROM ${MKL_DB}.tmaklon_dtl WHERE mkld_mkl_nomor = ? LIMIT 1`,
+              [mklNomor],
+            );
+            const kodePolos = it.KodePolos || it.kode_polos || mklDtlFirst?.mkld_kode_polos || "1 ROL";
+            const satuan = it.Satuan || it.satuan || mklDtlFirst?.mkld_satuan_kirim || "PCS";
+            const [insDtf] = await conn.query(
+              `INSERT INTO ${MKL_DB}.tdtf_maklon (
+                 lhk_nomor, tanggal, cab, mkl_nomor, kode_polos, qty_masuk, satuan, keterangan, user_create, date_create
+               ) VALUES (?, ?, 'P05', ?, ?, ?, ?, 'Hasil Maklon Mesin Cetak MMT', ?, NOW())`,
+              [
+                lhkNo,
+                tanggal,
+                mklNomor,
+                kodePolos,
+                Number(it.qty_terima ?? it.QtyHasil) || 1,
+                satuan,
+                user?.kode || user?.kdUser || "SYSTEM",
+              ],
+            );
+            dtfMaklonId = insDtf.insertId;
+          }
+        }
+
         await conn.query(
           `INSERT INTO ${MKL_DB}.tsj_maklon_dtl (
              sjmd_sjm_nomor, sjmd_mkld_id, sjmd_dtf_maklon_id, sjmd_dtf_maklon_hasil_id,
@@ -596,7 +632,7 @@ const createSjHasilMaklon = async (payload, user) => {
           [
             nomor,
             mkldId,
-            it.dtf_maklon_id || 0,
+            dtfMaklonId,
             it.dtf_maklon_hasil_id || null,
             it.kode_jadi || it.KodeHasil || "",
             Number(it.qty_terima ?? it.QtyHasil) || 0,
@@ -618,6 +654,34 @@ const createSjHasilMaklon = async (payload, user) => {
           mkldId = mkld?.mkld_id || null;
         }
 
+        let dtfMaklonId = r.Sumber === "DTF" ? Number(r.DtfMaklonId) : 0;
+        if (!dtfMaklonId || dtfMaklonId <= 0) {
+          const lhkNo = r.LhkNomor || "";
+          const [[existingDtf]] = await conn.query(
+            `SELECT id FROM ${MKL_DB}.tdtf_maklon WHERE mkl_nomor = ? AND lhk_nomor = ? LIMIT 1`,
+            [mklNomor, lhkNo],
+          );
+          if (existingDtf) {
+            dtfMaklonId = existingDtf.id;
+          } else {
+            const [insDtf] = await conn.query(
+              `INSERT INTO ${MKL_DB}.tdtf_maklon (
+                 lhk_nomor, tanggal, cab, mkl_nomor, kode_polos, qty_masuk, satuan, keterangan, user_create, date_create
+               ) VALUES (?, ?, 'P05', ?, ?, ?, ?, 'Hasil Maklon Mesin Cetak MMT', ?, NOW())`,
+              [
+                lhkNo,
+                tanggal,
+                mklNomor,
+                r.KodePolos || "1 ROL",
+                Number(r.QtyHasil) || 1,
+                r.Satuan || "PCS",
+                user?.kode || user?.kdUser || "SYSTEM",
+              ],
+            );
+            dtfMaklonId = insDtf.insertId;
+          }
+        }
+
         await conn.query(
           `INSERT INTO ${MKL_DB}.tsj_maklon_dtl (
              sjmd_sjm_nomor, sjmd_mkld_id, sjmd_dtf_maklon_id, sjmd_dtf_maklon_hasil_id,
@@ -626,7 +690,7 @@ const createSjHasilMaklon = async (payload, user) => {
           [
             nomor,
             mkldId,
-            r.Sumber === "DTF" ? Number(r.DtfMaklonId) : 0,
+            dtfMaklonId,
             r.Sumber === "DTF" ? Number(r.DtfMaklonHasilId) : null,
             r.KodeHasil,
             Number(r.QtyHasil) || 0,
