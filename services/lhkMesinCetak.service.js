@@ -29,6 +29,8 @@ const getAllHeaders = async (startDate, endDate, search = "") => {
             t1.lmesin AS Mesin, 
             t1.lspk_nomor AS NomorSPK, 
             t1.lstatus AS Status, -- Kolom status yang ditambahkan
+            IF(rekap.lcd_lnomor IS NOT NULL, 'APPROVED', 'BELUM ACC') AS StatusAcc,
+            rekap.lcd_lch_nomor AS NomorAcc,
             t2.spk_nama AS NamaOrder,
             t2.spk_kain,
             t2.spk_gramasi,
@@ -78,6 +80,12 @@ const getAllHeaders = async (startDate, endDate, search = "") => {
             FROM tlhk_mesin_dtl 
             GROUP BY ld_lnomor
         ) x ON x.ld_lnomor = t1.lnomor
+        LEFT JOIN (
+            SELECT lcd_lnomor, MAX(lcd_lch_nomor) AS lcd_lch_nomor
+            FROM tlhk_cetakmmt_dtl
+            WHERE lcd_lnomor IS NOT NULL AND lcd_lnomor <> ''
+            GROUP BY lcd_lnomor
+        ) rekap ON rekap.lcd_lnomor = t1.lnomor
         WHERE t1.ltanggal BETWEEN ? AND ?
     `;
 

@@ -432,7 +432,9 @@ const saveLhkMesin = async (data) => {
         const p = parseFloat(d.spk_panjang || 0);
         const l = parseFloat(d.spk_lebar || 0);
         const qtyHasilLhk = parseFloat(d.jumlah_sublim || 0);
-        const qtyOrderSpk = parseFloat(d.spk_jmlorder || 0);
+        const qtyOrderSpk = parseFloat(
+          d.spk_jmlorder || d.Jumlah_Order || d.qty_order || 0,
+        );
         const jMeter = p * l * qtyHasilLhk;
 
         // Tangkap panjang pakai spesifik baris dari payload frontend
@@ -586,7 +588,13 @@ const getLookupLhkPaperprint = async (startDate, endDate, search = "") => {
         d.lsbd_panjang AS Panjang, 
         d.lsbd_lebar AS Lebar, 
         d.lsbd_jumlah AS Jumlah,
-        COALESCE(d.lsbd_jumlah_order, (SELECT s.spk_jmlorder FROM tspk s WHERE s.spk_nomor = d.lsbd_spk_nomor LIMIT 1), d.lsbd_jumlah) AS Jumlah_Order,
+        COALESCE(
+          NULLIF(d.lsbd_jumlah_order, 0),
+          (SELECT s.spk_jumlah FROM tspk s WHERE s.spk_nomor = d.lsbd_spk_nomor LIMIT 1),
+          (SELECT m.Mspk_jumlah FROM tmemospk m WHERE m.mspk_nomor = d.lsbd_spk_nomor LIMIT 1),
+          d.lsbd_jumlah,
+          0
+        ) AS Jumlah_Order,
         COALESCE((SELECT SUM(r.lrd_jumlah) FROM tlhk_rtr_dtl r WHERE r.lrd_spk_nomor = d.lsbd_spk_nomor), 0) AS Sudah_Cetak,
         (d.lsbd_panjang * d.lsbd_lebar * d.lsbd_jumlah) AS Total_Meter,
         d.lsbd_bahan AS Nama_Bahan, 
