@@ -119,6 +119,10 @@ const sjHasilMaklonRoutes = require("./routes/sjHasilMaklon.routes");
 const app = express();
 const allowedOrigins = [
   "http://localhost:5173",
+  "http://localhost:8081",
+  "http://localhost:8082",
+  "http://127.0.0.1:8081",
+  "http://127.0.0.1:8082",
   "http://103.150.117.18",
   "https://103.150.117.18",
   "http://103.94.238.252",
@@ -129,6 +133,7 @@ const allowedOrigins = [
 
 // Folder dan direktori yang dibutuhkan
 app.use("/images", express.static(imageFolderPath));
+app.use("/file-gambar", express.static(imageFolderPath));
 const manksiUploads = path.join(
   __dirname,
   "..",
@@ -155,7 +160,12 @@ app.use(
   cors({
     origin: function (origin, callback) {
       if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) {
+      const isAllowed =
+        allowedOrigins.includes(origin) ||
+        /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(
+          origin
+        );
+      if (isAllowed) {
         return callback(null, true);
       } else {
         console.warn("❌ CORS Blocked:", origin);
@@ -164,7 +174,7 @@ app.use(
     },
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     // X-Data-Mode: "real" | "trial" -> menentukan database yang dipakai.
-    allowedHeaders: ["Content-Type", "Authorization", "X-Data-Mode"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Data-Mode", "Accept"],
     exposedHeaders: ["Content-Disposition"],
     credentials: true,
   }),

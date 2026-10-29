@@ -33,8 +33,8 @@ router.post("/", verifyToken, controller.saveMap);
 router.get("/:nomor/komponen", verifyToken, controller.getKomponenByMap);
 
 // 5. ROUTE DINAMIS DENGAN PARAMETER :nomor (MUST BE AT THE BOTTOM)
-router.get("/:nomor", verifyToken, controller.getById);
 router.get("/:nomor/print", verifyToken, controller.getPrintData);
+router.get("/:nomor", verifyToken, controller.getById);
 router.post(
   "/:nomor/upload",
   verifyToken,
