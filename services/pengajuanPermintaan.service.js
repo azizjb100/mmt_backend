@@ -58,7 +58,7 @@ exports.getPengajuanData = async (startDate, endDate) => {
                     WHEN t1.pp_acc_req = 'Y' AND t1.pp_acc_req_user IS NOT NULL AND t1.pp_acc_req_user != '' 
                         THEN CONCAT('ACC ', UPPER(t1.pp_acc_req_user))
                     WHEN t1.pp_acc_req = 'Y' 
-                        THEN 'ACC EKAMMT' -- Fallback jika kolom user kosong tapi status Y
+                        THEN 'ACC' -- Fallback jika kolom user kosong tapi status Y
                     ELSE 'PENDING'
                 END AS Status_Acc,
                 
@@ -386,12 +386,13 @@ exports.getPengajuanPermintaanForPrint = async (nomor) => {
                 
                 -- Mapping Nama User (Pembuat & Pemeriksa)
                 IFNULL(u1.user_nama, t1.user_create) AS Dibuat,
-                IFNULL(u2.user_nama, 'EKAMMT') AS Diketahui, -- Sesuai request: ACC oleh EKAMMT
+                IFNULL(u2.user_nama, t1.pp_acc_req_user) AS Diketahui,
                 
-                t1.pp_acc_req AS Status_Acc
+                t1.pp_acc_req AS Status_Acc,
+                t1.pp_acc_req_user AS Acc_SPV
             FROM tpengajuan_permintaan_hdr t1
             LEFT JOIN tuser u1 ON t1.user_create = u1.user_kode
-            LEFT JOIN tuser u2 ON u2.user_kode = 'EKAMMT' -- Join manual untuk ambil nama EKAMMT
+            LEFT JOIN tuser u2 ON t1.pp_acc_req_user = u2.user_kode
             WHERE t1.pp_nomor = ?;
         `;
 
@@ -423,15 +424,17 @@ exports.getPengajuanPermintaanForPrint = async (nomor) => {
     const [detailResults] = await pool.query(sqlDetail, [nomor]);
 
     // 3. Return gabungan data
+    const isApproved = header.Status_Acc === "Y";
+    const namaApprover = header.Diketahui || header.Acc_SPV || "";
+
     return {
       ...header,
       Details: detailResults,
       // Fallback tanda tangan jika data kosong
       Dibuat: header.Dibuat || "................",
-      Diketahui:
-        header.Status_Acc === "Y"
-          ? header.Diketahui || "EKAMMT"
-          : "................",
+      Diketahui: isApproved
+        ? (namaApprover || "................")
+        : "................",
     };
   } catch (error) {
     console.error("Error in getPengajuanPermintaanForPrint:", error);
