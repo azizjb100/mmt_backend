@@ -9,7 +9,7 @@ const sjService = require("../services/suratJalan.service");
  */
 const browseSJ = async (req, res) => {
   try {
-    const { startDate, endDate, zcus, zdivisi } = req.query;
+    const { startDate, endDate, zcus, zdivisi, spk, allPeriod } = req.query;
     const kdUser =
       req.user?.kdUser || req.user?.username || req.query.kdUser || "ADMIN";
 
@@ -25,6 +25,8 @@ const browseSJ = async (req, res) => {
       kdUser,
       zcus,
       zdivisi,
+      spk,
+      allPeriod,
     );
     res.status(200).json({ data });
   } catch (error) {
@@ -47,6 +49,23 @@ const getDetailSJByNomor = async (req, res) => {
 
     const data = await sjService.getDetailSJ(nomor);
     res.status(200).json({ data, details: data });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/**
+ * Get Detail Bulk Surat Jalan Berdasarkan Daftar Nomor SJ (untuk Export dsb)
+ */
+const getDetailBulk = async (req, res) => {
+  try {
+    const { nomorList } = req.body;
+    if (!Array.isArray(nomorList) || nomorList.length === 0) {
+      return res.status(200).json({ data: [] });
+    }
+
+    const data = await sjService.getDetailSJ(nomorList);
+    res.status(200).json({ data });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -222,6 +241,7 @@ module.exports = {
   // Modul Utama Transaksi
   browseSJ,
   getDetailSJByNomor,
+  getDetailBulk,
   deleteSJ,
   getUrutPengajuan,
   submitPengajuan,

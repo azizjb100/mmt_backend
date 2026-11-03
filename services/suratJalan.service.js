@@ -23,6 +23,8 @@ const getBrowseSJ = async (
   kdUser,
   zcus = 0,
   zdivisi = 0,
+  spk = "",
+  allPeriod = false,
 ) => {
   try {
     const isAhmad = kdUser === "AHMAD";
@@ -32,6 +34,7 @@ const getBrowseSJ = async (
             DATE_FORMAT(a.sj_tanggal, '%Y-%m-%d') AS Tanggal, 
             divi.Divisi AS Divisi, 
             a.sj_inv_sm AS Invoice, 
+            GROUP_CONCAT(DISTINCT d.sjd_spk_nomor ORDER BY d.sjd_nourut SEPARATOR ', ') AS ListSPK,
         `;
 
     if (Number(zcus) === 1) {
@@ -89,15 +92,32 @@ const getBrowseSJ = async (
             `;
     }
 
-    sqlMaster += ` AND a.sj_tanggal >= ? AND a.sj_tanggal <= ? `;
-    params.push(startDate, endDate);
+    const hasSpk = spk && String(spk).trim() !== "";
+    const isAllPeriod =
+      allPeriod === true || allPeriod === "true" || allPeriod === "1";
+
+    if (!hasSpk || !isAllPeriod) {
+      sqlMaster += ` AND a.sj_tanggal >= ? AND a.sj_tanggal <= ? `;
+      params.push(startDate, endDate);
+    }
+
+    if (hasSpk) {
+      sqlMaster += `
+                AND a.sj_nomor IN (
+                    SELECT DISTINCT sjd_sj_nomor 
+                    FROM tsj_dtl 
+                    WHERE sjd_spk_nomor LIKE ?
+                )
+            `;
+      params.push(`%${String(spk).trim()}%`);
+    }
 
     if (!isAhmad) {
       if (Number(zdivisi) === 1) sqlMaster += ` AND g.gdg_jadi = 1 `;
       if (Number(zdivisi) === 4) sqlMaster += ` AND g.gdg_jadi = 4 `;
     }
 
-    sqlMaster += ` GROUP BY a.sj_nomor ORDER BY a.sj_tanggal, a.sj_nomor; `;
+    sqlMaster += ` GROUP BY a.sj_nomor ORDER BY a.sj_tanggal DESC, a.sj_nomor DESC; `;
 
     const [rows] = await pool.query(sqlMaster, params);
     return rows;
@@ -114,6 +134,23 @@ const getBrowseSJ = async (
  */
 const getDetailSJ = async (nomor) => {
   try {
+    let whereCondition = "d.sjd_sj_nomor = ?";
+    let params = [nomor];
+
+    if (Array.isArray(nomor)) {
+      if (nomor.length === 0) return [];
+      whereCondition = "d.sjd_sj_nomor IN (?)";
+      params = [nomor];
+    } else if (typeof nomor === "string" && nomor.includes(",")) {
+      const list = nomor
+        .split(",")
+        .map((n) => n.trim())
+        .filter(Boolean);
+      if (list.length === 0) return [];
+      whereCondition = "d.sjd_sj_nomor IN (?)";
+      params = [list];
+    }
+
     const sqlDetail = `
       SELECT 
         d.sjd_sj_nomor AS Nomor, 
@@ -141,10 +178,10 @@ const getDetailSJ = async (nomor) => {
       LEFT JOIN tcustomer c ON c.cus_kode = h.sj_cus_kode
       LEFT JOIN tgudang g ON g.gdg_kode = h.sj_gdg_kode
       LEFT JOIN tdivisi divi ON divi.kode = h.sj_divisi
-      WHERE d.sjd_sj_nomor = ? AND h.sj_status_otomatis = 0 
+      WHERE ${whereCondition} AND h.sj_status_otomatis = 0 
       ORDER BY d.sjd_sj_nomor, d.sjd_nourut;
     `;
-    const [rows] = await pool.query(sqlDetail, [nomor]);
+    const [rows] = await pool.query(sqlDetail, params);
     return rows;
   } catch (error) {
     throwDbError("Gagal mengambil detail Surat Jalan", error);
