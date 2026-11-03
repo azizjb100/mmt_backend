@@ -104,8 +104,16 @@ exports.getStokByBarcode = async (barcode) => {
       return { data: null, status: "NOT_FOUND" };
     }
 
-    const stokGPM = results.find((r) => r.Kode_Gudang === "GPM");
-    const dataRes = stokGPM || results[0];
+    // Prioritaskan baris gudang yang masih memiliki sisa stok (> 0)
+    const validResults = results.filter((r) => {
+      const sMaster = parseFloat(r.Sisa_Panjang_Stok || 0);
+      const sLhk = parseFloat(r.Sisa_Panjang_Lhk || 0);
+      return (sMaster > 0 ? sMaster : sLhk) > 0;
+    });
+
+    const targetList = validResults.length > 0 ? validResults : results;
+    const stokGPM = targetList.find((r) => r.Kode_Gudang === "GPM");
+    const dataRes = stokGPM || targetList[0];
 
     // Prioritaskan Sisa_Panjang_Stok (Master Stok / Mutasi),
     // gunakan Sisa_Panjang_Lhk hanya jika Sisa_Panjang_Stok <= 0 atau bernilai null/undefined

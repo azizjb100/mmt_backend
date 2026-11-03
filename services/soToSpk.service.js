@@ -871,14 +871,44 @@ const getAlokasi = async (spkNomor) => {
      FROM tspk_alokasi WHERE spka_spk_nomor = ? ORDER BY spka_urut`,
     [spkNomor],
   );
-  return rows;
+  if (rows.length > 0) return rows;
+
+  // Fallback 1: Cek apakah SO sumber memiliki alokasi di tsalesorder_alokasi
+  const [spk] = await db.query(
+    `SELECT spk_so_ref FROM tspk WHERE spk_nomor = ?`,
+    [spkNomor],
+  );
+  if (spk.length > 0 && spk[0].spk_so_ref) {
+    const [soRows] = await db.query(
+      `SELECT soa_urut AS urut, soa_alamat AS alamat, soa_toko AS toko,
+              soa_kota AS kota, soa_person AS person, soa_hp AS hp,
+              soa_jumlah AS jumlah
+       FROM tsalesorder_alokasi WHERE soa_so_nomor = ? ORDER BY soa_urut`,
+      [spk[0].spk_so_ref],
+    );
+    if (soRows.length > 0) return soRows;
+  }
+
+  // Fallback 2: Legacy Delphi di talokasi
+  const [talokasiRows] = await db.query(
+    `SELECT urut, IFNULL(alamat, '') AS alamat, '' AS toko,
+            IFNULL(kota, '') AS kota, IFNULL(person, '') AS person,
+            IFNULL(hp, '') AS hp, IFNULL(jumlah, 0) AS jumlah
+     FROM talokasi WHERE spk_nomor = ? ORDER BY urut`,
+    [spkNomor],
+  );
+  if (talokasiRows.length > 0) return talokasiRows;
+
+  return [];
 };
 
 const saveAlokasi = async (conn, spkNomor, list) => {
   await conn.query(`DELETE FROM tspk_alokasi WHERE spka_spk_nomor = ?`, [
     spkNomor,
   ]);
-  const rows = (list || []).filter((item) => item.alamat || item.kota);
+  const rows = (list || []).filter(
+    (item) => item.alamat || item.kota || item.toko,
+  );
   if (rows.length === 0) return;
 
   const vals = rows.map((item, i) => [

@@ -463,8 +463,25 @@ exports.getSpkLookupData = async (keyword) => {
 
 exports.getAlokasiBySpk = async (nomorSpk) => {
   try {
-    // Catatan: Cek apakah sistem Anda memakai tabel `talokasi` atau `tspk_alokasi`
-    // Pola tabel Delphi talokasi:
+    // 1. Cek tspk_alokasi dulu (skema baru yang menyimpan toko)
+    const sqlTspkAlokasi = `
+      SELECT 
+        IFNULL(spka_kota, '') AS kota,
+        IFNULL(spka_toko, '') AS toko,
+        IFNULL(spka_alamat, '') AS alamat,
+        IFNULL(spka_person, '') AS person,
+        IFNULL(spka_hp, '') AS hp,
+        IFNULL(spka_jumlah, 0) AS jumlah
+      FROM tspk_alokasi
+      WHERE spka_spk_nomor = ?
+      ORDER BY spka_urut ASC
+    `;
+    const [rowsTspk] = await pool.query(sqlTspkAlokasi, [nomorSpk]);
+    if (rowsTspk.length > 0) {
+      return rowsTspk;
+    }
+
+    // 2. Jika kosong di tspk_alokasi, fallback cek talokasi (legacy Delphi)
     const sql = `
       SELECT 
         IFNULL(kota, '') AS kota,
@@ -478,25 +495,6 @@ exports.getAlokasiBySpk = async (nomorSpk) => {
       ORDER BY urut ASC
     `;
     const [rows] = await pool.query(sql, [nomorSpk]);
-
-    // Jika kosong di talokasi, fallback cek tspk_alokasi (skema dengan toko)
-    if (rows.length === 0) {
-      const sqlFallback = `
-        SELECT 
-          IFNULL(spka_kota, '') AS kota,
-          IFNULL(spka_toko, '') AS toko,
-          IFNULL(spka_alamat, '') AS alamat,
-          IFNULL(spka_person, '') AS person,
-          IFNULL(spka_hp, '') AS hp,
-          IFNULL(spka_jumlah, 0) AS jumlah
-        FROM tspk_alokasi
-        WHERE spka_spk_nomor = ?
-        ORDER BY spka_urut ASC
-      `;
-      const [rowsFallback] = await pool.query(sqlFallback, [nomorSpk]);
-      return rowsFallback;
-    }
-
     return rows;
   } catch (error) {
     throwDbError(`Gagal mengambil alokasi untuk SPK ${nomorSpk}`, error);
@@ -553,35 +551,55 @@ exports.getSpkForPrint = async (nomor) => {
     // 2. Ambil Detail Size (jika ada)
     const details = await exports.getSpkDetailSize(nomor);
 
-    // 3. PERBAIKAN UTAMA: Mengambil data distribusi pengiriman asli dari tabel talokasi
+    // 3. PERBAIKAN UTAMA: Mengambil data distribusi pengiriman asli dari tspk_alokasi (fallback ke talokasi)
     let alokasiDetails = [];
     if (header.Alokasi === "YA" || header.Alokasi === "Y") {
-      const sqlAlokasi = `
-              SELECT 
-                  IFNULL(alamat, '') AS Alamat,
-                  IFNULL(kota, '') AS Kota,
-                  IFNULL(person, '') AS Person,
-                  IFNULL(hp, '') AS Hp,
-                  IFNULL(jumlah, 0) AS Jumlah
-              FROM talokasi
-              WHERE spk_nomor = ?
-              ORDER BY urut ASC
-          `;
-      const [rowsAlokasi] = await pool.query(sqlAlokasi, [nomor]);
+      const sqlSpkAlokasi = `
+        SELECT 
+            IFNULL(spka_alamat, '') AS Alamat,
+            IFNULL(spka_toko, '') AS Toko,
+            IFNULL(spka_kota, '') AS Kota,
+            IFNULL(spka_person, '') AS Person,
+            IFNULL(spka_hp, '') AS Hp,
+            IFNULL(spka_jumlah, 0) AS Jumlah
+        FROM tspk_alokasi
+        WHERE spka_spk_nomor = ?
+        ORDER BY spka_urut ASC
+      `;
+      let [rowsAlokasi] = await pool.query(sqlSpkAlokasi, [nomor]);
+      if (rowsAlokasi.length === 0) {
+        const sqlTalokasi = `
+          SELECT 
+              IFNULL(alamat, '') AS Alamat,
+              '' AS Toko,
+              IFNULL(kota, '') AS Kota,
+              IFNULL(person, '') AS Person,
+              IFNULL(hp, '') AS Hp,
+              IFNULL(jumlah, 0) AS Jumlah
+          FROM talokasi
+          WHERE spk_nomor = ?
+          ORDER BY urut ASC
+        `;
+        [rowsAlokasi] = await pool.query(sqlTalokasi, [nomor]);
+      }
 
       // Lakukan pemetaan (mapping) data agar dibaca dengan seragam oleh Frontend Vue
       alokasiDetails = rowsAlokasi.map((row) => {
+        const toko = String(row.Toko || "").trim();
+        const kota = String(row.Kota || "").trim();
+        const namaAlokasi =
+          toko && kota
+            ? `${toko} (${kota})`
+            : toko || (kota ? kota.toUpperCase() : row.Alamat ? row.Alamat : "-");
         return {
-          // Jika alamat kosong, fallback tampilkan nama Kota (Sesuai Gambar 1: CILACAP, JEMBER, dll.)
-          Alokasi: row.Kota
-            ? row.Kota.toUpperCase()
-            : row.Alamat
-              ? row.Alamat
-              : "-",
+          Alokasi: namaAlokasi,
+          Toko: toko,
+          Kota: kota,
           Jumlah: Number(row.Jumlah),
           Detail_Lengkap: {
             Alamat: row.Alamat,
-            Kota: row.Kota,
+            Toko: toko,
+            Kota: kota,
             Person: row.Person,
             Hp: row.Hp,
           },

@@ -7,5 +7,7 @@ const router = express.Router();
 const lapMonCetakController = require('../controllers/lapMonCetak.controller'); 
 
 router.get('/monitoring', lapMonCetakController.lapMonCetak);
+router.get('/cetak', lapMonCetakController.lapMonCetak);
+router.get('/', lapMonCetakController.lapMonCetak);
 
 module.exports = router;

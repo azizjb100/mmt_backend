@@ -216,8 +216,11 @@ app.use(
 app.use("/api/mmt/laporan-spk-mmt", clientCertAuth, lapSpkMmtRoutes);
 app.use("/api/mmt/monitoring/laporan-lmkp", clientCertAuth, lapLmkpMmtRoutes);
 app.use("/api/mmt/monitoring-finishing", clientCertAuth, lapMonFinishingRoutes);
+app.use("/api/mmt/monitoring/laporan-finishing", clientCertAuth, lapMonFinishingRoutes);
 app.use("/api/mmt/monitoring-cetak", clientCertAuth, lapMonCetakRoutes);
+app.use("/api/mmt/monitoring/laporan-cetak", clientCertAuth, lapMonCetakRoutes);
 app.use("/api/mmt/monitoring-tekstil", clientCertAuth, lapMonTekstilRoutes);
+app.use("/api/mmt/monitoring/laporan-tekstil", clientCertAuth, lapMonTekstilRoutes);
 app.use("/api/mmt/permintaan-bahan", clientCertAuth, permintaanBahanRoutes);
 app.use("/api/mmt/penerimaan-bahan", clientCertAuth, penerimaanBahanRoutes);
 app.use(
@@ -290,6 +293,11 @@ app.use("/api/mmt/lhk-sublim", clientCertAuth, lhkSublimRoutes);
 app.use("/api/mmt/lhk-paperprint", clientCertAuth, lhkPaperprintRoutes);
 app.use(
   "/api/mmt/monitoring-paperprint",
+  clientCertAuth,
+  lapMonPaperprintRoutes,
+);
+app.use(
+  "/api/mmt/monitoring/laporan-paperprint",
   clientCertAuth,
   lapMonPaperprintRoutes,
 );
