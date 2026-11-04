@@ -33,20 +33,34 @@ const getJadwalKirimData = async (startDate, endDate, gudang, search) => {
       b.spk_nama AS Nama_Spk, 
       b.spk_ukuran AS Ukuran,
       b.spk_kain AS Kain,
+      IFNULL(b.spk_jumlah, 0) AS Qty_Order,
       IFNULL(a.Jumlah, 0) AS Jumlah, 
       IFNULL(a.Koli, 0) AS Koli, 
-      IFNULL(a.Realisasi, 0) AS Realisasi,
-      IFNULL(a.koli_Realisasi, 0) AS Koli_Realisasi, 
-      (IFNULL(a.Realisasi, 0) - IFNULL(a.Jumlah, 0)) AS Selisih_Jumlah,
-      (IFNULL(a.koli_Realisasi, 0) - IFNULL(a.koli, 0)) AS Selisih_Koli,
+      IFNULL(sj.realisasi_sj, 0) AS Realisasi,
+      IFNULL(sj.koli_realisasi_sj, 0) AS Koli_Realisasi, 
+      (IFNULL(a.Jumlah, 0) - IFNULL(sj.realisasi_sj, 0)) AS Selisih_Jumlah,
+      (IFNULL(a.Koli, 0) - IFNULL(sj.koli_realisasi_sj, 0)) AS Selisih_Koli,
       a.usr_create 
     FROM tjadwalkirim a 
     LEFT JOIN (
-      SELECT spk_nomor, spk_nama, spk_ukuran, spk_kain FROM tspk WHERE spk_aktif = 'Y'
+      SELECT spk_nomor, spk_nama, spk_ukuran, spk_kain, spk_jumlah FROM tspk WHERE spk_aktif = 'Y'
       UNION ALL 
-      SELECT mspk_nomor, mspk_nama, mspk_ukuran, mspk_kain FROM tmemospk
+      SELECT mspk_nomor, mspk_nama, mspk_ukuran, mspk_kain, mspk_jumlah FROM tmemospk
     ) b ON b.spk_nomor = a.spk_nomor
     LEFT JOIN tgudang gdg ON gdg.gdg_kode = a.gudang 
+    LEFT JOIN (
+      SELECT 
+        d.sjd_nokirim,
+        SUM(d.sjd_jumlah) AS realisasi_sj,
+        SUM(IFNULL(d.sjd_koli, 0)) AS koli_realisasi_sj
+      FROM tsj_dtl d
+      INNER JOIN tsj_hdr h ON h.sj_nomor = d.sjd_sj_nomor
+      WHERE h.sj_status_otomatis = 0 
+        AND h.sj_approve = 1
+        AND d.sjd_nokirim IS NOT NULL 
+        AND d.sjd_nokirim != ''
+      GROUP BY d.sjd_nokirim
+    ) sj ON sj.sjd_nokirim = a.Nomor_Kirim
     WHERE ${dateClause || "1=1"}
   `;
 
@@ -90,14 +104,34 @@ const getJadwalKirimByNomor = async (nomor) => {
                 b.spk_nama AS Nama_Spk, 
                 b.spk_ukuran AS Ukuran,
                 b.spk_kain AS Kain,
+                IFNULL(b.spk_jumlah, 0) AS Qty_Order,
+                IFNULL(a.Jumlah, 0) AS Jumlah,
+                IFNULL(a.Koli, 0) AS Koli,
+                IFNULL(sj.realisasi_sj, 0) AS Realisasi,
+                IFNULL(sj.koli_realisasi_sj, 0) AS Koli_Realisasi,
+                (IFNULL(a.Jumlah, 0) - IFNULL(sj.realisasi_sj, 0)) AS Selisih_Jumlah,
+                (IFNULL(a.Koli, 0) - IFNULL(sj.koli_realisasi_sj, 0)) AS Selisih_Koli,
                 a.usr_create
             FROM tjadwalkirim a 
             LEFT JOIN (
-                SELECT spk_nomor, spk_nama, spk_ukuran, spk_kain FROM tspk WHERE spk_aktif = 'Y'
+                SELECT spk_nomor, spk_nama, spk_ukuran, spk_kain, spk_jumlah FROM tspk WHERE spk_aktif = 'Y'
                 UNION ALL 
-                SELECT mspk_nomor, mspk_nama, mspk_ukuran, mspk_kain FROM tmemospk
+                SELECT mspk_nomor, mspk_nama, mspk_ukuran, mspk_kain, mspk_jumlah FROM tmemospk
             ) b ON b.spk_nomor = a.spk_nomor
             LEFT JOIN tgudang gdg ON gdg.gdg_kode = a.gudang 
+            LEFT JOIN (
+                SELECT 
+                    d.sjd_nokirim,
+                    SUM(d.sjd_jumlah) AS realisasi_sj,
+                    SUM(IFNULL(d.sjd_koli, 0)) AS koli_realisasi_sj
+                FROM tsj_dtl d
+                INNER JOIN tsj_hdr h ON h.sj_nomor = d.sjd_sj_nomor
+                WHERE h.sj_status_otomatis = 0 
+                  AND h.sj_approve = 1
+                  AND d.sjd_nokirim IS NOT NULL 
+                  AND d.sjd_nokirim != ''
+                GROUP BY d.sjd_nokirim
+            ) sj ON sj.sjd_nokirim = a.Nomor_Kirim
             WHERE a.Nomor_Kirim = ?
         `, [nomor]);
 
@@ -108,18 +142,36 @@ const getJadwalKirimByNomor = async (nomor) => {
         // 2. Ambil Data Detail
         const [detailRows] = await pool.query(`
             SELECT 
-                No_urut,
-                kota,
-                uraian,
-                size,
-                jumlah AS Jumlah,
-                koli AS Koli,
-                jami AS JamInput,
-                Jam,
-                expedisi
-            FROM tjadwalkirim_dtl
-            WHERE nomor_kirim = ?
-            ORDER BY No_urut ASC
+                d.No_urut,
+                d.kota,
+                d.uraian,
+                d.size,
+                d.jumlah AS Jumlah,
+                d.koli AS Koli,
+                d.jami AS JamInput,
+                d.Jam,
+                d.expedisi,
+                IFNULL((
+                    SELECT SUM(sj_dtl.sjd_jumlah)
+                    FROM tsj_dtl sj_dtl
+                    INNER JOIN tsj_hdr sj_hdr ON sj_hdr.sj_nomor = sj_dtl.sjd_sj_nomor
+                    WHERE sj_hdr.sj_status_otomatis = 0
+                      AND sj_hdr.sj_approve = 1
+                      AND sj_dtl.sjd_nokirim = d.nomor_kirim
+                      AND sj_dtl.sjd_idkirim = d.No_urut
+                ), 0) AS Realisasi,
+                (IFNULL(d.jumlah, 0) - IFNULL((
+                    SELECT SUM(sj_dtl.sjd_jumlah)
+                    FROM tsj_dtl sj_dtl
+                    INNER JOIN tsj_hdr sj_hdr ON sj_hdr.sj_nomor = sj_dtl.sjd_sj_nomor
+                    WHERE sj_hdr.sj_status_otomatis = 0
+                      AND sj_hdr.sj_approve = 1
+                      AND sj_dtl.sjd_nokirim = d.nomor_kirim
+                      AND sj_dtl.sjd_idkirim = d.No_urut
+                ), 0)) AS Selisih
+            FROM tjadwalkirim_dtl d
+            WHERE d.nomor_kirim = ?
+            ORDER BY d.No_urut ASC
         `, [nomor]);
 
         // Gabungkan Header dan Detail
@@ -349,11 +401,11 @@ const getPrintData = async (startDate, endDate, gudang) => {
       e.Cus_kode AS Customer,
       IFNULL((SELECT DISTINCT d.SJD_SJ_Nomor FROM tsj_dtl d 
               INNER JOIN tsj_hdr h ON h.SJ_Nomor=d.SJD_SJ_Nomor 
-              WHERE h.SJ_Status_otomatis=0 AND d.sjd_nokirim=a.nomor_kirim 
+              WHERE h.SJ_Status_otomatis=0 AND h.sj_approve=1 AND d.sjd_nokirim=a.nomor_kirim 
               AND d.sjd_idkirim=b.no_urut LIMIT 1), "") AS Nomor_SJ,
       IFNULL((SELECT SUM(d.SJD_Jumlah) FROM tsj_dtl d 
               INNER JOIN tsj_hdr h ON h.SJ_Nomor=d.SJD_SJ_Nomor 
-              WHERE h.SJ_Status_otomatis=0 AND d.sjd_nokirim=a.nomor_kirim 
+              WHERE h.SJ_Status_otomatis=0 AND h.sj_approve=1 AND d.sjd_nokirim=a.nomor_kirim 
               AND d.sjd_idkirim=b.no_urut), 0) AS Realisasi_Kirim
     FROM tjadwalkirim a
     INNER JOIN tjadwalkirim_dtl b ON a.nomor_kirim = b.nomor_kirim
