@@ -42,6 +42,53 @@ const parseUkuranText = (text) => {
   return result;
 };
 
+// Helper untuk deteksi apakah SPK memiliki finishing Mata Ayam
+const checkMataAyam = (fin, qty = 0) => {
+  if (Number(qty) > 0) return true;
+  if (!fin) return false;
+  const s = String(fin).toUpperCase().trim();
+  if (
+    /(TANPA|TIDAK(\s+PAKAI|\s+USAH|\s+PERLU)?)[^,.\n]*?(MATA\s*AYAM|MAYA\s*AYAM|M\.AYAM|MATAAYAM|RING)/i.test(
+      s,
+    )
+  )
+    return false;
+  if (/TANPA\s+FINIS/i.test(s)) return false;
+  return /(MATA\s*AYAM|MAYA\s*AYAM|M\.AYAM|MATAAYAM|ATA\s*AYAM|MATA\s*ITIK)/i.test(
+    s,
+  );
+};
+
+// Helper untuk deteksi apakah SPK memiliki finishing Seaming
+const checkSeaming = (fin, qty = 0) => {
+  if (Number(qty) > 0) return true;
+  if (!fin) return false;
+  const s = String(fin).toUpperCase().trim();
+  if (
+    /(TANPA|TIDAK(\s+USAH)?(\s+DI)?)[^,.\n]*?(SEAMING|SEMING|SEEMING|SHEAMING|SIMMING|SELONGSONG)/i.test(
+      s,
+    )
+  )
+    return false;
+  if (/TANPA\s+FINIS/i.test(s)) return false;
+  return /(SEAMING|SEMING|SEEMING|SHEAMING|SIMMING|SELONGSONG)/i.test(s);
+};
+
+// Helper untuk deteksi apakah SPK memiliki finishing Jahit
+const checkJahit = (fin, qty = 0, pjahit = "N", mjahit = "N") => {
+  if (Number(qty) > 0 || pjahit === "Y" || mjahit === "Y") return true;
+  if (!fin) return false;
+  const s = String(fin).toUpperCase().trim();
+  if (
+    /(TANPA|TIDAK(\s+USAH)?(\s+DI)?)[^,.\n]*?(JAHIT|JAHITAN|TALI|SELONGSONG)/i.test(
+      s,
+    )
+  )
+    return false;
+  if (/TANPA\s+FINIS/i.test(s)) return false;
+  return /(JAHIT|JAHITAN|TALI|SELONGSONG|RUMBAI|KLEM|LIPAT)/i.test(s);
+};
+
 // KATEGORI MAKLON (cbJenisIndex = '4')
 // ------------------------------------
 // Sumber: dokumen Maklon (tmaklon_hdr) yang gudang tujuannya P05 (MMT).
@@ -77,8 +124,9 @@ const getMaklonMonitoring = async (startDate, endDate) => {
       IFNULL(o.qty_order, 0) AS spk_jumlah,
       0 AS spk_jumlah_kirim,
       0 AS krg_kirim,
-      0 AS krg_Seaming,
-      0 AS krg_mataayam,
+      '-' AS krg_Seaming,
+      '-' AS krg_mataayam,
+      '-' AS krg_Jahit,
       0 AS krg_coly,
       GREATEST(
         0,
@@ -300,12 +348,16 @@ exports.getMonitoringData = async (cbJenisIndex, startDate, endDate) => {
             spk_statuskerja, spk_workshop, zz.DIVISI, jo_nama,
             IF(spk_jumlah_kirim >= spk_jumlah, 'Closed', 'Open') AS status,
             spk_panjang AS PANJANG, spk_lebar AS LEBAR, spk_kain AS KAIN, spk_gramasi, spk_finishing AS FINISHING,
-            spk_jumlah, spk_jumlah_kirim,
+            spk_jumlah, spk_jumlah_kirim, spk_pjahit, spk_mjahit,
 
             spk_jumlah - spk_jumlah_kirim AS krg_kirim,
             spk_jumlah - IFNULL(gg.jseaming, 0) AS krg_Seaming,
             spk_jumlah - IFNULL(gg.jmataayam, 0) AS krg_mataayam,
+            spk_jumlah - IFNULL(jht.jjahit, 0) AS krg_Jahit,
             spk_jumlah - IFNULL(gg.jcoly, 0) AS krg_coly,
+            IFNULL(gg.jseaming, 0) AS jseaming,
+            IFNULL(gg.jmataayam, 0) AS jmataayam,
+            IFNULL(jht.jjahit, 0) AS jjahit,
             
             spk_jumlah - IF(spk_jumlah < ${fieldJmlCetak}, spk_jumlah, ${fieldJmlCetak}) - IFNULL(h.cetak_luarx, 0) AS krg_Cetak,
             ${fieldKrgMutasiP04},
@@ -339,6 +391,13 @@ exports.getMonitoringData = async (cbJenisIndex, startDate, endDate) => {
             FROM tlhk_finishingmmt_dtl 
             GROUP BY 1
         ) gg ON gg.lfd_spk_nomor = spk_nomor
+
+        LEFT JOIN (
+            SELECT ljd_spk_nomor, 
+                   SUM(IFNULL(ljd_qty_jahit, 0)) AS jjahit 
+            FROM tlhk_jahit_dtl 
+            GROUP BY 1
+        ) jht ON jht.ljd_spk_nomor = spk_nomor
 
         WHERE spk_aktif = 'Y' 
           ${conditionExtra}
@@ -769,9 +828,25 @@ exports.getMonitoringData = async (cbJenisIndex, startDate, endDate) => {
         );
       }
 
+      // Deteksi apakah SPK memiliki finishing Seaming, Mata Ayam, dan Jahit
+      const hasSeam = checkSeaming(row.FINISHING, row.jseaming);
+      const hasMa = checkMataAyam(row.FINISHING, row.jmataayam);
+      const hasJht = checkJahit(
+        row.FINISHING,
+        row.jjahit,
+        row.spk_pjahit,
+        row.spk_mjahit,
+      );
+
       return {
         ...row,
         krg_Cetak: finalKrgCetak,
+        krg_Seaming: hasSeam ? Math.max(0, Number(row.krg_Seaming || 0)) : "-",
+        krg_mataayam: hasMa ? Math.max(0, Number(row.krg_mataayam || 0)) : "-",
+        krg_Jahit: hasJht ? Math.max(0, Number(row.krg_Jahit || 0)) : "-",
+        has_seaming: hasSeam,
+        has_mataayam: hasMa,
+        has_jahit: hasJht,
         sizes: sizesForThisSpk,
       };
     });

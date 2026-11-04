@@ -102,14 +102,20 @@ const getBrowseSJ = async (
     }
 
     if (hasSpk) {
+      const spkKeyword = `%${String(spk).trim()}%`;
       sqlMaster += `
                 AND a.sj_nomor IN (
-                    SELECT DISTINCT sjd_sj_nomor 
-                    FROM tsj_dtl 
-                    WHERE sjd_spk_nomor LIKE ?
+                    SELECT DISTINCT d2.sjd_sj_nomor 
+                    FROM tsj_dtl d2
+                    LEFT JOIN tspk s2 ON s2.spk_nomor = d2.sjd_spk_nomor
+                    LEFT JOIN tmemospk m2 ON m2.mspk_nomor = d2.sjd_spk_nomor
+                    WHERE d2.sjd_spk_nomor LIKE ? 
+                       OR s2.spk_nama LIKE ? 
+                       OR m2.mspk_nama LIKE ?
+                       OR d2.sjd_keterangan LIKE ?
                 )
             `;
-      params.push(`%${String(spk).trim()}%`);
+      params.push(spkKeyword, spkKeyword, spkKeyword, spkKeyword);
     }
 
     if (!isAhmad) {
@@ -163,10 +169,10 @@ const getDetailSJ = async (nomor) => {
         divi.Divisi AS Divisi, 
         g.gdg_nama AS Gudang, 
         d.sjd_spk_nomor AS SPK, 
-        s.spk_nama AS Nama, 
+        COALESCE(NULLIF(TRIM(s.spk_nama), ''), NULLIF(TRIM(m.mspk_nama), ''), d.sjd_keterangan, '-') AS Nama, 
         d.sjd_ukuran AS Ukuran, 
-        s.spk_panjang AS Panjang, 
-        s.spk_lebar AS Lebar, 
+        COALESCE(s.spk_panjang, m.mspk_panjang, 0) AS Panjang, 
+        COALESCE(s.spk_lebar, m.mspk_lebar, 0) AS Lebar, 
         d.sjd_jumlah AS Jumlah, 
         d.SJD_Koli AS Koli, 
         d.sjd_keterangan AS Keterangan, 
@@ -174,7 +180,8 @@ const getDetailSJ = async (nomor) => {
         d.sjd_idkirim AS IdKirim
       FROM tsj_hdr h
       INNER JOIN tsj_dtl d ON h.sj_nomor = d.sjd_sj_nomor 
-      INNER JOIN tspk s ON s.spk_nomor = d.sjd_spk_nomor 
+      LEFT JOIN tspk s ON s.spk_nomor = d.sjd_spk_nomor 
+      LEFT JOIN tmemospk m ON m.mspk_nomor = d.sjd_spk_nomor 
       LEFT JOIN tcustomer c ON c.cus_kode = h.sj_cus_kode
       LEFT JOIN tgudang g ON g.gdg_kode = h.sj_gdg_kode
       LEFT JOIN tdivisi divi ON divi.kode = h.sj_divisi

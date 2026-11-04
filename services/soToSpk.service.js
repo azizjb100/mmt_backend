@@ -617,8 +617,17 @@ const generateNomorLegacy = async (perushKode, joKode, conn) => {
 // ============================================================
 const getDetail = async (nomor) => {
   const [header] = await db.query(
-    `SELECT s.*, j.jo_nama, a.sal_nama, p.perush_nama, c.cus_nama, c.cus_perfect
+    `SELECT s.*, 
+            COALESCE(
+              NULLIF(TRIM(s.spk_repeat), ''), 
+              NULLIF(TRIM(so.so_repeat), ''), 
+              NULLIF(TRIM(legacy_so.spk_repeat), ''), 
+              ''
+            ) AS spk_repeat,
+            j.jo_nama, a.sal_nama, p.perush_nama, c.cus_nama, c.cus_perfect
      FROM tspk s
+     LEFT JOIN tsalesorder so ON so.so_nomor = s.spk_so_ref
+     LEFT JOIN tspk legacy_so ON legacy_so.spk_nomor = s.spk_so_ref AND legacy_so.spk_is_so = 1
      LEFT JOIN tjenisorder j ON s.spk_jo_kode = j.jo_kode
      LEFT JOIN tsales a ON s.spk_sal_kode = a.sal_kode
      LEFT JOIN tperusahaan p ON s.spk_perush_kode = p.perush_kode
