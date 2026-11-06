@@ -1,21 +1,27 @@
 const pool = require("../config/db.config");
 const db = pool;
+const fs = require("fs");
+const path = require("path");
 
 // ============================================================
 // HELPER: Menyusun URL Gambar Desain
 // Prioritas: MAP > Nomor SO/SPK
+// Hanya return URL jika file benar-benar ada di disk.
 // ============================================================
 const resolveImageUrl = (cabang, mapNomor, soNomor) => {
   const mediaBase = process.env.MEDIA_SERVER_URL || "https://manksi.com";
   const cab = (cabang || "P05").trim();
   const map = (mapNomor || "").trim();
   const nomor = (soNomor || "").trim();
+  const base = path.join(process.cwd(), "public", "images");
 
   if (map) {
-    return `${mediaBase}/images/${cab}/map/${map}.jpg`;
+    if (fs.existsSync(path.join(base, cab, "map", `${map}.jpg`)))
+      return `${mediaBase}/images/${cab}/map/${map}.jpg`;
   }
   if (nomor) {
-    return `${mediaBase}/images/${cab}/${nomor}.jpg`;
+    if (fs.existsSync(path.join(base, cab, `${nomor}.jpg`)))
+      return `${mediaBase}/images/${cab}/${nomor}.jpg`;
   }
   return null;
 };
